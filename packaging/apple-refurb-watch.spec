@@ -1,17 +1,29 @@
 # -*- mode: python ; coding: utf-8 -*-
-# 请在 Windows / macOS / Linux 上分别执行:
-#   pyinstaller packaging/apple-refurb-watch.spec
+# 请在仓库根目录执行:
+#   python -m PyInstaller packaging/apple-refurb-watch.spec
+
+from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
 
+spec_dir = Path(SPEC).resolve().parent
+repo_root = spec_dir.parent
 datas, binaries, hiddenimports = collect_all("apple_refurb_watch")
 
 a = Analysis(
-    ["src/apple_refurb_watch/__main__.py"],
-    pathex=[],
+    [str(repo_root / "src" / "apple_refurb_watch" / "__main__.py")],
+    pathex=[str(repo_root / "src")],
     binaries=binaries,
     datas=datas,
-    hiddenimports=hiddenimports + ["uvicorn.logging", "uvicorn.protocols.http.auto"],
+    hiddenimports=hiddenimports
+    + [
+        "uvicorn.logging",
+        "uvicorn.lifespan.on",
+        "uvicorn.protocols.http.auto",
+        "uvicorn.protocols.http.h11_impl",
+        "uvicorn.protocols.websockets.auto",
+        "apscheduler.schedulers.background",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -29,6 +41,6 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=True,
 )
