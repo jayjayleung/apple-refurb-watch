@@ -11,6 +11,10 @@ from apple_refurb_watch.argv import invoke_argv
 from apple_refurb_watch.client import ApiClient, ApiError, wait_health
 from apple_refurb_watch.paths import lock_path, log_path, runtime_path
 
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+CREATE_NO_WINDOW = 0x08000000
+
 
 def acquire_lock():
     path = lock_path()
@@ -35,14 +39,102 @@ def acquire_lock():
     return handle
 
 
-def ensure_daemon(timeout: float = 15.0, host: str | None = None, port: int | None = None) -> ApiClient:
-    base = _wait_base(host, port)
+def acquire_lock_retry(attempts: int = 12, delay: float = 0.25):
+    last: Exception | None = None
+    for _ in range(attempts):
+        try:
+            return acquire_lock()
+        except RuntimeError as exc:
+            last = exc
+            time.sleep(delay)
+    raise last or RuntimeError("daemon 已在运行")
+
+
+def pid_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def lock_pid() -> int | None:
+    try:
+        text = lock_path().read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def windows_creationflags() -> list[int]:
+    """优先脱离 Job，避免关掉桌面窗口时把后台 serve 一起杀掉。"""
+    no_window = getattr(subprocess, "CREATE_NO_WINDOW", CREATE_NO_WINDOW)
+    new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", CREATE_NEW_PROCESS_GROUP)
+    return [
+        no_window | new_group | CREATE_BREAKAWAY_FROM_JOB,
+        no_window | new_group,
+    ]
+
+
+def spawn_detached(cmd: list[str], log_stream):
+    if os.name == "nt":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
+        last: OSError | None = None
+        for flags in windows_creationflags():
+            try:
+                return subprocess.Popen(
+                    cmd,
+                    stdout=log_stream,
+                    stderr=log_stream,
+                    cwd=None,
+                    creationflags=flags,
+                    startupinfo=startupinfo,
+                    close_fds=False,
+                )
+            except OSError as exc:
+                last = exc
+        if last:
+            raise last
+        raise OSError("无法启动后台进程")
+    return subprocess.Popen(
+        cmd,
+        stdout=log_stream,
+        stderr=log_stream,
+        cwd=None,
+        start_new_session=True,
+    )
+
+
+def ping_daemon(base: str | None = None, *, stable: bool = False) -> ApiClient | None:
     client = ApiClient(base)
     try:
         client.health()
-        return client
     except ApiError:
-        pass
+        return None
+    if not stable:
+        return client
+    time.sleep(0.35)
+    try:
+        client.health()
+    except ApiError:
+        return None
+    return client
+
+
+def ensure_daemon(timeout: float = 15.0, host: str | None = None, port: int | None = None) -> ApiClient:
+    base = _wait_base(host, port)
+    ready = ping_daemon(base, stable=True)
+    if ready:
+        return ready
     log = log_path()
     log.parent.mkdir(parents=True, exist_ok=True)
     cmd = invoke_argv("serve", "--detach-child")
@@ -50,23 +142,8 @@ def ensure_daemon(timeout: float = 15.0, host: str | None = None, port: int | No
         cmd.extend(["--host", str(host)])
     if port is not None:
         cmd.extend(["--port", str(port)])
-    popen_kwargs: dict = {
-        "stdout": None,
-        "stderr": None,
-        "cwd": None,
-    }
-    creationflags = 0
-    if os.name == "nt":
-        creationflags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        if creationflags:
-            popen_kwargs["creationflags"] = creationflags
-    else:
-        popen_kwargs["start_new_session"] = True
     with open(log, "a", encoding="utf-8") as stream:
-        popen_kwargs["stdout"] = stream
-        popen_kwargs["stderr"] = stream
-        subprocess.Popen(cmd, **popen_kwargs)
+        spawn_detached(cmd, stream)
     return wait_health(timeout, base=base)
 
 
