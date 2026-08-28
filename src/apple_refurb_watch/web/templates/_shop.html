@@ -1,0 +1,37 @@
+<div class="shop">
+  <form class="filter-rail" hx-get="/" hx-target="#shop" hx-push-url="true" hx-trigger="change, keyup delay:400ms from:input[type='search'], keyup delay:400ms from:input[type='number']">
+    <label class="facet-select">分类
+      <select name="listing_key">
+        <option value="">全部</option>
+        {% for key, item in categories.items() %}
+        <option value="{{ key }}" {% if listing_key == key %}selected{% endif %}>{{ item.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    {% include "_facets.html" %}
+
+    <div class="facet extras">
+      <h3>更多条件</h3>
+      <label>关键词
+        <input type="search" name="q" value="{{ q }}" placeholder="例如 M5 Pro">
+      </label>
+      <label>最高价
+        <input type="number" name="max_price" value="{{ max_price }}" min="0" step="1" placeholder="不限">
+      </label>
+      <label>内存 ≥ GB
+        <input type="number" name="min_ram_gb" value="{{ min_ram_gb }}" min="0" step="8" placeholder="不限">
+      </label>
+      <label>硬盘 ≥ GB
+        <input type="number" name="min_storage_gb" value="{{ min_storage_gb }}" min="0" step="128" placeholder="不限">
+      </label>
+    </div>
+  </form>
+
+  <div class="shop-main">
+    <p class="count">当前 {{ items|length }} 件{% if listing_key %} · {{ categories[listing_key].name if listing_key in categories else listing_key }}{% endif %}</p>
+    <div id="product-grid">
+      {% include "_products.html" %}
+    </div>
+  </div>
+</div>

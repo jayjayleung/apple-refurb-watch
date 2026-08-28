@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}在售 · 官翻监听{% endblock %}
+{% block body %}
+<section class="hero">
+  <div>
+    <p class="kicker">Apple 中国大陆认证翻新</p>
+    <h1>盯住你要的那一台</h1>
+    <p class="lede">筛选维度与官翻列表页一致：机型、尺寸、年份、外观、内存、容量。缺货配置（如 128GB 内存）也能勾选，计数为 0。芯片型号用关键词。</p>
+  </div>
+  <form method="post" action="/settings/scan">
+    <button type="submit" class="btn primary">立即扫描</button>
+  </form>
+</section>
+
+<div id="shop">
+  {% include "_shop.html" %}
+</div>
+{% endblock %}

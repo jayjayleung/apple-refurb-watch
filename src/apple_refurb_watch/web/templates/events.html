@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}动态 · 官翻监听{% endblock %}
+{% block body %}
+<section class="hero">
+  <div>
+    <p class="kicker">动态</p>
+    <h1>扫描与上新</h1>
+    <p class="lede">首次扫描只建基线，不会把当前库存全部推过来。</p>
+  </div>
+  <form method="post" action="/settings/scan"><button class="btn primary" type="submit">立即扫描</button></form>
+</section>
+{% if events %}
+<ol class="timeline">
+  {% for event in events %}
+  <li>
+    <span class="when">{{ event.created_at }}</span>
+    <strong>{{ event.type }}</strong>
+    <p>{{ event.message or event.title }}</p>
+    {% if event.url %}<a href="{{ event.url }}" target="_blank" rel="noreferrer">打开商品</a>{% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="empty">还没有记录。</p>
+{% endif %}
+{% endblock %}

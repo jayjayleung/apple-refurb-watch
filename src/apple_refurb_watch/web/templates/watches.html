@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}监听规则 · 官翻监听{% endblock %}
+{% block body %}
+<section class="hero">
+  <div>
+    <p class="kicker">规则</p>
+    <h1>你要等的配置</h1>
+    <p class="lede">官网维度同维多选为「或」，跨维为「且」。芯片不在官翻筛选里，用「必须包含」。缺货机型也可以先勾上。</p>
+  </div>
+</section>
+
+<form class="panel watch-form" method="post" action="/watches" id="watch-create">
+  <h2>新增规则</h2>
+  <div class="form-grid">
+    <label>名称 <input name="name" required placeholder="14 寸 MBP M5 Pro 24G"></label>
+    <label>模式
+      <select name="mode" id="watch-mode">
+        <option value="condition">条件配置</option>
+        <option value="sku">精确 SKU</option>
+      </select>
+    </label>
+    <label>SKU <input name="sku" placeholder="FGDN4CH/A"></label>
+    <label>分类
+      <select name="listing_key" id="watch-listing">
+        <option value="">不限</option>
+        {% for key, item in categories.items() %}
+        <option value="{{ key }}">{{ item.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+
+  <div id="condition-fields">
+    <h3 class="facet-heading">官网筛选</h3>
+    <p class="hint">勾选与苹果认证翻新列表页相同的维度。不勾表示该维不限。</p>
+    <div class="watch-facets">
+      {% with facets = watch_facets %}
+        {% include "_facets.html" %}
+      {% endwith %}
+    </div>
+    <h3 class="facet-heading">补充条件</h3>
+    <div class="form-grid">
+      <label class="wide">必须包含（逗号分隔，适合芯片）<input name="all_of" placeholder="M5 Pro"></label>
+      <label class="wide">排除 <input name="none_of" placeholder="纳米纹理"></label>
+      <label>最高价 <input type="number" name="max_price" min="0"></label>
+      <label>内存 ≥ GB <input type="number" name="min_ram_gb" min="0" placeholder="可选"></label>
+      <label>硬盘 ≥ GB <input type="number" name="min_storage_gb" min="0" placeholder="可选"></label>
+    </div>
+  </div>
+  <button class="btn primary" type="submit">保存规则</button>
+</form>
+
+{% if watches %}
+<div class="watch-list">
+  {% for watch in watches %}
+  <article class="watch {% if not watch.enabled %}off{% endif %}">
+    <header>
+      <h2>{{ watch.name }}</h2>
+      <span class="tag">{{ '精确 SKU' if watch.mode == 'sku' else '条件' }}</span>
+      {% if not watch.enabled %}<span class="tag mute">已暂停</span>{% endif %}
+    </header>
+    <p class="meta">
+      {% if watch.sku %}{{ watch.sku }}{% endif %}
+      {% if watch.listing_key and watch.listing_key in categories %} · {{ categories[watch.listing_key].name }}{% endif %}
+      {% for part in dim_summary(watch.dim_filters) %}
+        · {{ part }}
+      {% endfor %}
+      {% if watch.all_of %} · 包含 {{ watch.all_of | join(' / ') }}{% endif %}
+      {% if watch.none_of %} · 排除 {{ watch.none_of | join(' / ') }}{% endif %}
+      {% if watch.min_ram_gb %} · ≥{{ watch.min_ram_gb }}GB 内存{% endif %}
+      {% if watch.min_storage_gb %} · ≥{{ watch.min_storage_gb|gb }}{% endif %}
+      {% if watch.max_price %} · ≤ RMB {{ watch.max_price|cny }}{% endif %}
+      {% if watch.colors %} · {{ watch.colors | join(' ') }}{% endif %}
+    </p>
+    <div class="row">
+      <form method="post" action="/watches/{{ watch.id }}/toggle">
+        <button class="btn" type="submit">{{ '暂停' if watch.enabled else '启用' }}</button>
+      </form>
+      <form method="post" action="/watches/{{ watch.id }}/delete" onsubmit="return confirm('删除这条规则？')">
+        <button class="btn quiet" type="submit">删除</button>
+      </form>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty">还没有规则。去在售页点「按配置听」，或在上方按官网维度勾选。</p>
+{% endif %}
+
+<script>
+(function () {
+  const listing = document.getElementById("watch-listing");
+  const mode = document.getElementById("watch-mode");
+  const condition = document.getElementById("condition-fields");
+  function sync() {
+    if (condition) condition.hidden = mode && mode.value === "sku";
+    const key = listing ? listing.value : "";
+    document.querySelectorAll("#watch-create [data-listings]").forEach(function (el) {
+      const allow = (el.getAttribute("data-listings") || "").split(",").filter(Boolean);
+      const on = !key || allow.indexOf(key) !== -1;
+      el.hidden = !on;
+      if (!on) el.querySelectorAll("input:checked").forEach(function (box) { box.checked = false; });
+    });
+    document.querySelectorAll("#watch-create fieldset.facet").forEach(function (fs) {
+      const boxes = fs.querySelectorAll("label.check");
+      if (!boxes.length) return;
+      fs.hidden = Array.from(boxes).every(function (box) { return box.hidden; });
+    });
+  }
+  if (listing) listing.addEventListener("change", sync);
+  if (mode) mode.addEventListener("change", sync);
+  sync();
+})();
+</script>
+{% endblock %}

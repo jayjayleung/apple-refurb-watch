@@ -1,0 +1,14 @@
+{% for group in facets %}
+<fieldset class="facet" data-listings="{{ group.listings | join(',') }}">
+  <legend>{{ group.legend }}</legend>
+  <div class="facet-options">
+    {% for opt in group.options %}
+    <label class="check{% if opt.count == 0 %} oos{% endif %}" data-listings="{{ opt.listings | join(',') }}">
+      <input type="checkbox" name="d_{{ group.key }}" value="{{ opt.value }}" {% if opt.checked %}checked{% endif %}>
+      <span>{{ opt.label }}</span>
+      {% if opt.count is not none %}<span class="n">{{ opt.count }}</span>{% endif %}
+    </label>
+    {% endfor %}
+  </div>
+</fieldset>
+{% endfor %}

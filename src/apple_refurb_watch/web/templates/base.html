@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}官翻监听{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/">官翻监听</a>
+    <nav>
+      <a href="/" class="{% if request.url.path == '/' %}on{% endif %}">在售</a>
+      <a href="/watches" class="{% if request.url.path.startswith('/watches') %}on{% endif %}">监听</a>
+      <a href="/events" class="{% if request.url.path.startswith('/events') %}on{% endif %}">动态</a>
+      <a href="/settings" class="{% if request.url.path.startswith('/settings') %}on{% endif %}">设置</a>
+    </nav>
+    <div class="pulse" title="{{ status_view.detail }}">
+      <span class="dot {{ status_view.state }}"></span>
+      <b>{{ status_view.label }}</b>
+    </div>
+  </header>
+  <div class="status-bar" data-state="{{ status_view.state }}">
+    <span><span class="dot {{ status_view.state }}"></span>{{ status_view.label }}</span>
+    <span>上次成功 {{ status_view.last_success }}</span>
+    <span>{{ status_view.interval_label }}扫描</span>
+    <span>在售 {{ status_view.in_stock }}</span>
+    <span>规则 {{ status_view.watch_enabled }}/{{ status_view.watch_total }} 启用</span>
+    <span>基线 {{ status_view.baseline_label }}</span>
+    {% if status_view.last_error %}<span class="err">{{ status_view.last_error }}</span>{% endif %}
+    <div class="status-actions">
+      <form method="post" action="/settings/listen">
+        <input type="hidden" name="enabled" value="{{ '0' if settings.listen_enabled else '1' }}">
+        <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+        <button class="btn" type="submit">{{ '停止监听' if settings.listen_enabled else '开始监听' }}</button>
+      </form>
+    </div>
+  </div>
+  <main>
+    {% block body %}{% endblock %}
+  </main>
+</body>
+</html>

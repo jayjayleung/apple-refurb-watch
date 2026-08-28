@@ -1,0 +1,36 @@
+{% if items %}
+<div class="grid">
+  {% for item in items %}
+  <article class="card">
+    {% if item.image_url %}
+    <img src="{{ item.image_url }}" alt="" loading="lazy">
+    {% endif %}
+    <h2>{{ item.title }}</h2>
+    <p class="price">{% if item.price %}RMB {{ item.price|cny }}{% else %}价格待确认{% endif %}</p>
+    <p class="meta">
+      {{ item.sku }}
+      {% if item.ram_gb %} · {{ item.ram_gb|gb }} 内存{% endif %}
+      {% if item.storage_gb %} · {{ item.storage_gb|gb }} 硬盘{% endif %}
+      {% if item.color_label %} · {{ item.color_label }}{% endif %}
+    </p>
+    <div class="row">
+      <a class="btn ghost" href="{{ item.url }}" target="_blank" rel="noreferrer">官网</a>
+      <form method="post" action="/watches/from-product">
+        <input type="hidden" name="sku" value="{{ item.sku }}">
+        <input type="hidden" name="mode" value="condition">
+        <button class="btn" type="submit">按配置听</button>
+      </form>
+      <form method="post" action="/watches/from-product">
+        <input type="hidden" name="sku" value="{{ item.sku }}">
+        <input type="hidden" name="mode" value="sku">
+        <button class="btn quiet" type="submit">精确 SKU</button>
+      </form>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  <p>还没有在售数据。先点「立即扫描」，或放宽筛选条件。</p>
+</div>
+{% endif %}

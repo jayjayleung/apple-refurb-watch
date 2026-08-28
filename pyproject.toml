@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "apple-refurb-watch"
+version = "0.1.0"
+description = "监听苹果中国官翻指定配置上线，并推送到多种通知通道"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "liangshijie" }]
+dependencies = [
+  "httpx>=0.27",
+  "beautifulsoup4>=4.12",
+  "platformdirs>=4.2",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "jinja2>=3.1",
+  "apscheduler>=3.10",
+  "pydantic>=2.7",
+  "typer>=0.12",
+  "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+tui = ["textual>=0.80"]
+desktop = ["pywebview>=5.0"]
+all = ["textual>=0.80", "pywebview>=5.0"]
+dev = ["pytest>=8.0", "respx>=0.21"]
+
+[project.scripts]
+apple-refurb-watch = "apple_refurb_watch.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+apple_refurb_watch = ["web/templates/*.html", "web/static/*", "data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
