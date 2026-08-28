@@ -1,0 +1,12 @@
+services:
+  apple-refurb-watch:
+    build: .
+    image: ghcr.io/jayjayleung/apple-refurb-watch:latest
+    container_name: apple-refurb-watch
+    ports:
+      - "${ARW_BIND:-127.0.0.1}:${ARW_PORT:-8765}:8765"
+    volumes:
+      - ./data:/data
+    environment:
+      APPLE_REFURB_WATCH_HOME: /data
+    restart: unless-stopped

@@ -7,6 +7,7 @@ import sys
 import time
 from pathlib import Path
 
+from apple_refurb_watch.argv import invoke_argv
 from apple_refurb_watch.client import ApiClient, ApiError, wait_health
 from apple_refurb_watch.paths import lock_path, log_path, runtime_path
 
@@ -44,19 +45,28 @@ def ensure_daemon(timeout: float = 15.0, host: str | None = None, port: int | No
         pass
     log = log_path()
     log.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [sys.executable, "-m", "apple_refurb_watch", "serve", "--detach-child"]
+    cmd = invoke_argv("serve", "--detach-child")
     if host:
         cmd.extend(["--host", str(host)])
     if port is not None:
         cmd.extend(["--port", str(port)])
+    popen_kwargs: dict = {
+        "stdout": None,
+        "stderr": None,
+        "cwd": None,
+    }
+    creationflags = 0
+    if os.name == "nt":
+        creationflags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        if creationflags:
+            popen_kwargs["creationflags"] = creationflags
+    else:
+        popen_kwargs["start_new_session"] = True
     with open(log, "a", encoding="utf-8") as stream:
-        subprocess.Popen(
-            cmd,
-            stdout=stream,
-            stderr=stream,
-            start_new_session=True,
-            cwd=None,
-        )
+        popen_kwargs["stdout"] = stream
+        popen_kwargs["stderr"] = stream
+        subprocess.Popen(cmd, **popen_kwargs)
     return wait_health(timeout, base=base)
 
 

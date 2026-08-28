@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from typing import Optional
 
 import typer
@@ -8,6 +9,7 @@ import uvicorn
 
 from apple_refurb_watch import __version__
 from apple_refurb_watch.api import create_app
+from apple_refurb_watch.argv import with_frozen_default_command
 from apple_refurb_watch.client import ApiClient, ApiError
 from apple_refurb_watch.daemon import acquire_lock, ensure_daemon, is_running, stop_daemon
 from apple_refurb_watch.db import Database
@@ -73,7 +75,11 @@ def desktop() -> None:
     """打开桌面窗口（自动拉起 daemon）。"""
     from apple_refurb_watch.desktop import run_desktop
 
-    run_desktop()
+    try:
+        run_desktop()
+    except RuntimeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
 
 
 @app.command()
@@ -230,6 +236,11 @@ def home() -> None:
 
 
 def main() -> None:
+    sys.argv = with_frozen_default_command(
+        sys.argv,
+        frozen=getattr(sys, "frozen", False),
+        platform=sys.platform,
+    )
     try:
         app()
     except ApiError as exc:

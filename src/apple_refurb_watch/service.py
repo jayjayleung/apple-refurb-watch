@@ -7,13 +7,12 @@ import sys
 from pathlib import Path
 from textwrap import dedent
 
+from xml.sax.saxutils import escape
+
+from apple_refurb_watch.argv import invoke_argv
 from apple_refurb_watch.paths import data_dir
 
 SERVICE_NAME = "apple-refurb-watch"
-
-
-def _python() -> str:
-    return sys.executable
 
 
 def install_service() -> str:
@@ -73,7 +72,7 @@ def _install_systemd() -> str:
 
             [Service]
             Type=simple
-            ExecStart={_python()} -m apple_refurb_watch serve
+            ExecStart={" ".join(invoke_argv("serve"))}
             Restart=on-failure
             RestartSec=8
             WorkingDirectory={data_dir()}
@@ -108,10 +107,7 @@ def _install_launchd() -> str:
               <key>Label</key><string>{SERVICE_NAME}</string>
               <key>ProgramArguments</key>
               <array>
-                <string>{_python()}</string>
-                <string>-m</string>
-                <string>apple_refurb_watch</string>
-                <string>serve</string>
+                {"".join(f"<string>{escape(part)}</string>" for part in invoke_argv("serve"))}
               </array>
               <key>RunAtLoad</key><true/>
               <key>KeepAlive</key><true/>
@@ -128,7 +124,8 @@ def _install_launchd() -> str:
 
 
 def _install_windows() -> str:
-    cmd = f'"{_python()}" -m apple_refurb_watch serve'
+    parts = invoke_argv("serve")
+    cmd = " ".join(f'"{part}"' if " " in part else part for part in parts)
     subprocess.run(
         ["schtasks", "/Create", "/SC", "ONLOGON", "/TN", SERVICE_NAME, "/TR", cmd, "/F"],
         check=False,
