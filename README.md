@@ -91,10 +91,21 @@ apple-refurb-watch service uninstall
 
 ## 打包
 
-同一源码，三个系统分别出包（不是一个 exe 通吃）：
+推送到 `main` 后，GitHub Actions 会自动打 Linux / Windows / macOS 包，在仓库 **Actions → package** 里下载。
+
+打 `v*` 标签会同时发 GitHub Release：
 
 ```bash
-pip install pyinstaller
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+也可以在 Actions 里手动跑 `package`。
+
+本地打包（当前系统一份，不是一个 exe 通吃）：
+
+```bash
+pip install ".[pack]"
 pyinstaller packaging/apple-refurb-watch.spec
 ```
 

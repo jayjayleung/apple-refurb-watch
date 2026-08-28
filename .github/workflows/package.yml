@@ -1,0 +1,87 @@
+name: package
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Test
+        run: pytest
+
+  build:
+    name: ${{ matrix.asset }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: apple-refurb-watch-linux-x86_64
+          - os: windows-latest
+            asset: apple-refurb-watch-windows-x86_64.exe
+          - os: macos-latest
+            asset: apple-refurb-watch-macos-arm64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pyinstaller
+      - name: Build
+        run: pyinstaller --noconfirm --clean packaging/apple-refurb-watch.spec
+      - name: Rename
+        run: |
+          mkdir -p dist/out
+          if [ -f dist/apple-refurb-watch.exe ]; then
+            mv dist/apple-refurb-watch.exe "dist/out/${{ matrix.asset }}"
+          else
+            mv dist/apple-refurb-watch "dist/out/${{ matrix.asset }}"
+          fi
+          chmod +x "dist/out/${{ matrix.asset }}" || true
+      - name: Smoke
+        run: ./dist/out/${{ matrix.asset }} version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/out/${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

@@ -27,6 +27,7 @@ tui = ["textual>=0.80"]
 desktop = ["pywebview>=5.0"]
 all = ["textual>=0.80", "pywebview>=5.0"]
 dev = ["pytest>=8.0", "respx>=0.21"]
+pack = ["pyinstaller>=6.3"]
 
 [project.scripts]
 apple-refurb-watch = "apple_refurb_watch.cli:app"
