@@ -1,0 +1,364 @@
+{
+  "version": 2,
+  "notes": "词条来自苹果中国认证翻新页 window.REFURB_GRID_BOOTSTRAP.dictionaries.dimensions。扫描时会写入数据目录 filter_catalog.live.json 自动对齐官网；用户文件 filter_catalog.json 仍可覆盖。",
+  "listing_dimensions": {
+    "mac": [
+      "refurbClearModel",
+      "dimensionScreensize",
+      "dimensionRelYear",
+      "dimensionColor",
+      "tsMemorySize",
+      "dimensionCapacity"
+    ],
+    "macbook-pro": [
+      "refurbClearModel",
+      "dimensionScreensize",
+      "dimensionRelYear",
+      "dimensionColor",
+      "tsMemorySize",
+      "dimensionCapacity"
+    ],
+    "macbook-air": [
+      "refurbClearModel",
+      "dimensionScreensize",
+      "dimensionRelYear",
+      "dimensionColor",
+      "tsMemorySize",
+      "dimensionCapacity"
+    ],
+    "ipad": [
+      "refurbClearModel",
+      "dimensionColor",
+      "dimensionScreensize",
+      "dimensionCapacity",
+      "dimensionconnectivity",
+      "dimensionRelYear"
+    ],
+    "watch": [
+      "refurbClearModel",
+      "dimensionCaseSize",
+      "dimensionCaseMaterial",
+      "dimensionConnection"
+    ],
+    "airpods": [
+      "heroAirPods"
+    ]
+  },
+  "listing_legends": {
+    "ipad": {
+      "dimensionScreensize": "屏幕尺寸",
+      "dimensionCapacity": "存储容量"
+    }
+  },
+  "dimensions": {
+    "refurbClearModel": {
+      "legend": "机型",
+      "listings": [
+        "mac",
+        "macbook-pro",
+        "macbook-air",
+        "ipad",
+        "watch",
+        "airpods"
+      ],
+      "values": {
+        "macbookneo": "MacBook Neo",
+        "macbookair": "MacBook Air",
+        "macbookpro": "MacBook Pro",
+        "imac": "iMac",
+        "macmini": "Mac mini",
+        "macstudio": "Mac Studio",
+        "macpro": "Mac Pro",
+        "display": "显示屏",
+        "ipad2017": "iPad",
+        "ipadair_10_9": "iPad Air 10.9 英寸",
+        "ipadair_11": "iPad Air 11 英寸",
+        "ipadair_13": "iPad Air 13 英寸",
+        "ipadpro_11": "11 英寸 iPad Pro",
+        "ipadpro_12_9": "12.9 英寸 iPad Pro",
+        "ipadpro_13": "13 英寸 iPad Pro",
+        "ipadmini6": "iPad mini",
+        "ipadaccessories": "iPad 配件",
+        "watchseries9": "Apple Watch Series 9",
+        "watchseries10": "Apple Watch Series 10",
+        "watchseries11": "Apple Watch Series 11",
+        "watchse2": "Apple Watch SE 2",
+        "watchse3": "Apple Watch SE 3",
+        "watchultra2": "Apple Watch Ultra 2",
+        "watchultra3": "Apple Watch Ultra 3"
+      }
+    },
+    "dimensionScreensize": {
+      "legend": "尺寸",
+      "listings": [
+        "mac",
+        "macbook-pro",
+        "macbook-air",
+        "ipad"
+      ],
+      "order": [
+        "8_3inch",
+        "10_2inch",
+        "10_9inch",
+        "11inch",
+        "12_9inch",
+        "13inch",
+        "14inch",
+        "15inch",
+        "16inch",
+        "24inch",
+        "27inch"
+      ],
+      "values": {
+        "8_3inch": "8.3 英寸",
+        "10_2inch": "10.2 英寸",
+        "10_9inch": "10.9 英寸",
+        "11inch": "11 英寸",
+        "12_9inch": "12.9 英寸",
+        "13inch": "13 英寸",
+        "14inch": "14 英寸",
+        "15inch": "15 英寸",
+        "16inch": "16 英寸",
+        "24inch": "24 英寸",
+        "27inch": "27 英寸"
+      }
+    },
+    "dimensionRelYear": {
+      "legend": "发布年份",
+      "listings": [
+        "mac",
+        "macbook-pro",
+        "macbook-air",
+        "ipad"
+      ],
+      "order": [
+        "2026",
+        "2025",
+        "2024",
+        "2023",
+        "2022",
+        "2021",
+        "2020",
+        "2019"
+      ],
+      "values": {
+        "2026": "2026 年",
+        "2025": "2025 年",
+        "2024": "2024 年",
+        "2023": "2023 年",
+        "2022": "2022 年",
+        "2021": "2021 年",
+        "2020": "2020 年",
+        "2019": "2019 年"
+      }
+    },
+    "dimensionColor": {
+      "legend": "外观",
+      "listings": [
+        "mac",
+        "macbook-pro",
+        "macbook-air",
+        "ipad"
+      ],
+      "order": [
+        "silver",
+        "space_gray",
+        "spaceblack",
+        "starlight",
+        "skyblue",
+        "midnight",
+        "green",
+        "yellow",
+        "orange",
+        "pink",
+        "purple",
+        "blue",
+        "gold",
+        "rosegold",
+        "blush",
+        "citrus",
+        "indigo"
+      ],
+      "values": {
+        "silver": "银色",
+        "space_gray": "深空灰色",
+        "spaceblack": "深空黑色",
+        "starlight": "星光色",
+        "skyblue": "天蓝色",
+        "midnight": "午夜色",
+        "green": "绿色",
+        "yellow": "黄色",
+        "orange": "橙色",
+        "pink": "粉色",
+        "purple": "紫色",
+        "blue": "蓝色",
+        "gold": "金色",
+        "rosegold": "玫瑰金色",
+        "blush": "腮红色",
+        "citrus": "柑橘黄色",
+        "indigo": "靛蓝色"
+      }
+    },
+    "tsMemorySize": {
+      "legend": "内存",
+      "listings": [
+        "mac",
+        "macbook-pro",
+        "macbook-air"
+      ],
+      "order": [
+        "4gb",
+        "8gb",
+        "16gb",
+        "18gb",
+        "24gb",
+        "32gb",
+        "36gb",
+        "48gb",
+        "64gb",
+        "96gb",
+        "128gb",
+        "192gb",
+        "768gb",
+        "1_5tb"
+      ],
+      "values": {
+        "4gb": "4GB",
+        "8gb": "8GB",
+        "16gb": "16GB",
+        "18gb": "18GB",
+        "24gb": "24GB",
+        "32gb": "32GB",
+        "36gb": "36GB",
+        "48gb": "48GB",
+        "64gb": "64GB",
+        "96gb": "96GB",
+        "128gb": "128GB",
+        "192gb": "192GB",
+        "768gb": "768GB",
+        "1_5tb": "1.5TB"
+      }
+    },
+    "dimensionCapacity": {
+      "legend": "容量",
+      "listings": [
+        "mac",
+        "macbook-pro",
+        "macbook-air",
+        "ipad"
+      ],
+      "order": [
+        "32gb",
+        "64gb",
+        "128gb",
+        "256gb",
+        "512gb",
+        "1tb",
+        "1point5tb",
+        "2tb",
+        "3tb",
+        "4tb",
+        "8tb"
+      ],
+      "values": {
+        "32gb": "32GB",
+        "64gb": "64GB",
+        "128gb": "128GB",
+        "256gb": "256GB",
+        "512gb": "512GB",
+        "1tb": "1TB",
+        "1point5tb": "1.5 TB",
+        "2tb": "2TB",
+        "3tb": "3TB",
+        "4tb": "4TB",
+        "8tb": "8TB"
+      }
+    },
+    "dimensionconnectivity": {
+      "legend": "连接",
+      "listings": [
+        "ipad"
+      ],
+      "order": [
+        "wifi",
+        "wificell"
+      ],
+      "values": {
+        "wifi": "无线局域网",
+        "wificell": "无线局域网 + 蜂窝网络"
+      }
+    },
+    "dimensionCaseSize": {
+      "legend": "表壳尺寸",
+      "listings": [
+        "watch"
+      ],
+      "order": [
+        "40mm",
+        "41mm",
+        "42mm",
+        "44mm",
+        "45mm",
+        "46mm",
+        "49mm"
+      ],
+      "values": {
+        "40mm": "40 毫米",
+        "41mm": "41 毫米",
+        "42mm": "42 毫米",
+        "44mm": "44 毫米",
+        "45mm": "45 毫米",
+        "46mm": "46 毫米",
+        "49mm": "49 毫米"
+      }
+    },
+    "dimensionCaseMaterial": {
+      "legend": "表壳材质",
+      "listings": [
+        "watch"
+      ],
+      "order": [
+        "aluminum",
+        "stainless",
+        "titanium"
+      ],
+      "values": {
+        "aluminum": "铝金属",
+        "stainless": "不锈钢",
+        "titanium": "钛金属"
+      }
+    },
+    "dimensionConnection": {
+      "legend": "连接",
+      "listings": [
+        "watch"
+      ],
+      "order": [
+        "gps",
+        "gpscell"
+      ],
+      "values": {
+        "gps": "GPS",
+        "gpscell": "GPS + 蜂窝网络"
+      }
+    },
+    "heroAirPods": {
+      "legend": "机型",
+      "listings": [
+        "airpods"
+      ],
+      "order": [
+        "airpodslightning2022",
+        "airpodsmagsafe2021",
+        "airpodspro2022",
+        "airpodspro2023"
+      ],
+      "values": {
+        "airpodslightning2022": "AirPods (第三代) - 配闪电充电盒",
+        "airpodsmagsafe2021": "AirPods (第三代) - 配 MagSafe 充电盒",
+        "airpodspro2022": "AirPods Pro 2 (配备闪电接口的 MagSafe 充电盒)",
+        "airpodspro2023": "AirPods Pro 2"
+      }
+    }
+  }
+}

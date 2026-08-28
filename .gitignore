@@ -13,6 +13,6 @@ build/
 *.db-shm
 .env
 .DS_Store
-data/
-logs/
+/data/
+/logs/
 *.log
