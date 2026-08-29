@@ -15,7 +15,7 @@
 {% if flash == 'catalog-ok' %}<p class="flash ok">已从官网同步筛选词条。刷新在售/监听页即可看到新选项。</p>{% endif %}
 {% if flash == 'catalog-fail' %}<p class="flash bad">同步筛选词条失败。检查网络后再试，或等下次扫描自动对齐。</p>{% endif %}
 
-<form class="settings-form" method="post" action="/settings">
+<form class="settings-form" method="post" action="/settings" id="settings-form">
   <section class="panel">
     <h2>扫描</h2>
     <div class="form-grid">
@@ -41,7 +41,7 @@
 
   <section class="panel">
     <h2>筛选文案</h2>
-    <p class="hint">筛选选项包含当前缺货配置（如 128GB）。扫描时会写入 <code>{{ live_catalog_path }}</code>。也可把安装包里的 <code>filter_catalog.json</code> 复制到 <code>{{ user_catalog_path }}</code> 做覆盖，mtime 热加载不必重启。</p>
+    <p class="hint">缺货配置（如 128GB）只出现在监听里。词条写入 <code>{{ live_catalog_path }}</code>。也可把安装包里的 <code>filter_catalog.json</code> 复制到 <code>{{ user_catalog_path }}</code> 做覆盖，mtime 热加载不必重启。</p>
     <p class="hint">当前生效配置：<a href="/api/filter-catalog">/api/filter-catalog</a></p>
   </section>
 
@@ -103,4 +103,25 @@
   {% include "_scan.html" %}
   <form method="post" action="/settings/sync-catalog"><button class="btn" type="submit">从官网同步筛选词条</button></form>
 </div>
+<script>
+(function () {
+  const form = document.getElementById("settings-form");
+  if (!form) return;
+  const mac = form.querySelector('input[name="listings"][value="mac"]');
+  const children = form.querySelectorAll('input[name="listings"][value="macbook-pro"], input[name="listings"][value="macbook-air"]');
+  function sync() {
+    const on = !!(mac && mac.checked);
+    children.forEach(function (el) {
+      el.disabled = on;
+      if (on) el.checked = false;
+    });
+  }
+  form.addEventListener("change", sync);
+  form.addEventListener("click", function (event) {
+    const t = event.target;
+    if (t && t.name === "listings") sync();
+  });
+  sync();
+})();
+</script>
 {% endblock %}

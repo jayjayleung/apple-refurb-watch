@@ -53,6 +53,11 @@ def run_desktop() -> None:
             embedded.stop()
         raise RuntimeError("请先安装桌面依赖：pip install -e '.[desktop]'") from exc
 
+    try:
+        webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
+    except Exception:  # noqa: BLE001
+        pass
+
     _hide_console_if_frozen()
     keep = _keep_after_close(client)
     cleaned = False
@@ -72,7 +77,13 @@ def run_desktop() -> None:
         elif not keep:
             stop_daemon()
 
-    window = webview.create_window("官翻监听", client.base, width=1180, height=800)
+    window = webview.create_window(
+        "官翻监听",
+        client.base,
+        width=1180,
+        height=800,
+        min_size=(960, 640),
+    )
 
     def on_shown() -> None:
         try:

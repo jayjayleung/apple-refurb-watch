@@ -14,11 +14,17 @@ def test_pages_and_watch_api(tmp_path) -> None:
         assert "停止监听" in home.text
         assert "全部" in home.text
         assert "<select" in home.text
+        assert "价格：由低至高" in home.text
         assert "盯住你要的那一台" not in home.text
         assert "kicker" not in home.text
         assert "status-bar" not in home.text
         assert 'id="filter-open"' in home.text
+        assert "filter-rail" in home.text
         assert "按此条件听" not in home.text
+        assert "认证的翻新产品" not in home.text
+        assert "浏览全部" not in home.text
+        assert 'class="dock"' not in home.text
+        assert 'class="top"' in home.text
         mac = client.get("/?listing_key=mac")
         assert "filter-rail" in mac.text
         assert "<select" in mac.text
@@ -159,6 +165,12 @@ def test_status_and_dim_watch_api(tmp_path) -> None:
         assert "按配置听" in home.text
         assert "听配置" not in home.text
         assert "¥15,000" in home.text
+        assert home.text.index("¥8,000") < home.text.index("¥15,000")
+        priced = client.get("/?sort=-price")
+        assert priced.text.index("¥15,000") < priced.text.index("¥8,000")
+        assert "价格：由高至低" in priced.text
+        assert 'hx-include="#shop-filter"' in priced.text
+        assert 'name="sort"' in priced.text
         assert "card-hit" in home.text
         assert "精确 SKU" in home.text
         assert "MacBook Pro" in home.text
@@ -182,7 +194,9 @@ def test_status_and_dim_watch_api(tmp_path) -> None:
         assert "M5 Pro" in watches_page.text
         assert "芯片" in watches_page.text
         assert 'value="8_3inch"' not in watches_page.text
+        assert "删除这条规则？" in watches_page.text
         mac_page = client.get("/?listing_key=mac")
+        assert "机型" in mac_page.text
         assert 'value="24gb"' in mac_page.text
         assert 'value="128gb"' not in mac_page.text
         assert 'value="m5_pro"' in mac_page.text
@@ -192,6 +206,9 @@ def test_status_and_dim_watch_api(tmp_path) -> None:
         assert "图形处理器" in mac_page.text
         assert 'class="facet-oos"' not in mac_page.text
         assert "按配置听" in mac_page.text
+        chipped = client.get("/?listing_key=mac&d_tsMemorySize=24gb")
+        assert "chip-x" in chipped.text
+        assert "24" in chipped.text
         oos = client.get("/?listing_key=macbook-pro&d_tsMemorySize=128gb")
         assert oos.status_code == 200
         assert "没有符合条件的商品" in oos.text
@@ -280,6 +297,13 @@ def test_listen_toggle_form_and_api(tmp_path) -> None:
         settings_page = client.get("/settings")
         assert "定时监听官网" in settings_page.text
         assert "从官网同步筛选词条" in settings_page.text
+        assert "监听分类" in settings_page.text
+        assert "关闭桌面窗口后继续后台扫描" in settings_page.text
+        assert "close_window_keeps_daemon" in settings_page.text
+        form_html = settings_page.text.split('id="settings-form"', 1)[1].split("保存设置", 1)[0]
+        assert 'value="mac"' in form_html
+        assert 'value="macbook-pro"' in form_html
+        assert "<form" not in form_html
         saved = client.post(
             "/settings",
             data={
@@ -343,21 +367,141 @@ def test_home_paginates_and_thumbs_images(tmp_path) -> None:
 
 def test_events_page_shows_shanghai_time(tmp_path) -> None:
     db = Database(tmp_path / "app.db")
-    db.conn.execute(
-        """
-        INSERT INTO events(type, sku, watch_id, title, price, url, message, created_at)
-        VALUES(?,?,?,?,?,?,?,?)
-        """,
-        ("scan", None, None, None, None, None, "完成扫描", "2026-08-29T06:45:00+00:00"),
-    )
+    rows = [
+        ("scan_ok", "第一次扫描", "2026-08-29T06:45:00+00:00"),
+        ("appeared", "翻新 MacBook Pro", "2026-08-29T07:00:00+00:00"),
+        ("scan_ok", "第二次扫描", "2026-08-29T08:10:00+00:00"),
+    ]
+    for kind, message, created in rows:
+        db.conn.execute(
+            """
+            INSERT INTO events(type, sku, watch_id, title, price, url, message, created_at)
+            VALUES(?,?,?,?,?,?,?,?)
+            """,
+            (kind, None, None, message if kind == "appeared" else None, None, None, message, created),
+        )
     db.conn.commit()
     app = create_app(db, with_scheduler=False)
     with TestClient(app) as client:
         page = client.get("/events")
         assert page.status_code == 200
         assert "2026-08-29 14:45" in page.text
-        assert "扫描完成" in page.text
+        assert "2026-08-29 15:00" in page.text
+        assert "2026-08-29 16:10" in page.text
+        assert page.text.count("扫描完成") == 2
+        assert "第一次扫描" in page.text
+        assert "第二次扫描" in page.text
+        assert "翻新 MacBook Pro" in page.text
+        assert "2 次扫描" not in page.text
+        assert "全部记录" in page.text
+        assert "按日合并" in page.text
+        assert "N 次扫描" not in page.text
         assert "<strong>scan</strong>" not in page.text
+        assert "时间按上海时区显示" in page.text
+        assert "kind-seg" not in page.text
+        assert "timeline" in page.text
+        digest = client.get("/events?digest=1")
+        assert digest.status_code == 200
+        assert "2 次扫描" in digest.text
+        assert "第一次扫描" not in digest.text
+        assert "翻新 MacBook Pro" in digest.text
+        appear = client.get("/events?kind=appear")
+        assert appear.status_code == 200
+        assert "翻新 MacBook Pro" in appear.text
+        assert "第一次扫描" not in appear.text
         api = client.get("/api/events").json()
-        assert api[0]["created_at"] == "2026-08-29T06:45:00+00:00"
+        assert len(api) == 3
+        assert api[0]["created_at"] == "2026-08-29T08:10:00+00:00"
+
+
+def test_events_page_paginates(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    for i in range(21):
+        db.conn.execute(
+            """
+            INSERT INTO events(type, sku, watch_id, title, price, url, message, created_at)
+            VALUES(?,?,?,?,?,?,?,?)
+            """,
+            ("scan_ok", None, None, None, None, None, f"扫描 {i}", f"2026-08-29T08:{i:02d}:00+00:00"),
+        )
+    db.conn.commit()
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        first = client.get("/events")
+        assert first.status_code == 200
+        assert first.text.count("<li class=") == 20
+        assert "第 1 / 2 页" in first.text
+        assert "下一页" in first.text
+        second = client.get("/events?page=2")
+        assert second.text.count("<li class=") == 1
+        assert "第 2 / 2 页" in second.text
+        digest = client.get("/events?digest=1")
+        assert "21 次扫描" in digest.text
+        assert digest.text.count("<li class=") == 1
+        assert "1 天" in digest.text
+        assert "第 1 / 2 页" not in digest.text
+
+
+def test_events_digest_pages_by_day(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    for day in range(22, 30):
+        db.conn.execute(
+            """
+            INSERT INTO events(type, sku, watch_id, title, price, url, message, created_at)
+            VALUES(?,?,?,?,?,?,?,?)
+            """,
+            ("scan_ok", None, None, None, None, None, f"扫描 {day}", f"2026-08-{day:02d}T08:00:00+00:00"),
+        )
+    db.conn.commit()
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        first = client.get("/events?digest=1")
+        assert first.status_code == 200
+        assert "按日合并" in first.text
+        assert "8 天 · 第 1 / 2 页" in first.text
+        assert first.text.count('class="event-day"') == 7
+        assert "2026-08-29" in first.text
+        assert "2026-08-22" not in first.text
+        second = client.get("/events?digest=1&page=2")
+        assert "第 2 / 2 页" in second.text
+        assert second.text.count('class="event-day"') == 1
+        assert "2026-08-22" in second.text
+        assert "2026-08-29" not in second.text
+
+
+def test_clear_events_api_and_page(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    db.add_event(type="scan_ok", message="完成扫描")
+    db.add_event(type="appeared", title="翻新 MacBook Pro")
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        listed = client.get("/api/events").json()
+        assert len(listed) == 2
+        cleared = client.delete("/api/events")
+        assert cleared.status_code == 200
+        assert cleared.json()["ok"] is True
+        assert cleared.json()["deleted"] == 2
+        assert client.get("/api/events").json() == []
+        db.add_event(type="scan_ok", message="又扫了一次")
+        page_clear = client.post("/events/clear", follow_redirects=False)
+        assert page_clear.status_code == 303
+        assert page_clear.headers["location"] == "/events"
+        empty = client.get("/events")
+        assert "还没有记录" in empty.text
+        assert client.get("/api/events").json() == []
+
+
+def test_listings_compact_when_mac_selected(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        data = client.patch(
+            "/api/settings",
+            json={"listings": ["mac", "macbook-pro", "macbook-air", "ipad"]},
+        ).json()
+        assert data["listings"] == ["mac", "ipad"]
+        assert data["close_window_keeps_daemon"] is True
+        public = client.get("/api/settings").json()
+        assert public["close_window_keeps_daemon"] is True
+
 

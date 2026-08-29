@@ -5,12 +5,33 @@ from typing import Any, Mapping
 from apple_refurb_watch.categories import CATEGORIES
 from apple_refurb_watch.filters import (
     facet_groups,
+    product_dims,
     prune_cascade_dims,
     restrict_dims,
     selected_dims,
     summarize_dims,
 )
-from apple_refurb_watch.web.listing import opt_number
+from apple_refurb_watch.listing import opt_number
+from apple_refurb_watch.match import matches_watch
+
+
+def watch_from_product(item: Mapping[str, Any], mode: str) -> dict:
+    sku = str(item.get("sku") or "")
+    if mode == "sku":
+        return {
+            "name": f"SKU {sku}",
+            "mode": "sku",
+            "sku": sku,
+            "listing_key": item.get("listing_key"),
+        }
+    dims = product_dims(item)
+    return {
+        "name": (item.get("title") or sku)[:40],
+        "mode": "condition",
+        "listing_key": item.get("listing_key"),
+        "dim_filters": {key: [value] for key, value in dims.items() if value},
+        "max_price": item.get("price"),
+    }
 
 
 def watch_name_from_filters(payload: Mapping[str, Any], q: str = "") -> str:
@@ -90,3 +111,9 @@ def watch_from_filters_payload(form: Any) -> dict:
     }
     payload["name"] = watch_name_from_filters(payload, q)
     return {"mode": "condition", **payload}
+
+
+def decorate_watches(stock: list, watches: list) -> list:
+    for watch in watches:
+        watch["in_stock_matches"] = sum(1 for item in stock if matches_watch(item, watch))
+    return watches

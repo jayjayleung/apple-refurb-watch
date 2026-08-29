@@ -5,34 +5,9 @@
 <header class="page-head">
   <div>
     <h1>动态</h1>
-    <p class="lede">上新、失败和扫描结果按天排列。</p>
+    <p class="lede">上新、失败和扫描结果按天排列。时间按上海时区显示。</p>
   </div>
   {% with scan_class='primary' %}{% include "_scan.html" %}{% endwith %}
 </header>
-{% if event_days %}
-{% for day in event_days %}
-<section class="event-day">
-  <h2>{{ day.day }}</h2>
-  <ol class="timeline">
-    {% for event in day.entries %}
-    <li class="event-{{ event.kind }}">
-      <time class="when" datetime="{{ event.created_at }}">{{ event.when_local }}</time>
-      <strong>{{ event.label }}</strong>
-      {% if event.kind == 'appear' and event.title %}
-      <p>{{ event.title }}</p>
-      {% else %}
-      <p>{{ event.message or event.title }}</p>
-      {% endif %}
-      {% if event.url %}<a href="{{ event.url }}" target="_blank" rel="noreferrer">打开商品</a>{% endif %}
-    </li>
-    {% endfor %}
-  </ol>
-</section>
-{% endfor %}
-{% else %}
-<div class="empty">
-  <p>还没有记录。首次扫描只建基线，不会把当前库存全部推过来。</p>
-  {% with scan_class='primary' %}{% include "_scan.html" %}{% endwith %}
-</div>
-{% endif %}
+{% include "_event_feed.html" %}
 {% endblock %}

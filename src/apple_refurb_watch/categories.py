@@ -32,6 +32,32 @@ CATEGORIES: dict[str, dict[str, str]] = {
 }
 
 DEFAULT_LISTINGS = ["mac", "ipad", "watch"]
+LISTING_GROUPS = [
+    {
+        "id": "computers",
+        "label": "电脑",
+        "options": [
+            {"key": "mac", "name": "Mac", "hint": "官翻 Mac 整类，含 Pro 与 Air。勾选后不必再选下面两项。"},
+            {"key": "macbook-pro", "name": "只要 MacBook Pro", "hint": "仅抓 Pro 列表。已勾 Mac 时不会同时抓。"},
+            {"key": "macbook-air", "name": "只要 MacBook Air", "hint": "仅抓 Air 列表。已勾 Mac 时不会同时抓。"},
+        ],
+    },
+    {
+        "id": "tablets",
+        "label": "平板",
+        "options": [{"key": "ipad", "name": "iPad", "hint": "官翻 iPad 整类。"}],
+    },
+    {
+        "id": "wearables",
+        "label": "手表",
+        "options": [{"key": "watch", "name": "Apple Watch", "hint": "官翻 Apple Watch。"}],
+    },
+    {
+        "id": "audio",
+        "label": "音频",
+        "options": [{"key": "airpods", "name": "AirPods", "hint": "官翻 AirPods。"}],
+    },
+]
 LISTING_MODELS = {
     "macbook-pro": "macbookpro",
     "macbook-air": "macbookair",

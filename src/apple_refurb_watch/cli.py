@@ -10,21 +10,47 @@ import uvicorn
 from apple_refurb_watch import __version__
 from apple_refurb_watch.api import create_app
 from apple_refurb_watch.argv import with_frozen_default_command
+from apple_refurb_watch.categories import listing_name
 from apple_refurb_watch.client import ApiClient, ApiError
 from apple_refurb_watch.daemon import acquire_lock, ensure_daemon, is_running, stop_daemon
 from apple_refurb_watch.db import Database
+from apple_refurb_watch.listing import filter_products, format_cny, format_gb
 from apple_refurb_watch.paths import data_dir
 from apple_refurb_watch.scanner import run_scan
+from apple_refurb_watch.status_view import EVENT_LABELS, format_localtime
 
-app = typer.Typer(help="苹果中国官翻指定配置监听", no_args_is_help=True)
-watch_app = typer.Typer(help="管理监听规则")
-service_app = typer.Typer(help="安装/卸载开机自启")
+app = typer.Typer(help="苹果中国官翻指定配置监听", no_args_is_help=True, rich_markup_mode="rich")
+watch_app = typer.Typer(help="监听规则", rich_help_panel="监听")
+service_app = typer.Typer(help="开机自启")
+settings_app = typer.Typer(help="设置", rich_help_panel="设置")
+events_app = typer.Typer(help="动态", invoke_without_command=True)
 app.add_typer(watch_app, name="watch")
 app.add_typer(service_app, name="service")
+app.add_typer(settings_app, name="settings")
+app.add_typer(events_app, name="events")
 
 
 def _client() -> ApiClient:
     return ensure_daemon()
+
+
+def _dump(data) -> None:
+    typer.echo(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def _parse_dims(values: list[str] | None) -> dict[str, list[str]]:
+    dims: dict[str, list[str]] = {}
+    for raw in values or []:
+        if "=" not in raw:
+            typer.echo(f"维度应为 key=value，收到 {raw}", err=True)
+            raise typer.Exit(2)
+        key, value = raw.split("=", 1)
+        key, value = key.strip(), value.strip()
+        if not key or not value:
+            typer.echo(f"维度应为 key=value，收到 {raw}", err=True)
+            raise typer.Exit(2)
+        dims.setdefault(key, []).append(value)
+    return dims
 
 
 @app.callback()
@@ -93,28 +119,31 @@ def tui() -> None:
     run_tui()
 
 
-@app.command("list")
+@app.command("list", rich_help_panel="在售")
 def list_products(
     q: Optional[str] = typer.Option(None, "--q", help="关键词"),
     listing: Optional[str] = typer.Option(None, "--listing", help="分类 key"),
     local: bool = typer.Option(False, "--local", help="不走 daemon，直接读本地库"),
+    as_json: bool = typer.Option(False, "--json", help="输出 JSON"),
 ) -> None:
+    """在售列表。"""
     if local:
         items = Database().list_products(in_stock=True)
         if q or listing:
-            from apple_refurb_watch.web.listing import filter_products
-
             items = filter_products(items, q=q, listing_key=listing)
     else:
         items = _client().listings(q=q, listing_key=listing).get("items") or []
+    if as_json:
+        _dump(items)
+        return
     if not items:
         typer.echo("没有在售数据。先运行 apple-refurb-watch scan")
         return
     for item in items:
-        price = f"RMB {item['price']:.0f}" if item.get("price") is not None else "-"
-        ram = f"{item['ram_gb']}GB" if item.get("ram_gb") else "?"
-        ssd = f"{item['storage_gb']}GB" if item.get("storage_gb") else "?"
-        typer.echo(f"{item['sku']}\t{price}\t{ram}/{ssd}\t{item['title']}")
+        price = f"¥{format_cny(item['price'])}" if item.get("price") is not None else "-"
+        ram = format_gb(item.get("ram_gb")) or "-"
+        ssd = format_gb(item.get("storage_gb")) or "-"
+        typer.echo(f"{item['sku']:<16} {price:<10} {ram:<8} {ssd:<8} {item['title']}")
 
 
 @app.command()
@@ -150,11 +179,28 @@ def stop() -> None:
         typer.echo("没有找到运行中的 daemon")
 
 
+@app.command()
+def home() -> None:
+    """打印数据目录。"""
+    typer.echo(str(data_dir()))
+
+
 @watch_app.command("ls")
-def watch_ls() -> None:
-    for watch in _client().watches():
-        flag = "on " if watch.get("enabled") else "off"
-        typer.echo(f"{watch['id']}\t{flag}\t{watch['mode']}\t{watch['name']}")
+def watch_ls(
+    as_json: bool = typer.Option(False, "--json", help="输出 JSON"),
+) -> None:
+    """列出监听规则。"""
+    watches = _client().watches()
+    if as_json:
+        _dump(watches)
+        return
+    if not watches:
+        typer.echo("还没有规则。用 watch add 或网页监听页创建。")
+        return
+    for watch in watches:
+        flag = "启用" if watch.get("enabled") else "暂停"
+        mode = "精确 SKU" if watch.get("mode") == "sku" else "条件"
+        typer.echo(f"{watch['id']:<4} {flag:<4} {mode:<8} {watch['name']}")
 
 
 @watch_app.command("add")
@@ -169,6 +215,7 @@ def watch_add(
     min_storage_gb: Optional[int] = typer.Option(None, "--min-storage"),
     max_price: Optional[float] = typer.Option(None, "--max-price"),
     listing: Optional[str] = typer.Option(None, "--listing"),
+    dim: Optional[list[str]] = typer.Option(None, "--dim", help="维度 key=value，可重复"),
 ) -> None:
     def split(value: str | None) -> list[str]:
         if not value:
@@ -187,6 +234,7 @@ def watch_add(
             "min_storage_gb": min_storage_gb,
             "max_price": max_price,
             "listing_key": listing,
+            "dim_filters": _parse_dims(dim),
         }
     )
     typer.echo(json.dumps(created, ensure_ascii=False, indent=2))
@@ -229,9 +277,72 @@ def service_status() -> None:
     typer.echo(status_fn())
 
 
-@app.command()
-def home() -> None:
-    typer.echo(str(data_dir()))
+@events_app.callback(invoke_without_command=True)
+def events(
+    ctx: typer.Context,
+    limit: int = typer.Option(50, "--limit", min=1, max=500),
+    as_json: bool = typer.Option(False, "--json", help="输出 JSON（时间为 UTC）"),
+) -> None:
+    """动态。无子命令时列出记录。"""
+    if ctx.invoked_subcommand:
+        return
+    rows = _client().events(limit=limit)
+    if as_json:
+        _dump(rows)
+        return
+    if not rows:
+        typer.echo("还没有记录。先运行 apple-refurb-watch scan")
+        return
+    for event in rows:
+        kind = str(event.get("type") or "")
+        when = format_localtime(event.get("created_at"))
+        body = event.get("title") or event.get("message") or ""
+        typer.echo(f"{when}  {EVENT_LABELS.get(kind, kind):<8}  {body}")
+
+
+@events_app.command("clear")
+def events_clear() -> None:
+    """清除动态记录，不影响在售和规则。"""
+    result = _client().clear_events() or {}
+    typer.echo(f"已清除 {result.get('deleted', 0)} 条记录")
+
+
+@settings_app.command("get")
+def settings_get(
+    as_json: bool = typer.Option(False, "--json", help="输出 JSON"),
+) -> None:
+    """查看设置（不含密钥）。"""
+    data = _client().settings()
+    if as_json:
+        _dump(data)
+        return
+    typer.echo(f"监听  {'开' if data.get('listen_enabled') else '关'}")
+    typer.echo(f"间隔  {data.get('interval_seconds')} 秒")
+    typer.echo(f"绑定  {data.get('bind_host')}:{data.get('bind_port')}")
+    typer.echo(f"局域网  {'开' if data.get('lan_enabled') else '关'}")
+    listings = data.get("listings") or []
+    names = [listing_name(key) for key in listings]
+    typer.echo(f"分类  {', '.join(names) if names else '-'}")
+
+
+@settings_app.command("set")
+def settings_set(
+    interval: Optional[int] = typer.Option(None, "--interval", help="扫描间隔（秒）"),
+    listen: Optional[bool] = typer.Option(None, "--listen/--no-listen", help="定时监听"),
+    listings: Optional[str] = typer.Option(None, "--listings", help="分类 key，逗号分隔"),
+) -> None:
+    """改安全项。口令和 Webhook 请用网页设置页。"""
+    patch: dict = {}
+    if interval is not None:
+        patch["interval_seconds"] = interval
+    if listen is not None:
+        patch["listen_enabled"] = listen
+    if listings is not None:
+        patch["listings"] = [part.strip() for part in listings.split(",") if part.strip()]
+    if not patch:
+        typer.echo("没有要改的项。可用 --interval / --listen / --listings")
+        raise typer.Exit(1)
+    _dump(_client().update_settings(patch))
 
 
 def main() -> None:

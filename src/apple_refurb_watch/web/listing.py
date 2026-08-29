@@ -1,83 +1,18 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import urlencode
 
 from fastapi import Request
 
-from apple_refurb_watch.categories import CATEGORIES
-from apple_refurb_watch.filters import label_for, restrict_dims, selected_dims
-from apple_refurb_watch.match import matches_watch
+from apple_refurb_watch.filters import label_for
+from apple_refurb_watch.listing import listing_filters
 
 PAGE_SIZE = 24
 
 
-def thumb_url(url: str | None, width: int = 400) -> str:
-    text = str(url or "").strip()
-    if not text:
-        return ""
-    parsed = urlparse(text)
-    host = (parsed.netloc or "").lower()
-    if "apple.com" not in host and "cdn-apple.com" not in host:
-        return text
-    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    if "wid" not in query and "hei" not in query:
-        return text
-    query["wid"] = str(width)
-    query["hei"] = str(width)
-    query.setdefault("fmt", "jpeg")
-    query.setdefault("qlt", "80")
-    return urlunparse(parsed._replace(query=urlencode(query)))
-
-
-def opt_number(raw: str | None, caster):
-    if raw in (None, ""):
-        return None
-    try:
-        return caster(raw)
-    except (TypeError, ValueError):
-        return None
-
-
-def filter_products(
-    items: list[dict],
-    *,
-    q: str | None = None,
-    listing_key: str | None = None,
-    color: str | None = None,
-    max_price: float | None = None,
-    min_ram_gb: int | None = None,
-    min_storage_gb: int | None = None,
-    dim_filters: dict | None = None,
-) -> list[dict]:
-    fake_watch = {
-        "mode": "condition",
-        "listing_key": listing_key or None,
-        "all_of": [q] if q else [],
-        "none_of": [],
-        "colors": [color] if color else [],
-        "max_price": max_price,
-        "min_ram_gb": min_ram_gb,
-        "min_storage_gb": min_storage_gb,
-        "dim_filters": dim_filters or {},
-    }
-    return [item for item in items if matches_watch(item, fake_watch)]
-
-
 def query_filters(request: Request) -> dict[str, Any]:
-    params = request.query_params
-    listing_key = (params.get("listing_key") or "").strip() or None
-    dim_filters = restrict_dims(selected_dims(params), listing_key)
-    color = (params.get("color") or "").strip() or None
-    return {
-        "q": (params.get("q") or "").strip() or None,
-        "listing_key": listing_key,
-        "color": color,
-        "max_price": opt_number(params.get("max_price"), float),
-        "min_ram_gb": opt_number(params.get("min_ram_gb"), int),
-        "min_storage_gb": opt_number(params.get("min_storage_gb"), int),
-        "dim_filters": dim_filters,
-    }
+    return listing_filters(request.query_params)
 
 
 def page_offset(request: Request) -> int:
@@ -114,10 +49,6 @@ def omit_query(request: Request, drop_key: str, drop_value: str | None = None) -
 
 def filter_chips(request: Request, filters: dict[str, Any]) -> list[dict[str, str]]:
     chips: list[dict[str, str]] = []
-    listing_key = filters.get("listing_key") or ""
-    if listing_key:
-        name = CATEGORIES[listing_key]["name"] if listing_key in CATEGORIES else listing_key
-        chips.append({"label": name, "href": omit_query(request, "listing_key")})
     for key, values in (filters.get("dim_filters") or {}).items():
         for value in values:
             chips.append({"label": label_for(key, value), "href": omit_query(request, f"d_{key}", value)})

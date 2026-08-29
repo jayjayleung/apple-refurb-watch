@@ -26,6 +26,29 @@ def format_localtime(iso: str | None) -> str:
     return stamp.astimezone(DISPLAY_TZ).strftime("%Y-%m-%d %H:%M")
 
 
+def load_status(database) -> dict[str, Any]:
+    settings = database.settings()
+    data = database.scan_status()
+    watch_enabled = database.count_watches(enabled=True)
+    watch_total = database.count_watches()
+    in_stock = database.count_products(in_stock=True)
+    data["settings"] = {
+        k: settings[k]
+        for k in ("interval_seconds", "bind_host", "bind_port", "lan_enabled", "listings", "listen_enabled")
+    }
+    data["watch_count"] = watch_enabled
+    data["watch_total"] = watch_total
+    data["in_stock"] = in_stock
+    data["view"] = present_status(
+        data,
+        settings,
+        in_stock=in_stock,
+        watch_enabled=watch_enabled,
+        watch_total=watch_total,
+    )
+    return data
+
+
 def present_status(
     status: dict[str, Any],
     settings: dict[str, Any],
@@ -155,20 +178,106 @@ def _routine_summary(routines: list[dict[str, Any]]) -> dict[str, Any]:
     return summary
 
 
-def present_event_days(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _collapse_day_scans(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    routines = [item for item in entries if item.get("kind") == "routine"]
+    if len(routines) <= 1:
+        return entries
+    summary = _routine_summary(routines)
+    out: list[dict[str, Any]] = []
+    inserted = False
+    for item in entries:
+        if item.get("kind") == "routine":
+            if not inserted:
+                out.append(summary)
+                inserted = True
+            continue
+        out.append(item)
+    return out
+
+
+EVENT_PAGE_SIZE = 20
+EVENT_DAY_PAGE_SIZE = 7
+
+
+def present_event_days(
+    events: list[dict[str, Any]],
+    *,
+    collapse_scans: bool = False,
+) -> list[dict[str, Any]]:
     days: list[dict[str, Any]] = []
     for event in events:
         item = _present_event(event)
         if not days or days[-1]["day"] != item["day"]:
-            days.append({"day": item["day"], "items": [item]})
+            days.append({"day": item["day"], "entries": [item]})
         else:
-            days[-1]["items"].append(item)
-    presented: list[dict[str, Any]] = []
+            days[-1]["entries"].append(item)
+    if not collapse_scans:
+        return days
+    return [{"day": day["day"], "entries": _collapse_day_scans(day["entries"])} for day in days]
+
+
+def _page_index(page: int, pages: int) -> int:
+    try:
+        page_i = int(page)
+    except (TypeError, ValueError):
+        page_i = 1
+    return min(max(1, page_i), pages)
+
+
+def paginate_event_days(
+    days: list[dict[str, Any]],
+    page: int,
+    page_size: int | None = None,
+    *,
+    by_day: bool = False,
+) -> dict[str, Any]:
+    if page_size is None:
+        page_size = EVENT_DAY_PAGE_SIZE if by_day else EVENT_PAGE_SIZE
+    page_size = max(1, int(page_size))
+    entry_total = sum(len(day.get("entries") or []) for day in days)
+    day_total = len(days)
+    if by_day:
+        unit_total = day_total
+        pages = max(1, (unit_total + page_size - 1) // page_size) if unit_total else 1
+        page_i = _page_index(page, pages)
+        start = (page_i - 1) * page_size
+        grouped = days[start : start + page_size]
+    else:
+        flat: list[tuple[str, dict[str, Any]]] = [
+            (str(day.get("day") or ""), entry)
+            for day in days
+            for entry in day.get("entries") or []
+        ]
+        unit_total = len(flat)
+        pages = max(1, (unit_total + page_size - 1) // page_size) if unit_total else 1
+        page_i = _page_index(page, pages)
+        start = (page_i - 1) * page_size
+        grouped = []
+        for day_key, entry in flat[start : start + page_size]:
+            if not grouped or grouped[-1]["day"] != day_key:
+                grouped.append({"day": day_key, "entries": [entry]})
+            else:
+                grouped[-1]["entries"].append(entry)
+    return {
+        "event_days": grouped,
+        "event_page": page_i,
+        "event_pages": pages,
+        "event_total": entry_total,
+        "event_day_total": day_total,
+        "has_prev": page_i > 1,
+        "has_next": page_i < pages,
+    }
+
+
+def filter_event_days(days: list[dict[str, Any]], kind: str | None) -> list[dict[str, Any]]:
+    if not kind or kind == "all":
+        return days
+    wanted = {"appear": "appear", "error": "error"}.get(kind)
+    if not wanted:
+        return days
+    out: list[dict[str, Any]] = []
     for day in days:
-        primary = [item for item in day["items"] if item["kind"] != "routine"]
-        routines = [item for item in day["items"] if item["kind"] == "routine"]
-        entries = list(primary)
-        if routines:
-            entries.append(_routine_summary(routines))
-        presented.append({"day": day["day"], "entries": entries})
-    return presented
+        entries = [item for item in day["entries"] if item.get("kind") == wanted]
+        if entries:
+            out.append({"day": day["day"], "entries": entries})
+    return out

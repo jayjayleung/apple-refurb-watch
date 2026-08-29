@@ -1,0 +1,65 @@
+<div id="event-feed">
+{% if event_total %}
+<nav class="event-tools" aria-label="显示方式">
+  <a class="chip-x{% if not event_digest %} on{% endif %}" href="{{ events_url_all }}"{% if not event_digest %} aria-current="page"{% endif %}>全部记录</a>
+  <a class="chip-x{% if event_digest %} on{% endif %}" href="{{ events_url_digest }}"{% if event_digest %} aria-current="page"{% endif %}>按日合并</a>
+  {% if event_pages > 1 %}
+  <div class="event-pager">
+    {% if has_prev %}
+    <a class="btn" href="{{ events_url_prev }}">上一页</a>
+    {% else %}
+    <span class="btn" aria-disabled="true">上一页</span>
+    {% endif %}
+    {% if has_next %}
+    <a class="btn" href="{{ events_url_next }}">下一页</a>
+    {% else %}
+    <span class="btn" aria-disabled="true">下一页</span>
+    {% endif %}
+  </div>
+  {% endif %}
+  <p class="count">{% if event_digest %}{{ event_day_total }} 天{% else %}{{ event_total }} 条{% endif %}{% if event_pages > 1 %} · 第 {{ event_page }} / {{ event_pages }} 页{% endif %}</p>
+</nav>
+{% for day in event_days %}
+<section class="event-day">
+  <h2>{{ day.day }}</h2>
+  <ol class="timeline">
+    {% for event in day.entries %}
+    <li class="event-{{ event.kind }}">
+      <time class="when" datetime="{{ event.created_at }}">{{ event.when_local }}</time>
+      {% if event.image_url %}
+      <img class="event-thumb" src="{{ event.image_url|thumb }}" alt="" width="42" height="42">
+      {% endif %}
+      <strong>{{ event.label }}</strong>
+      {% if event.kind == 'appear' and event.title %}
+      <p>{{ event.title }}</p>
+      {% else %}
+      <p>{{ event.message or event.title }}</p>
+      {% endif %}
+      {% if event.url %}<a href="{{ event.url }}" target="_blank" rel="noreferrer">打开商品</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endfor %}
+{% if event_pages > 1 %}
+<nav class="pager" aria-label="分页">
+  {% if has_prev %}
+  <a class="btn" href="{{ events_url_prev }}">上一页</a>
+  {% else %}
+  <span class="btn" aria-disabled="true">上一页</span>
+  {% endif %}
+  <p class="count">第 {{ event_page }} / {{ event_pages }} 页</p>
+  {% if has_next %}
+  <a class="btn" href="{{ events_url_next }}">下一页</a>
+  {% else %}
+  <span class="btn" aria-disabled="true">下一页</span>
+  {% endif %}
+</nav>
+{% endif %}
+{% else %}
+<div class="empty">
+  <p>还没有记录。首次扫描只建基线，不会把当前库存全部推过来。</p>
+  {% with scan_class='primary' %}{% include "_scan.html" %}{% endwith %}
+</div>
+{% endif %}
+</div>

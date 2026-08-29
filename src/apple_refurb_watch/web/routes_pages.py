@@ -1,21 +1,74 @@
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from apple_refurb_watch.db import EVENT_KEEP
 from apple_refurb_watch.filters import facet_groups
-from apple_refurb_watch.status_view import present_event_days
+from apple_refurb_watch.listing import filter_products, sort_products
+from apple_refurb_watch.status_view import filter_event_days, paginate_event_days, present_event_days
 from apple_refurb_watch.web.auth import token_ok
 from apple_refurb_watch.web.listing import (
     PAGE_SIZE,
     filter_chips,
-    filter_products,
     listings_path,
     page_offset,
     query_filters,
 )
 
 router = APIRouter()
+
+
+def _truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def events_url(*, page: int = 1, digest: bool = False, kind: str = "all") -> str:
+    pairs: list[tuple[str, str]] = []
+    if kind and kind != "all":
+        pairs.append(("kind", kind))
+    if digest:
+        pairs.append(("digest", "1"))
+    if page > 1:
+        pairs.append(("page", str(page)))
+    query = urlencode(pairs)
+    return f"/events?{query}" if query else "/events"
+
+
+def _event_context(request: Request) -> dict:
+    database = request.app.state.db
+    kind = (request.query_params.get("kind") or "all").strip() or "all"
+    digest = _truthy(request.query_params.get("digest"))
+    try:
+        page = int(request.query_params.get("page") or 1)
+    except (TypeError, ValueError):
+        page = 1
+    thumbs = {
+        str(item.get("sku") or ""): item.get("image_url")
+        for item in database.list_products()
+        if item.get("sku") and item.get("image_url")
+    }
+    days = filter_event_days(
+        present_event_days(database.list_events(EVENT_KEEP), collapse_scans=digest),
+        kind,
+    )
+    paged = paginate_event_days(days, page, by_day=digest)
+    for day in paged["event_days"]:
+        for event in day["entries"]:
+            sku = str(event.get("sku") or "")
+            if sku and thumbs.get(sku):
+                event["image_url"] = thumbs[sku]
+    return {
+        **paged,
+        "event_kind": kind,
+        "event_digest": digest,
+        "events_url_all": events_url(kind=kind),
+        "events_url_digest": events_url(digest=True, kind=kind),
+        "events_url_prev": events_url(page=paged["event_page"] - 1, digest=digest, kind=kind),
+        "events_url_next": events_url(page=paged["event_page"] + 1, digest=digest, kind=kind),
+    }
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -35,6 +88,7 @@ def home(request: Request) -> HTMLResponse:
         dim_filters={},
     )
     items = filter_products(stock, **filters)
+    items = sort_products(items, request.query_params.get("sort"))
     hx_request = bool(request.headers.get("HX-Request"))
     hx_target = (request.headers.get("HX-Target") or "").lstrip("#")
     offset = page_offset(request) if hx_request and hx_target == "product-grid" else 0
@@ -44,6 +98,7 @@ def home(request: Request) -> HTMLResponse:
     ctx = {
         "items": page_items,
         "total_count": total_count,
+        "sort": (request.query_params.get("sort") or "price").strip() or "price",
         "q": filters["q"] or "",
         "listing_key": filters["listing_key"] or "",
         "color": filters["color"] or "",
@@ -76,9 +131,14 @@ def home(request: Request) -> HTMLResponse:
 
 @router.get("/events", response_class=HTMLResponse)
 def events_page(request: Request) -> HTMLResponse:
-    return request.app.state.render(
-        "events.html", request, event_days=present_event_days(request.app.state.db.list_events(120))
-    )
+    ctx = _event_context(request)
+    return request.app.state.render("events.html", request, **ctx)
+
+
+@router.post("/events/clear")
+def events_clear(request: Request) -> RedirectResponse:
+    request.app.state.db.clear_events()
+    return RedirectResponse("/events", status_code=303)
 
 
 @router.get("/login", response_class=HTMLResponse)

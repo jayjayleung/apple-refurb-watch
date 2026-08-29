@@ -83,6 +83,9 @@ class ApiClient:
     def events(self, limit: int = 50) -> list:
         return self.request("GET", "/api/events", params={"limit": limit})
 
+    def clear_events(self) -> dict:
+        return self.request("DELETE", "/api/events")
+
     def settings(self) -> dict:
         return self.request("GET", "/api/settings")
 

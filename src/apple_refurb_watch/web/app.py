@@ -18,7 +18,7 @@ from apple_refurb_watch.web.routes_api import router as api_router
 from apple_refurb_watch.web.routes_pages import router as pages_router
 from apple_refurb_watch.web.routes_settings import router as settings_router
 from apple_refurb_watch.web.routes_watches import router as watches_router
-from apple_refurb_watch.web.settings_public import public_url
+from apple_refurb_watch.settings import public_url
 
 
 def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> FastAPI:

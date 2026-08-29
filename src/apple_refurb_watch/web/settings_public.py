@@ -4,56 +4,9 @@ import secrets
 from typing import Any
 from urllib.parse import urlparse
 
-from apple_refurb_watch.categories import listing_url
+from apple_refurb_watch.settings import public_settings, public_url, safe_listings
 
-_SECRET_NOTIFY_KEYS = ("password", "bot_token", "sendkey", "token", "secret", "webhook", "url")
-
-
-def public_url(settings: dict) -> str:
-    host = settings.get("bind_host") or "127.0.0.1"
-    if host in {"0.0.0.0", "::"}:
-        host = "127.0.0.1"
-    port = settings.get("bind_port") or 8765
-    return f"http://{host}:{port}"
-
-
-def public_settings(settings: dict) -> dict:
-    data = {
-        key: settings.get(key)
-        for key in (
-            "interval_seconds",
-            "bind_host",
-            "bind_port",
-            "lan_enabled",
-            "listings",
-            "detail_delay_seconds",
-            "close_window_keeps_daemon",
-            "listen_enabled",
-        )
-    }
-    notify = {}
-    for name, conf in (settings.get("notify") or {}).items():
-        safe = dict(conf)
-        for secret_key in _SECRET_NOTIFY_KEYS:
-            if safe.get(secret_key):
-                safe[secret_key + "_set"] = True
-                safe[secret_key] = ""
-        notify[name] = safe
-    data["notify"] = notify
-    data["access_token"] = ""
-    data["access_token_set"] = bool(settings.get("access_token"))
-    return data
-
-
-def safe_listings(keys: list[str]) -> list[str]:
-    out: list[str] = []
-    for key in keys:
-        try:
-            listing_url(str(key))
-        except KeyError:
-            continue
-        out.append(str(key))
-    return out or ["mac"]
+__all__ = ["form_settings", "public_settings", "public_url", "safe_listings", "safe_next"]
 
 
 def safe_next(raw: str | None, fallback: str = "/") -> str:
@@ -96,7 +49,19 @@ def form_settings(form: dict, current: dict) -> dict:
     for name, conf in notify.items():
         enabled = form.get(f"notify_{name}_enabled") in {"1", "on", "true"}
         updated = {**conf, "enabled": enabled}
-        for field in ("url", "sendkey", "token", "webhook", "secret", "bot_token", "chat_id", "smtp_host", "username", "password", "to"):
+        for field in (
+            "url",
+            "sendkey",
+            "token",
+            "webhook",
+            "secret",
+            "bot_token",
+            "chat_id",
+            "smtp_host",
+            "username",
+            "password",
+            "to",
+        ):
             key = f"notify_{name}_{field}"
             if key in form and str(form[key]).strip():
                 updated[field] = str(form[key]).strip()

@@ -454,6 +454,12 @@ class Database:
             rows = self.conn.execute("SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         return [dict(row) for row in rows]
 
+    def clear_events(self) -> int:
+        with self._lock:
+            cur = self.conn.execute("DELETE FROM events")
+            self.conn.commit()
+            return int(cur.rowcount or 0)
+
     def count_products(self, *, in_stock: bool | None = True) -> int:
         sql = "SELECT COUNT(*) AS n FROM products"
         if in_stock is True:

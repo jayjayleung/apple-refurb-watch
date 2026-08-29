@@ -1,7 +1,7 @@
 <div class="shop">
   <input type="checkbox" id="filter-open" class="filter-check" tabindex="-1">
   <label class="filter-scrim" for="filter-open" aria-hidden="true"></label>
-  <form class="filter-rail" hx-get="/" hx-target="#shop" hx-push-url="true" hx-indicator="#shop" hx-sync="this:replace" hx-trigger="change, keyup delay:400ms from:input[type='search'], keyup delay:400ms from:input[type='number']">
+  <form id="shop-filter" class="filter-rail" hx-get="/" hx-target="#shop" hx-push-url="true" hx-indicator="#shop" hx-sync="this:replace" hx-trigger="change, keyup delay:400ms from:input[type='search'], keyup delay:400ms from:input[type='number']">
     <label class="filter-done" for="filter-open">完成</label>
     <p class="filter-title">筛选</p>
     <label class="facet-select">分类
@@ -45,6 +45,15 @@
         </div>
         {% endif %}
       </div>
+      <label class="shop-sort">
+        <span class="vh">排序</span>
+        <select name="sort" form="shop-filter" aria-label="排序"
+                hx-get="/" hx-include="#shop-filter" hx-target="#shop" hx-push-url="true"
+                hx-indicator="#shop" hx-sync="#shop-filter:replace">
+          <option value="price" {% if sort != '-price' %}selected{% endif %}>价格：由低至高</option>
+          <option value="-price" {% if sort == '-price' %}selected{% endif %}>价格：由高至低</option>
+        </select>
+      </label>
       <label class="btn filter-toggle" for="filter-open">筛选{% if filter_chips %} {{ filter_chips|length }}{% endif %}</label>
     </div>
     {% include "_products.html" %}

@@ -11,7 +11,6 @@ from .model_dims import MODEL_DIMS
 from .tokens import (
     CASCADE_OOS_KEYS,
     CHIP_KEY,
-    DERIVED_KEYS,
     _listings_for_key,
     _sort_values,
     _value_listings,
@@ -194,7 +193,7 @@ def facet_groups(
             listings = _value_listings(key, value, spec)
             count = dim_counts.get(value, 0)
             if listing_key and listing_key not in listings:
-                live_here = key in DERIVED_KEYS and bool(dim_counts.get(value))
+                live_here = bool(dim_counts.get(value))
                 if value not in (selected_map.get(key) or []) and not live_here:
                     continue
             if allow is not None and value not in allow and value not in (selected_map.get(key) or []):

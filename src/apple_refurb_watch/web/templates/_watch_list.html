@@ -1,0 +1,51 @@
+{% if watches %}
+<p class="count">{{ watches|length }} 条规则</p>
+<div class="watch-list">
+  {% for watch in watches %}
+  <article class="watch {% if not watch.enabled %}off{% endif %}">
+    <header>
+      <h2>{{ watch.name }}</h2>
+      <span class="tag">{{ '精确 SKU' if watch.mode == 'sku' else '条件' }}</span>
+      <span class="tag {% if watch.in_stock_matches %}ok{% else %}oos{% endif %}">在售 {{ watch.in_stock_matches }}</span>
+      {% if not watch.enabled %}<span class="tag mute">已暂停</span>{% endif %}
+    </header>
+    <div class="chips watch-conds">
+      {% if watch.sku %}<span class="chip-x"><span>{{ watch.sku }}</span></span>{% endif %}
+      {% if watch.listing_key and watch.listing_key in categories %}
+      <span class="chip-x"><span>{{ categories[watch.listing_key].name }}</span></span>
+      {% endif %}
+      {% for key, values in (watch.dim_filters or {}).items() %}
+        {% for value in values %}
+        <span class="chip-x"><span>{{ label_for(key, value) }}</span></span>
+        {% endfor %}
+      {% endfor %}
+      {% if watch.all_of %}<span class="chip-x"><span>包含 {{ watch.all_of | join(' / ') }}</span></span>{% endif %}
+      {% if watch.none_of %}<span class="chip-x"><span>排除 {{ watch.none_of | join(' / ') }}</span></span>{% endif %}
+      {% if watch.min_ram_gb %}<span class="chip-x"><span>内存 ≥ {{ watch.min_ram_gb }}GB</span></span>{% endif %}
+      {% if watch.min_storage_gb %}<span class="chip-x"><span>硬盘 ≥ {{ watch.min_storage_gb|gb }}</span></span>{% endif %}
+      {% if watch.max_price %}<span class="chip-x"><span>≤ ¥{{ watch.max_price|cny }}</span></span>{% endif %}
+      {% if watch.colors %}
+        {% for color in watch.colors %}
+        <span class="chip-x"><span>{{ color }}</span></span>
+        {% endfor %}
+      {% endif %}
+    </div>
+    <div class="row">
+      <form method="post" action="/watches/{{ watch.id }}/toggle" hx-post="/watches/{{ watch.id }}/toggle" hx-target="#watch-side" hx-swap="innerHTML">
+        <button class="btn" type="submit">{{ '暂停' if watch.enabled else '启用' }}</button>
+      </form>
+      <details class="confirm-del">
+        <summary>删除</summary>
+        <form method="post" action="/watches/{{ watch.id }}/delete" hx-post="/watches/{{ watch.id }}/delete" hx-target="#watch-side" hx-swap="innerHTML">
+          <button class="btn quiet" type="submit">确认删除</button>
+        </form>
+      </details>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  <p>还没有规则。在上方选型号和配置，或去在售页点「按配置听」。</p>
+</div>
+{% endif %}

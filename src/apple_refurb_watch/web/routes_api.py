@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import secrets
-
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from apple_refurb_watch.filters import live_catalog_path, load_catalog, user_catalog_path
+from apple_refurb_watch.listing import filter_products, listing_filters
 from apple_refurb_watch.notify import NotifyError, send_test
 from apple_refurb_watch.scanner import run_scan
-from apple_refurb_watch.status_view import present_status
-from apple_refurb_watch.web.listing import filter_products, query_filters
+from apple_refurb_watch.settings import normalize_settings_patch, public_settings
+from apple_refurb_watch.status_view import load_status
 from apple_refurb_watch.web.schemas import SettingsPatch, WatchIn, WatchPatch
-from apple_refurb_watch.web.settings_public import public_settings, safe_listings
 
 router = APIRouter()
 
@@ -22,26 +20,7 @@ def health() -> dict:
 
 @router.get("/api/status")
 def status(request: Request) -> dict:
-    database = request.app.state.db
-    settings = database.settings()
-    data = database.scan_status()
-    watch_enabled = database.count_watches(enabled=True)
-    watch_total = database.count_watches()
-    data["settings"] = {
-        k: settings[k]
-        for k in ("interval_seconds", "bind_host", "bind_port", "lan_enabled", "listings", "listen_enabled")
-    }
-    data["watch_count"] = watch_enabled
-    data["watch_total"] = watch_total
-    data["in_stock"] = database.count_products(in_stock=True)
-    data["view"] = present_status(
-        data,
-        settings,
-        in_stock=data["in_stock"],
-        watch_enabled=watch_enabled,
-        watch_total=watch_total,
-    )
-    return data
+    return load_status(request.app.state.db)
 
 
 @router.get("/api/filter-catalog")
@@ -57,7 +36,7 @@ def api_filter_catalog() -> dict:
 @router.get("/api/listings")
 def api_listings(request: Request) -> dict:
     database = request.app.state.db
-    filters = query_filters(request)
+    filters = listing_filters(request.query_params)
     items = filter_products(database.list_products(in_stock=True), **filters)
     return {"items": items, "count": len(items)}
 
@@ -98,6 +77,12 @@ def api_events(request: Request, limit: int = Query(80, ge=1, le=500)) -> list:
     return request.app.state.db.list_events(limit)
 
 
+@router.delete("/api/events")
+def api_clear_events(request: Request) -> dict:
+    deleted = request.app.state.db.clear_events()
+    return {"ok": True, "deleted": deleted}
+
+
 @router.get("/api/settings")
 def api_settings(request: Request) -> dict:
     return public_settings(request.app.state.db.settings())
@@ -106,22 +91,7 @@ def api_settings(request: Request) -> dict:
 @router.patch("/api/settings")
 def api_patch_settings(request: Request, payload: SettingsPatch) -> dict:
     database = request.app.state.db
-    patch = payload.model_dump(exclude_unset=True)
-    current = database.settings()
-    if "access_token" in patch:
-        token = str(patch.get("access_token") or "").strip()
-        if token:
-            patch["access_token"] = token
-        else:
-            patch.pop("access_token", None)
-    if "listings" in patch and patch["listings"] is not None:
-        patch["listings"] = safe_listings(patch["listings"])
-    if patch.get("lan_enabled") and not (patch.get("access_token") or current.get("access_token")):
-        patch["access_token"] = secrets.token_urlsafe(16)
-    if patch.get("lan_enabled"):
-        patch.setdefault("bind_host", "0.0.0.0")
-    if patch.get("lan_enabled") is False:
-        patch.setdefault("bind_host", "127.0.0.1")
+    patch = normalize_settings_patch(payload.model_dump(exclude_unset=True), database.settings())
     updated = database.update_settings(patch)
     if "interval_seconds" in patch or "listen_enabled" in patch:
         request.app.state.reschedule()

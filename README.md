@@ -1,6 +1,6 @@
 # 苹果官翻指定配置监听
 
-盯住 [苹果中国认证翻新](https://www.apple.com.cn/shop/refurbished) 里你选定的配置。上新时推送到 Bark / 微信 / 飞书 / 钉钉 / Telegram / 邮件。
+监听 [苹果中国认证翻新](https://www.apple.com.cn/shop/refurbished) 里你选定的配置。上新时推送到 Bark / 微信 / 飞书 / 钉钉 / Telegram / 邮件。
 
 一个后台 daemon 独占扫描和写库；网页、桌面窗口、CLI、TUI 都通过本地 API 操作。
 
