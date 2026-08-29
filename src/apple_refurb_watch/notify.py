@@ -33,6 +33,15 @@ def send_all(settings: dict[str, Any], title: str, body: str, url: str | None = 
     return errors
 
 
+TEST_TITLE = "官翻监听测试"
+TEST_BODY = "通知通道已接通。"
+TEST_URL = "https://www.apple.com.cn/shop/refurbished"
+
+
+def send_test(settings: dict[str, Any]) -> list[str]:
+    return send_all(settings, TEST_TITLE, TEST_BODY, TEST_URL)
+
+
 def _dispatch(name: str, conf: dict, title: str, body: str, url: str | None) -> None:
     if name == "bark":
         _bark(conf, title, body, url)

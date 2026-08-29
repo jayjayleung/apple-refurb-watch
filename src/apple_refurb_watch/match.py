@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import re
 from dataclasses import asdict, is_dataclass
 
 from apple_refurb_watch.parse import Product, color_from_title, normalize_sku
+from apple_refurb_watch.textutil import norm_text
 
 COLOR_ALIASES: dict[str, list[str]] = {
     "silver": ["银色", "silver"],
@@ -26,11 +26,7 @@ COLOR_ALIASES: dict[str, list[str]] = {
 }
 
 
-def norm_text(value: str | None) -> str:
-    if not value:
-        return ""
-    text = value.replace("\xa0", " ").replace("\u200d", "").replace("\u200b", "")
-    return re.sub(r"\s+", "", text).lower()
+
 
 
 def _product_dict(product: Product | dict) -> dict:

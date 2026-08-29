@@ -102,10 +102,9 @@ def list_products(
     if local:
         items = Database().list_products(in_stock=True)
         if q or listing:
-            from apple_refurb_watch.match import matches_watch
+            from apple_refurb_watch.web.listing import filter_products
 
-            watch = {"mode": "condition", "all_of": [q] if q else [], "listing_key": listing}
-            items = [i for i in items if matches_watch(i, watch)]
+            items = filter_products(items, q=q, listing_key=listing)
     else:
         items = _client().listings(q=q, listing_key=listing).get("items") or []
     if not items:
