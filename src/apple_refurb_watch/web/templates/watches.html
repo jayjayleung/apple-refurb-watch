@@ -1,77 +1,112 @@
 {% extends "base.html" %}
 {% block title %}监听规则 · 官翻监听{% endblock %}
+{% block main_class %}page-watch{% endblock %}
 {% block body %}
-<section class="hero">
+<header class="page-head">
   <div>
-    <p class="kicker">规则</p>
-    <h1>你要等的配置</h1>
-    <p class="lede">官网维度同维多选为「或」，跨维为「且」。芯片不在官翻筛选里，用「必须包含」。缺货机型也可以先勾上。</p>
+    <h1>监听</h1>
+    <p class="lede">选型号和配置，没货也可以先存。上新会通知。</p>
   </div>
-</section>
+</header>
 
-<form class="panel watch-form" method="post" action="/watches" id="watch-create">
-  <h2>新增规则</h2>
-  <div class="form-grid">
-    <label>名称 <input name="name" required placeholder="14 寸 MBP M5 Pro 24G"></label>
-    <label>模式
-      <select name="mode" id="watch-mode">
-        <option value="condition">条件配置</option>
-        <option value="sku">精确 SKU</option>
-      </select>
-    </label>
-    <label>SKU <input name="sku" placeholder="FGDN4CH/A"></label>
-    <label>分类
-      <select name="listing_key" id="watch-listing">
-        <option value="">不限</option>
-        {% for key, item in categories.items() %}
-        <option value="{{ key }}">{{ item.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
+<div class="watch-page">
+<form class="panel watch-form" method="post" action="/watches" id="watch-create"
+      hx-post="/watches/preview"
+      hx-trigger="change delay:200ms, cascade-done"
+      hx-target="#watch-preview"
+      hx-swap="innerHTML">
+  <div class="watch-toolbar">
+    <div>
+      <p class="field-label">分类</p>
+      {% with listing_key = 'mac', all_label = '不限' %}
+        {% include "_category_pills.html" %}
+      {% endwith %}
+    </div>
+    <div>
+      <p class="field-label">方式</p>
+      <div class="pills" role="radiogroup" aria-label="方式">
+        <label class="pill">
+          <input type="radio" name="mode" value="condition" checked>
+          <span>按配置</span>
+        </label>
+        <label class="pill">
+          <input type="radio" name="mode" value="sku">
+          <span>精确 SKU</span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div id="sku-fields" hidden>
+    <label>SKU <input name="sku" placeholder="FGDN4CH/A" autocomplete="off"></label>
   </div>
 
   <div id="condition-fields">
-    <h3 class="facet-heading">官网筛选</h3>
-    <p class="hint">勾选与苹果认证翻新列表页相同的维度。不勾表示该维不限。</p>
-    <div class="watch-facets">
+    <p class="hint">先点型号，再点芯片和核心数。尺寸和年份会再收一档。内存缺货项（如 128GB）仍会留着。</p>
+    <div id="watch-dims" class="watch-facets"
+         hx-post="/watches/cascade"
+         hx-trigger="change from:#watch-create input[name='listing_key'], change from:#watch-create input[name='d_refurbClearModel'], change from:#watch-create input[name='d_chip']"
+         hx-include="#watch-create"
+         hx-target="this"
+         hx-swap="innerHTML"
+         hx-sync="this:replace"
+         hx-on::after-swap="htmx.trigger('#watch-create', 'cascade-done')">
       {% with facets = watch_facets %}
-        {% include "_facets.html" %}
+        {% include "_watch_facets.html" %}
       {% endwith %}
     </div>
-    <h3 class="facet-heading">补充条件</h3>
-    <div class="form-grid">
-      <label class="wide">必须包含（逗号分隔，适合芯片）<input name="all_of" placeholder="M5 Pro"></label>
-      <label class="wide">排除 <input name="none_of" placeholder="纳米纹理"></label>
-      <label>最高价 <input type="number" name="max_price" min="0"></label>
-      <label>内存 ≥ GB <input type="number" name="min_ram_gb" min="0" placeholder="可选"></label>
-      <label>硬盘 ≥ GB <input type="number" name="min_storage_gb" min="0" placeholder="可选"></label>
-    </div>
+    <details class="more-conditions">
+      <summary>价格、排除等补充条件</summary>
+      <div class="form-grid">
+        <label class="wide">必须包含（逗号分隔）<input name="all_of" placeholder="纳米纹理以外的标题词"></label>
+        <label class="wide">排除 <input name="none_of" placeholder="纳米纹理"></label>
+        <label>最高价 <input type="number" name="max_price" min="0"></label>
+        <label>内存 ≥ GB <input type="number" name="min_ram_gb" min="0" placeholder="可选"></label>
+        <label>硬盘 ≥ GB <input type="number" name="min_storage_gb" min="0" placeholder="可选"></label>
+      </div>
+    </details>
   </div>
-  <button class="btn primary" type="submit">保存规则</button>
+
+  <div class="watch-save">
+    <p id="watch-preview" class="watch-preview">点型号和选项。当前没货也可以先保存，上新会通知。</p>
+    <label class="watch-name">名称 <input name="name" placeholder="留空则按条件自动命名" autocomplete="off"></label>
+    <button class="btn primary" type="submit">保存规则</button>
+  </div>
 </form>
 
+<div class="watch-side">
 {% if watches %}
+<p class="count">{{ watches|length }} 条规则</p>
 <div class="watch-list">
   {% for watch in watches %}
   <article class="watch {% if not watch.enabled %}off{% endif %}">
     <header>
       <h2>{{ watch.name }}</h2>
       <span class="tag">{{ '精确 SKU' if watch.mode == 'sku' else '条件' }}</span>
+      <span class="tag {% if watch.in_stock_matches %}ok{% else %}oos{% endif %}">在售 {{ watch.in_stock_matches }}</span>
       {% if not watch.enabled %}<span class="tag mute">已暂停</span>{% endif %}
     </header>
-    <p class="meta">
-      {% if watch.sku %}{{ watch.sku }}{% endif %}
-      {% if watch.listing_key and watch.listing_key in categories %} · {{ categories[watch.listing_key].name }}{% endif %}
-      {% for part in dim_summary(watch.dim_filters) %}
-        · {{ part }}
+    <div class="chips watch-conds">
+      {% if watch.sku %}<span class="chip-x"><span>{{ watch.sku }}</span></span>{% endif %}
+      {% if watch.listing_key and watch.listing_key in categories %}
+      <span class="chip-x"><span>{{ categories[watch.listing_key].name }}</span></span>
+      {% endif %}
+      {% for key, values in (watch.dim_filters or {}).items() %}
+        {% for value in values %}
+        <span class="chip-x"><span>{{ label_for(key, value) }}</span></span>
+        {% endfor %}
       {% endfor %}
-      {% if watch.all_of %} · 包含 {{ watch.all_of | join(' / ') }}{% endif %}
-      {% if watch.none_of %} · 排除 {{ watch.none_of | join(' / ') }}{% endif %}
-      {% if watch.min_ram_gb %} · ≥{{ watch.min_ram_gb }}GB 内存{% endif %}
-      {% if watch.min_storage_gb %} · ≥{{ watch.min_storage_gb|gb }}{% endif %}
-      {% if watch.max_price %} · ≤ RMB {{ watch.max_price|cny }}{% endif %}
-      {% if watch.colors %} · {{ watch.colors | join(' ') }}{% endif %}
-    </p>
+      {% if watch.all_of %}<span class="chip-x"><span>包含 {{ watch.all_of | join(' / ') }}</span></span>{% endif %}
+      {% if watch.none_of %}<span class="chip-x"><span>排除 {{ watch.none_of | join(' / ') }}</span></span>{% endif %}
+      {% if watch.min_ram_gb %}<span class="chip-x"><span>内存 ≥ {{ watch.min_ram_gb }}GB</span></span>{% endif %}
+      {% if watch.min_storage_gb %}<span class="chip-x"><span>硬盘 ≥ {{ watch.min_storage_gb|gb }}</span></span>{% endif %}
+      {% if watch.max_price %}<span class="chip-x"><span>≤ ¥{{ watch.max_price|cny }}</span></span>{% endif %}
+      {% if watch.colors %}
+        {% for color in watch.colors %}
+        <span class="chip-x"><span>{{ color }}</span></span>
+        {% endfor %}
+      {% endif %}
+    </div>
     <div class="row">
       <form method="post" action="/watches/{{ watch.id }}/toggle">
         <button class="btn" type="submit">{{ '暂停' if watch.enabled else '启用' }}</button>
@@ -84,31 +119,28 @@
   {% endfor %}
 </div>
 {% else %}
-<p class="empty">还没有规则。去在售页点「按配置听」，或在上方按官网维度勾选。</p>
+<div class="empty">
+  <p>还没有规则。在上方选型号和配置，或去在售页点「按配置听」。</p>
+</div>
 {% endif %}
+</div>
+</div>
 
 <script>
 (function () {
-  const listing = document.getElementById("watch-listing");
-  const mode = document.getElementById("watch-mode");
+  const form = document.getElementById("watch-create");
   const condition = document.getElementById("condition-fields");
-  function sync() {
-    if (condition) condition.hidden = mode && mode.value === "sku";
-    const key = listing ? listing.value : "";
-    document.querySelectorAll("#watch-create [data-listings]").forEach(function (el) {
-      const allow = (el.getAttribute("data-listings") || "").split(",").filter(Boolean);
-      const on = !key || allow.indexOf(key) !== -1;
-      el.hidden = !on;
-      if (!on) el.querySelectorAll("input:checked").forEach(function (box) { box.checked = false; });
-    });
-    document.querySelectorAll("#watch-create fieldset.facet").forEach(function (fs) {
-      const boxes = fs.querySelectorAll("label.check");
-      if (!boxes.length) return;
-      fs.hidden = Array.from(boxes).every(function (box) { return box.hidden; });
-    });
+  const skuFields = document.getElementById("sku-fields");
+  function modeValue() {
+    const on = form && form.querySelector("input[name='mode']:checked");
+    return on ? on.value : "condition";
   }
-  if (listing) listing.addEventListener("change", sync);
-  if (mode) mode.addEventListener("change", sync);
+  function sync() {
+    const sku = modeValue() === "sku";
+    if (condition) condition.hidden = sku;
+    if (skuFields) skuFields.hidden = !sku;
+  }
+  if (form) form.addEventListener("change", sync, true);
   sync();
 })();
 </script>

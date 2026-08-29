@@ -1,0 +1,12 @@
+<div class="pills" role="radiogroup" aria-label="分类">
+  <label class="pill">
+    <input type="radio" name="listing_key" value="" {% if not listing_key %}checked{% endif %}>
+    <span>{{ all_label|default('全部') }}</span>
+  </label>
+  {% for key, item in categories.items() %}
+  <label class="pill">
+    <input type="radio" name="listing_key" value="{{ key }}" {% if listing_key == key %}checked{% endif %}>
+    <span>{{ item.name }}</span>
+  </label>
+  {% endfor %}
+</div>

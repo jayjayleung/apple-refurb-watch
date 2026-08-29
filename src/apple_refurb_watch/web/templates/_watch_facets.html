@@ -1,18 +1,18 @@
 {% for group in facets %}
-<fieldset class="facet">
-  <legend>{{ group.legend }}</legend>
-  <div class="facet-options">
+<section class="facet" data-key="{{ group.key }}">
+  <h3>{{ group.legend }}</h3>
+  <div class="chips">
     {% for opt in group.options %}
-    <label class="check{% if opt.count == 0 %} oos{% endif %}">
+    <label class="chip{% if opt.count == 0 %} oos{% endif %}">
       <input type="checkbox" name="d_{{ group.key }}" value="{{ opt.value }}" {% if opt.checked %}checked{% endif %}>
       <span>{{ opt.label }}</span>
       {% if opt.count == 0 %}
-      <span class="n">缺货</span>
+      <small>缺货</small>
       {% elif opt.count is not none %}
-      <span class="n">{{ opt.count }}</span>
+      <small>{{ opt.count }}</small>
       {% endif %}
     </label>
     {% endfor %}
   </div>
-</fieldset>
+</section>
 {% endfor %}

@@ -171,3 +171,27 @@ def test_detail_fetch_only_for_matching_watch(tmp_path: Path, listing_html: str,
     assert len(fetched) == 1
     assert "fhfa4ch" in fetched[0].lower()
     db.close()
+
+
+def test_scan_skips_mac_child_listings(tmp_path: Path, listing_html: str) -> None:
+    db = Database(tmp_path / "app.db")
+    db.set_setting("listings", ["mac", "macbook-pro", "macbook-air", "ipad"])
+    seen: list[str] = []
+
+    def fetch_listing(url: str) -> str:
+        seen.append(url)
+        return listing_html
+
+    result = run_scan(
+        db,
+        fetch_listing=fetch_listing,
+        fetch_detail=lambda url: "",
+        notifier=lambda *a: [],
+        sleep_fn=lambda s: None,
+    )
+    assert result["ok"]
+    assert seen == [
+        "https://www.apple.com.cn/shop/refurbished/mac",
+        "https://www.apple.com.cn/shop/refurbished/ipad",
+    ]
+    db.close()

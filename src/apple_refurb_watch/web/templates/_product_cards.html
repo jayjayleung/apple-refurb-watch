@@ -1,0 +1,35 @@
+{% for item in items %}
+<article class="card">
+  <a class="card-hit" href="{{ item.url }}" target="_blank" rel="noreferrer">
+    {% if item.image_url %}
+    <div class="card-media">
+      <img src="{{ item.image_url|thumb }}" alt="{{ item.title }}" width="400" height="300" decoding="async" loading="{{ 'eager' if loop.index0 < 4 and not offset else 'lazy' }}" onerror="this.parentElement.classList.add('card-media-empty');this.remove()">
+    </div>
+    {% else %}
+    <div class="card-media card-media-empty" aria-hidden="true"></div>
+    {% endif %}
+    <div class="card-body">
+      <h2>{{ item.title }}</h2>
+      <p class="price">{% if item.price %}¥{{ item.price|cny }}{% else %}价格待确认{% endif %}</p>
+      <p class="meta">
+        {{ item.sku }}
+        {% if item.ram_gb %} {{ item.ram_gb|gb }} 内存{% endif %}
+        {% if item.storage_gb %} {{ item.storage_gb|gb }} 硬盘{% endif %}
+        {% if item.color_label %} {{ item.color_label }}{% endif %}
+      </p>
+    </div>
+  </a>
+  <div class="card-actions">
+    <form method="post" action="/watches/from-product">
+      <input type="hidden" name="sku" value="{{ item.sku }}">
+      <input type="hidden" name="mode" value="condition">
+      <button class="link-btn strong" type="submit">按配置听</button>
+    </form>
+    <form method="post" action="/watches/from-product">
+      <input type="hidden" name="sku" value="{{ item.sku }}">
+      <input type="hidden" name="mode" value="sku">
+      <button class="link-btn" type="submit">精确 SKU</button>
+    </form>
+  </div>
+</article>
+{% endfor %}

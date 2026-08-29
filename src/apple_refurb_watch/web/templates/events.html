@@ -1,26 +1,38 @@
 {% extends "base.html" %}
 {% block title %}动态 · 官翻监听{% endblock %}
+{% block main_class %}page-feed{% endblock %}
 {% block body %}
-<section class="hero">
+<header class="page-head">
   <div>
-    <p class="kicker">动态</p>
-    <h1>扫描与上新</h1>
-    <p class="lede">首次扫描只建基线，不会把当前库存全部推过来。</p>
+    <h1>动态</h1>
+    <p class="lede">上新、失败和扫描结果按天排列。</p>
   </div>
-  <form method="post" action="/settings/scan"><button class="btn primary" type="submit">立即扫描</button></form>
+  {% with scan_class='primary' %}{% include "_scan.html" %}{% endwith %}
+</header>
+{% if event_days %}
+{% for day in event_days %}
+<section class="event-day">
+  <h2>{{ day.day }}</h2>
+  <ol class="timeline">
+    {% for event in day.entries %}
+    <li class="event-{{ event.kind }}">
+      <time class="when" datetime="{{ event.created_at }}">{{ event.when_local }}</time>
+      <strong>{{ event.label }}</strong>
+      {% if event.kind == 'appear' and event.title %}
+      <p>{{ event.title }}</p>
+      {% else %}
+      <p>{{ event.message or event.title }}</p>
+      {% endif %}
+      {% if event.url %}<a href="{{ event.url }}" target="_blank" rel="noreferrer">打开商品</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
 </section>
-{% if events %}
-<ol class="timeline">
-  {% for event in events %}
-  <li>
-    <span class="when">{{ event.created_at }}</span>
-    <strong>{{ event.type }}</strong>
-    <p>{{ event.message or event.title }}</p>
-    {% if event.url %}<a href="{{ event.url }}" target="_blank" rel="noreferrer">打开商品</a>{% endif %}
-  </li>
-  {% endfor %}
-</ol>
+{% endfor %}
 {% else %}
-<p class="empty">还没有记录。</p>
+<div class="empty">
+  <p>还没有记录。首次扫描只建基线，不会把当前库存全部推过来。</p>
+  {% with scan_class='primary' %}{% include "_scan.html" %}{% endwith %}
+</div>
 {% endif %}
 {% endblock %}

@@ -24,6 +24,8 @@ def test_parse_listing_bootstrap(listing_html: str) -> None:
     assert neo.storage_gb == 256
     pro_img = next(p for p in products if p.sku == "FGDN4CH/A")
     assert pro_img.image_url == "https://example.test/mbp.jpg"
+    only_pro = parse_listing_html(listing_html, "macbook-pro", "https://www.apple.com.cn/shop/refurbished/mac/macbook-pro")
+    assert [p.sku for p in only_pro] == ["FGDN4CH/A"]
 
 
 def test_first_srcset_url() -> None:

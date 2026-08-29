@@ -5,9 +5,9 @@ import time
 from dataclasses import asdict
 from typing import Any, Callable
 
-from apple_refurb_watch.categories import listing_url
+from apple_refurb_watch.categories import compact_listings, listing_url
 from apple_refurb_watch.db import Database
-from apple_refurb_watch.fetch import fetch_html
+from apple_refurb_watch.fetch import HtmlFetcher
 from apple_refurb_watch.match import matches_watch, needs_ram, needs_storage
 from apple_refurb_watch.notify import NotifyError, send_all
 from apple_refurb_watch.parse import Product, extract_bootstrap, parse_detail_specs, parse_listing_html
@@ -34,8 +34,11 @@ def run_scan(
         return {"ok": False, "message": "已有扫描在进行"}
     own_db = db is None
     db = db or Database()
-    fetch_listing = fetch_listing or fetch_html
-    fetch_detail = fetch_detail or fetch_html
+    fetcher: HtmlFetcher | None = None
+    if fetch_listing is None or fetch_detail is None:
+        fetcher = HtmlFetcher()
+        fetch_listing = fetch_listing or fetcher
+        fetch_detail = fetch_detail or fetcher
     notifier = notifier or send_all
     sleep_fn = sleep_fn or time.sleep
     try:
@@ -43,6 +46,8 @@ def run_scan(
     finally:
         db.set_setting("scanning", False)
         _scan_lock.release()
+        if fetcher is not None:
+            fetcher.close()
         if own_db:
             db.close()
 
@@ -56,7 +61,7 @@ def _run_scan_locked(
 ) -> dict[str, Any]:
     settings = db.settings()
     db.set_setting("scanning", True)
-    listings = list(settings.get("listings") or ["mac"])
+    listings = compact_listings(list(settings.get("listings") or ["mac"]))
     watches = db.enabled_watches()
     products: list[Product] = []
     errors: list[str] = []

@@ -7,7 +7,7 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
-from apple_refurb_watch.categories import BASE, host_ok
+from apple_refurb_watch.categories import BASE, LISTING_MODELS, host_ok
 
 __all__ = [
     "Product",
@@ -112,7 +112,11 @@ def parse_listing_html(html: str, listing_key: str, listing_url: str) -> list[Pr
     if bootstrap:
         tiles = bootstrap.get("tiles") or []
         products = [_tile_to_product(tile, listing_key, listing_url) for tile in tiles]
-        return [item for item in products if item]
+        products = [item for item in products if item]
+        implied = LISTING_MODELS.get(listing_key)
+        if implied:
+            products = [item for item in products if item.model_key == implied]
+        return products
     return _parse_listing_dom(html, listing_key, listing_url)
 
 

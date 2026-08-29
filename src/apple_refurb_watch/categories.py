@@ -32,6 +32,23 @@ CATEGORIES: dict[str, dict[str, str]] = {
 }
 
 DEFAULT_LISTINGS = ["mac", "ipad", "watch"]
+LISTING_MODELS = {
+    "macbook-pro": "macbookpro",
+    "macbook-air": "macbookair",
+}
+MAC_CHILD_LISTINGS = frozenset({"macbook-pro", "macbook-air"})
+
+
+def compact_listings(keys: list[str] | None) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for key in keys or []:
+        if key and key not in seen:
+            unique.append(key)
+            seen.add(key)
+    if "mac" in seen:
+        return [key for key in unique if key not in MAC_CHILD_LISTINGS]
+    return unique
 
 
 def host_ok(url: str) -> bool:

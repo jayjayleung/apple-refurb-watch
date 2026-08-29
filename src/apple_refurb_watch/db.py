@@ -198,6 +198,15 @@ class Database:
             rows = self.conn.execute("SELECT * FROM watches ORDER BY id DESC").fetchall()
         return [self._watch_row(row) for row in rows]
 
+    def count_watches(self, *, enabled: bool | None = None) -> int:
+        sql = "SELECT COUNT(*) AS n FROM watches"
+        if enabled is True:
+            sql += " WHERE enabled=1"
+        elif enabled is False:
+            sql += " WHERE enabled=0"
+        with self._lock:
+            return int(self.conn.execute(sql).fetchone()["n"])
+
     def get_watch(self, watch_id: int) -> dict | None:
         with self._lock:
             row = self.conn.execute("SELECT * FROM watches WHERE id=?", (watch_id,)).fetchone()

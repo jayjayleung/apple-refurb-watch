@@ -1,0 +1,5 @@
+<form method="post" action="/settings/scan" class="scan-form">
+  <button type="submit" class="btn {{ scan_class|default('') }}" {% if status_view.scanning %}disabled aria-busy="true"{% endif %}>
+    {{ '正在扫描' if status_view.scanning else '立即扫描' }}
+  </button>
+</form>

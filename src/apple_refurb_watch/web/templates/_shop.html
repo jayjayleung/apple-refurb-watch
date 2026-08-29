@@ -1,5 +1,9 @@
 <div class="shop">
-  <form class="filter-rail" hx-get="/" hx-target="#shop" hx-push-url="true" hx-trigger="change, keyup delay:400ms from:input[type='search'], keyup delay:400ms from:input[type='number']">
+  <input type="checkbox" id="filter-open" class="filter-check" tabindex="-1">
+  <label class="filter-scrim" for="filter-open" aria-hidden="true"></label>
+  <form class="filter-rail" hx-get="/" hx-target="#shop" hx-push-url="true" hx-indicator="#shop" hx-sync="this:replace" hx-trigger="change, keyup delay:400ms from:input[type='search'], keyup delay:400ms from:input[type='number']">
+    <label class="filter-done" for="filter-open">完成</label>
+    <p class="filter-title">筛选</p>
     <label class="facet-select">分类
       <select name="listing_key">
         <option value="">全部</option>
@@ -14,7 +18,7 @@
     <div class="facet extras">
       <h3>更多条件</h3>
       <label>关键词
-        <input type="search" name="q" value="{{ q }}" placeholder="例如 M5 Pro">
+        <input type="search" name="q" value="{{ q }}" placeholder="例如 纳米纹理">
       </label>
       <label>最高价
         <input type="number" name="max_price" value="{{ max_price }}" min="0" step="1" placeholder="不限">
@@ -29,9 +33,20 @@
   </form>
 
   <div class="shop-main">
-    <p class="count">当前 {{ items|length }} 件{% if listing_key %} · {{ categories[listing_key].name if listing_key in categories else listing_key }}{% endif %}</p>
-    <div id="product-grid">
-      {% include "_products.html" %}
+    <div class="shop-head">
+      <div>
+        <h1>在售</h1>
+        <p class="count">{{ total_count if total_count is defined else items|length }} 件</p>
+        {% if filter_chips %}
+        <div class="chip-row">
+          {% for chip in filter_chips %}
+          <a class="chip-x" href="{{ chip.href }}" hx-get="{{ chip.href }}" hx-target="#shop" hx-push-url="true" hx-indicator="#shop">{{ chip.label }}</a>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      <label class="btn filter-toggle" for="filter-open">筛选{% if filter_chips %} {{ filter_chips|length }}{% endif %}</label>
     </div>
+    {% include "_products.html" %}
   </div>
 </div>

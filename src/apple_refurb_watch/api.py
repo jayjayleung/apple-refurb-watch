@@ -5,8 +5,8 @@ import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
-from urllib.parse import urlparse
+from typing import Any, Mapping
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -21,9 +21,11 @@ from apple_refurb_watch.db import Database
 from apple_refurb_watch.fetch import fetch_html
 from apple_refurb_watch.filters import (
     facet_groups,
+    label_for,
     live_catalog_path,
     load_catalog,
     product_dims,
+    prune_cascade_dims,
     restrict_dims,
     selected_dims,
     summarize_dims,
@@ -32,11 +34,13 @@ from apple_refurb_watch.filters import (
 )
 from apple_refurb_watch.match import matches_watch
 from apple_refurb_watch.notify import NotifyError, send_all
+from apple_refurb_watch.argv import is_frozen
 from apple_refurb_watch.paths import write_runtime
 from apple_refurb_watch.scanner import run_scan
-from apple_refurb_watch.status_view import present_status
+from apple_refurb_watch.status_view import format_localtime, present_event_days, present_status
 
 WEB_DIR = Path(__file__).parent / "web"
+PAGE_SIZE = 24
 
 
 class WatchIn(BaseModel):
@@ -84,16 +88,37 @@ class SettingsPatch(BaseModel):
     notify: dict[str, Any] | None = None
 
 
+def thumb_url(url: str | None, width: int = 400) -> str:
+    text = str(url or "").strip()
+    if not text:
+        return ""
+    parsed = urlparse(text)
+    host = (parsed.netloc or "").lower()
+    if "apple.com" not in host and "cdn-apple.com" not in host:
+        return text
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    if "wid" not in query and "hei" not in query:
+        return text
+    query["wid"] = str(width)
+    query["hei"] = str(width)
+    query.setdefault("fmt", "jpeg")
+    query.setdefault("qlt", "80")
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
 def _templates() -> Environment:
     env = Environment(
         loader=FileSystemLoader(str(WEB_DIR / "templates")),
         autoescape=select_autoescape(["html"]),
-        auto_reload=True,
+        auto_reload=not is_frozen(),
     )
     env.globals["categories"] = CATEGORIES
     env.globals["dim_summary"] = summarize_dims
+    env.globals["label_for"] = label_for
     env.filters["cny"] = lambda v: "" if v is None else f"{v:,.0f}"
     env.filters["gb"] = lambda v: "" if v is None else (f"{v // 1024}TB" if v >= 1024 and v % 1024 == 0 else f"{v}GB")
+    env.filters["thumb"] = thumb_url
+    env.filters["localtime"] = format_localtime
     return env
 
 
@@ -150,14 +175,14 @@ def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> Fa
     def render(name: str, request: Request, **ctx: Any) -> HTMLResponse:
         settings = _public_settings(database.settings())
         status = database.scan_status()
-        watches = database.list_watches()
-        watch_enabled = sum(1 for item in watches if item["enabled"])
+        watch_enabled = database.count_watches(enabled=True)
+        watch_total = database.count_watches()
         status_view = present_status(
             status,
             settings,
             in_stock=database.count_products(in_stock=True),
             watch_enabled=watch_enabled,
-            watch_total=len(watches),
+            watch_total=watch_total,
         )
         html_body = jinja.get_template(name).render(
             request=request,
@@ -179,21 +204,21 @@ def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> Fa
     def status() -> dict:
         settings = database.settings()
         data = database.scan_status()
-        watches = database.list_watches()
-        watch_enabled = sum(1 for item in watches if item["enabled"])
+        watch_enabled = database.count_watches(enabled=True)
+        watch_total = database.count_watches()
         data["settings"] = {
             k: settings[k]
             for k in ("interval_seconds", "bind_host", "bind_port", "lan_enabled", "listings", "listen_enabled")
         }
         data["watch_count"] = watch_enabled
-        data["watch_total"] = len(watches)
+        data["watch_total"] = watch_total
         data["in_stock"] = database.count_products(in_stock=True)
         data["view"] = present_status(
             data,
             settings,
             in_stock=data["in_stock"],
             watch_enabled=watch_enabled,
-            watch_total=len(watches),
+            watch_total=watch_total,
         )
         return data
 
@@ -296,8 +321,15 @@ def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> Fa
             dim_filters={},
         )
         items = _filter_products(stock, **filters)
+        hx_request = bool(request.headers.get("HX-Request"))
+        hx_target = (request.headers.get("HX-Target") or "").lstrip("#")
+        offset = _page_offset(request) if hx_request and hx_target == "product-grid" else 0
+        total_count = len(items)
+        page_items = items[offset : offset + PAGE_SIZE]
+        has_more = offset + PAGE_SIZE < total_count
         ctx = {
-            "items": items,
+            "items": page_items,
+            "total_count": total_count,
             "q": filters["q"] or "",
             "listing_key": filters["listing_key"] or "",
             "color": filters["color"] or "",
@@ -308,23 +340,38 @@ def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> Fa
                 listing_only,
                 filters["listing_key"],
                 filters["dim_filters"],
-                include_catalog=True,
+                include_catalog=False,
                 show_counts=True,
+                refine=True,
             ),
             "selected_dims": filters["dim_filters"],
+            "filter_chips": _filter_chips(request, filters),
+            "has_more": has_more,
+            "remaining": max(0, total_count - offset - len(page_items)),
+            "more_url": _listings_path(request, offset + PAGE_SIZE) if has_more else "",
+            "offset": offset,
+            "oob_more": hx_target == "product-grid",
+            "stock_count": len(stock),
         }
-        if request.headers.get("HX-Request"):
+        if hx_request:
+            if hx_target == "product-grid":
+                return render("_product_more.html", request, **ctx)
             return render("_shop.html", request, **ctx)
         return render("listings.html", request, **ctx)
 
     @app.get("/watches", response_class=HTMLResponse)
     def watches_page(request: Request) -> HTMLResponse:
         stock = database.list_products(in_stock=True)
+        watches = database.list_watches()
+        for watch in watches:
+            watch["in_stock_matches"] = sum(1 for item in stock if matches_watch(item, watch))
         return render(
             "watches.html",
             request,
-            watches=database.list_watches(),
-            watch_facets=facet_groups(stock, None, {}, include_catalog=True, show_counts=False),
+            watches=watches,
+            watch_facets=facet_groups(
+                stock, "mac", {}, include_catalog=True, show_counts=True, cascade=True
+            ),
         )
 
     @app.post("/watches", response_class=HTMLResponse)
@@ -352,7 +399,6 @@ def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> Fa
                 }
             )
         else:
-            all_of = _suggest_all_of(product.get("title") or "")
             dims = product_dims(product)
             dim_filters = {key: [value] for key, value in dims.items() if value}
             database.create_watch(
@@ -360,12 +406,48 @@ def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> Fa
                     "name": (product.get("title") or sku)[:40],
                     "mode": "condition",
                     "listing_key": product.get("listing_key"),
-                    "all_of": all_of,
                     "dim_filters": dim_filters,
                     "max_price": product.get("price"),
                 }
             )
         return RedirectResponse("/watches", status_code=303)
+
+    @app.post("/watches/from-filters", response_class=HTMLResponse)
+    async def watch_from_filters(request: Request) -> RedirectResponse:
+        form = await request.form()
+        listing_key = str(form.get("listing_key") or "").strip() or None
+        dim_filters = restrict_dims(selected_dims(form), listing_key)
+        q = str(form.get("q") or "").strip()
+        payload = {
+            "listing_key": listing_key,
+            "all_of": [q] if q else [],
+            "dim_filters": dim_filters,
+            "max_price": _opt_number(str(form.get("max_price") or ""), float),
+            "min_ram_gb": _opt_number(str(form.get("min_ram_gb") or ""), int),
+            "min_storage_gb": _opt_number(str(form.get("min_storage_gb") or ""), int),
+        }
+        payload["name"] = _watch_name_from_filters(payload, q)
+        database.create_watch({"mode": "condition", **payload})
+        return RedirectResponse("/watches", status_code=303)
+
+    @app.post("/watches/cascade", response_class=HTMLResponse)
+    async def watch_cascade(request: Request) -> HTMLResponse:
+        form = await request.form()
+        stock = database.list_products(in_stock=True)
+        return render("_watch_facets.html", request, facets=_watch_facet_groups(form, stock))
+
+    @app.post("/watches/preview", response_class=HTMLResponse)
+    async def watch_preview(request: Request) -> HTMLResponse:
+        watch = _form_watch(await request.form())
+        stock = database.list_products(in_stock=True)
+        matched = sum(1 for item in stock if matches_watch(item, watch))
+        if watch.get("mode") == "sku" and not watch.get("sku"):
+            text = "填入 SKU 后保存，该货号上新会通知。"
+        elif matched:
+            text = f"当前 {matched} 件在售。保存后也会继续盯之后的上新。"
+        else:
+            text = "当前缺货。保存后，符合条件的上新会通知。"
+        return HTMLResponse(text)
 
     @app.post("/watches/{watch_id}/toggle")
     async def watch_toggle(watch_id: int) -> RedirectResponse:
@@ -426,11 +508,12 @@ def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> Fa
 
     @app.get("/events", response_class=HTMLResponse)
     def events_page(request: Request) -> HTMLResponse:
-        return render("events.html", request, events=database.list_events(120))
+        return render("events.html", request, event_days=present_event_days(database.list_events(120)))
 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request, error: str | None = None) -> HTMLResponse:
-        return render("login.html", request, error=error)
+        html_body = jinja.get_template("login.html").render(request=request, error=error)
+        return HTMLResponse(html_body)
 
     @app.post("/login")
     async def login_submit(request: Request) -> RedirectResponse:
@@ -568,6 +651,76 @@ def _safe_listings(keys: list[str]) -> list[str]:
     return out or ["mac"]
 
 
+def _page_offset(request: Request) -> int:
+    try:
+        return max(0, int(request.query_params.get("offset") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _listings_path(request: Request, offset: int) -> str:
+    pairs = [(key, value) for key, value in request.query_params.multi_items() if key != "offset"]
+    if offset:
+        pairs.append(("offset", str(offset)))
+    query = urlencode(pairs)
+    return f"/?{query}" if query else "/"
+
+
+def _omit_query(request: Request, drop_key: str, drop_value: str | None = None) -> str:
+    pairs: list[tuple[str, str]] = []
+    skipped = False
+    for key, value in request.query_params.multi_items():
+        if key == "offset":
+            continue
+        if key == drop_key:
+            if drop_value is None:
+                continue
+            if value == drop_value and not skipped:
+                skipped = True
+                continue
+        pairs.append((key, value))
+    query = urlencode(pairs)
+    return f"/?{query}" if query else "/"
+
+
+def _filter_chips(request: Request, filters: dict[str, Any]) -> list[dict[str, str]]:
+    chips: list[dict[str, str]] = []
+    listing_key = filters.get("listing_key") or ""
+    if listing_key:
+        name = CATEGORIES[listing_key]["name"] if listing_key in CATEGORIES else listing_key
+        chips.append({"label": name, "href": _omit_query(request, "listing_key")})
+    for key, values in (filters.get("dim_filters") or {}).items():
+        for value in values:
+            chips.append({"label": label_for(key, value), "href": _omit_query(request, f"d_{key}", value)})
+    if filters.get("q"):
+        chips.append({"label": str(filters["q"]), "href": _omit_query(request, "q")})
+    if filters.get("max_price") is not None:
+        chips.append({"label": f"≤ ¥{int(filters['max_price']):,}", "href": _omit_query(request, "max_price")})
+    if filters.get("min_ram_gb") is not None:
+        chips.append({"label": f"内存 ≥ {filters['min_ram_gb']}GB", "href": _omit_query(request, "min_ram_gb")})
+    if filters.get("min_storage_gb") is not None:
+        chips.append({"label": f"硬盘 ≥ {filters['min_storage_gb']}GB", "href": _omit_query(request, "min_storage_gb")})
+    return chips
+
+
+def _watch_name_from_filters(payload: Mapping[str, Any], q: str = "") -> str:
+    parts: list[str] = []
+    listing_key = payload.get("listing_key")
+    if listing_key and listing_key in CATEGORIES:
+        parts.append(CATEGORIES[listing_key]["name"])
+    parts.extend(summarize_dims(payload.get("dim_filters")))
+    if q:
+        parts.append(q)
+    if payload.get("min_ram_gb"):
+        parts.append(f"≥{payload['min_ram_gb']}GB 内存")
+    if payload.get("min_storage_gb"):
+        parts.append(f"≥{payload['min_storage_gb']}GB 硬盘")
+    if payload.get("max_price") not in (None, ""):
+        parts.append(f"≤ ¥{int(float(payload['max_price'])):,}")
+    name = " · ".join(parts) if parts else "未命名规则"
+    return name[:60]
+
+
 def _query_filters(request: Request) -> dict[str, Any]:
     params = request.query_params
     listing_key = (params.get("listing_key") or "").strip() or None
@@ -630,11 +783,17 @@ def _filter_products(
     return [item for item in items if matches_watch(item, fake_watch)]
 
 
-def _suggest_all_of(title: str) -> list[str]:
-    for chip in ("M5 Max", "M5 Pro", "M4 Max", "M4 Pro", "M5", "M4", "M3", "A18 Pro", "A16"):
-        if chip in title:
-            return [chip]
-    return []
+def _watch_facet_groups(form: Any, stock: list) -> list[dict[str, Any]]:
+    listing_key = str(form.get("listing_key") or "").strip() or None
+    selected = prune_cascade_dims(listing_key, selected_dims(form), stock)
+    return facet_groups(
+        stock,
+        listing_key,
+        selected,
+        include_catalog=True,
+        show_counts=True,
+        cascade=True,
+    )
 
 
 def _form_watch(form: Any) -> dict:
@@ -644,12 +803,13 @@ def _form_watch(form: Any) -> dict:
     def get(name: str, default: str = "") -> str:
         return str(form.get(name) or default)
 
-    return {
-        "name": get("name") or "未命名规则",
+    listing_key = get("listing_key") or None
+    payload = {
+        "name": get("name"),
         "enabled": True,
         "mode": get("mode") or "condition",
         "sku": get("sku") or None,
-        "listing_key": get("listing_key") or None,
+        "listing_key": listing_key,
         "all_of": split(get("all_of")),
         "none_of": split(get("none_of")),
         "colors": split(get("colors")),
@@ -657,8 +817,15 @@ def _form_watch(form: Any) -> dict:
         "min_storage_gb": get("min_storage_gb") or None,
         "min_price": get("min_price") or None,
         "max_price": get("max_price") or None,
-        "dim_filters": selected_dims(form),
+        "dim_filters": restrict_dims(selected_dims(form), listing_key),
     }
+    if not payload["name"]:
+        if payload["mode"] == "sku" and payload["sku"]:
+            payload["name"] = f"SKU {payload['sku']}"
+        else:
+            extra = " / ".join(payload["all_of"])
+            payload["name"] = _watch_name_from_filters(payload, extra)
+    return payload
 
 
 def _form_settings(form: dict, current: dict) -> dict:

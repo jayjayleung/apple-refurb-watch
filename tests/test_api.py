@@ -12,7 +12,16 @@ def test_pages_and_watch_api(tmp_path) -> None:
         assert home.status_code == 200
         assert "官翻监听" in home.text
         assert "停止监听" in home.text
-        assert "128GB" in home.text
+        assert "全部" in home.text
+        assert "<select" in home.text
+        assert "盯住你要的那一台" not in home.text
+        assert "kicker" not in home.text
+        assert "status-bar" not in home.text
+        assert 'id="filter-open"' in home.text
+        assert "按此条件听" not in home.text
+        mac = client.get("/?listing_key=mac")
+        assert "filter-rail" in mac.text
+        assert "<select" in mac.text
         created = client.post("/api/watches", json={"name": "测试", "all_of": ["MacBook Pro"]})
         assert created.status_code == 200
         assert created.json()["name"] == "测试"
@@ -105,7 +114,7 @@ def test_status_and_dim_watch_api(tmp_path) -> None:
         [
             {
                 "sku": "AAAA4CH/A",
-                "title": "翻新 14 英寸 MacBook Pro",
+                "title": "翻新 14 英寸 MacBook Pro Apple M5 Pro 芯片 (配备 12 核中央处理器和 16 核图形处理器)",
                 "url": "https://www.apple.com.cn/shop/product/AAAA4CH/A",
                 "price": 15000,
                 "listing_key": "mac",
@@ -116,6 +125,7 @@ def test_status_and_dim_watch_api(tmp_path) -> None:
                         "refurbClearModel": "macbookpro",
                         "tsMemorySize": "24gb",
                         "dimensionColor": "silver",
+                        "dimensionScreensize": "14inch",
                     }
                 },
             },
@@ -146,7 +156,12 @@ def test_status_and_dim_watch_api(tmp_path) -> None:
         assert filtered.json()["items"][0]["sku"] == "AAAA4CH/A"
         home = client.get("/")
         assert "filter-rail" in home.text
-        assert "官网筛选" not in home.text or "机型" in home.text
+        assert "按配置听" in home.text
+        assert "听配置" not in home.text
+        assert "¥15,000" in home.text
+        assert "card-hit" in home.text
+        assert "精确 SKU" in home.text
+        assert "MacBook Pro" in home.text
         assert "监听中" in home.text or "尚未扫描" in home.text
         form = client.post(
             "/watches",
@@ -160,6 +175,88 @@ def test_status_and_dim_watch_api(tmp_path) -> None:
         watches_page = client.get("/watches")
         assert "128GB" in watches_page.text
         assert "腮红色" in watches_page.text
+        assert "缺货" in watches_page.text
+        assert 'class="facet-oos"' not in watches_page.text
+        assert "在售 " in watches_page.text
+        assert "先点型号" in watches_page.text
+        assert "M5 Pro" in watches_page.text
+        assert "芯片" in watches_page.text
+        assert 'value="8_3inch"' not in watches_page.text
+        mac_page = client.get("/?listing_key=mac")
+        assert 'value="24gb"' in mac_page.text
+        assert 'value="128gb"' not in mac_page.text
+        assert 'value="m5_pro"' in mac_page.text
+        assert "12 核" in mac_page.text
+        assert "16 核" in mac_page.text
+        assert "中央处理器" in mac_page.text
+        assert "图形处理器" in mac_page.text
+        assert 'class="facet-oos"' not in mac_page.text
+        assert "按配置听" in mac_page.text
+        oos = client.get("/?listing_key=macbook-pro&d_tsMemorySize=128gb")
+        assert oos.status_code == 200
+        assert "没有符合条件的商品" in oos.text
+        assert 'value="128gb"' in oos.text
+        cascade = client.post(
+            "/watches/cascade",
+            data={"listing_key": "mac", "d_refurbClearModel": "macbookpro"},
+        )
+        assert cascade.status_code == 200
+        assert 'value="128gb"' in cascade.text
+        assert "M5 Pro" in cascade.text
+        assert "A18 Pro" not in cascade.text
+        assert "缺货" in cascade.text
+        assert "14 英寸" in cascade.text
+        assert "16 英寸" in cascade.text
+        assert 'value="4gb"' not in cascade.text
+        assert "8.3" not in cascade.text
+        assert "腮红" not in cascade.text
+        chip_cascade = client.post(
+            "/watches/cascade",
+            data={"listing_key": "mac", "d_refurbClearModel": "macbookpro", "d_chip": "m5_pro"},
+        )
+        assert chip_cascade.status_code == 200
+        assert 'value="14inch"' in chip_cascade.text
+        assert 'value="16inch"' not in chip_cascade.text
+        assert 'value="128gb"' in chip_cascade.text
+        assert 'value="m5_pro"' in chip_cascade.text
+        assert 'value="m5_max"' in chip_cascade.text
+        assert "A18 Pro" not in chip_cascade.text
+        from_filters = client.post(
+            "/watches/from-filters",
+            data={"listing_key": "macbook-pro", "d_tsMemorySize": "128gb"},
+            follow_redirects=False,
+        )
+        assert from_filters.status_code == 303
+        named_oos = next(
+            item for item in client.get("/api/watches").json() if "128GB" in item["name"]
+        )
+        assert named_oos["listing_key"] == "macbook-pro"
+        assert named_oos["dim_filters"]["tsMemorySize"] == ["128gb"]
+        auto = client.post(
+            "/watches",
+            data={"mode": "condition", "listing_key": "macbook-pro", "d_tsMemorySize": "128gb"},
+            follow_redirects=False,
+        )
+        assert auto.status_code == 303
+        auto_watch = next(
+            item
+            for item in client.get("/api/watches").json()
+            if item["name"] not in {"24G Pro", "表单规则"} and "128GB" in item["name"]
+        )
+        assert auto_watch["listing_key"] == "macbook-pro"
+        preview = client.post("/watches/preview", data={"listing_key": "mac", "d_tsMemorySize": "24gb"})
+        assert preview.status_code == 200
+        assert "1 件在售" in preview.text
+        chip_preview = client.post(
+            "/watches/preview",
+            data={"listing_key": "mac", "d_refurbClearModel": "macbookpro", "d_chip": "m5_pro"},
+        )
+        assert "1 件在售" in chip_preview.text
+        empty_preview = client.post(
+            "/watches/preview",
+            data={"listing_key": "macbook-pro", "d_tsMemorySize": "128gb"},
+        )
+        assert "缺货" in empty_preview.text
 
 
 def test_listen_toggle_form_and_api(tmp_path) -> None:
@@ -194,3 +291,73 @@ def test_listen_toggle_form_and_api(tmp_path) -> None:
         )
         assert saved.status_code == 303
         assert db.settings()["listen_enabled"] is False
+
+
+def test_thumb_url_rewrites_apple_cdn() -> None:
+    from apple_refurb_watch.api import thumb_url
+
+    assert thumb_url("") == ""
+    assert thumb_url("https://example.test/a.jpg") == "https://example.test/a.jpg"
+    out = thumb_url("https://store.storeimages.cdn-apple.com/is/mbp.jpg?wid=2000")
+    assert "wid=400" in out
+    assert "qlt=80" in out
+    plain = thumb_url("https://store.storeimages.cdn-apple.com/is/mbp.jpg")
+    assert plain == "https://store.storeimages.cdn-apple.com/is/mbp.jpg"
+
+
+def test_home_paginates_and_thumbs_images(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    db.upsert_products(
+        [
+            {
+                "sku": f"SKU{i:03d}CH/A",
+                "title": f"翻新 Mac {i}",
+                "url": f"https://www.apple.com.cn/shop/product/SKU{i:03d}CH/A",
+                "price": 10000 + i,
+                "listing_key": "mac",
+                "image_url": "https://store.storeimages.cdn-apple.com/is/mbp.jpg",
+                "extra": {},
+            }
+            for i in range(30)
+        ]
+    )
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        home = client.get("/")
+        assert home.status_code == 200
+        assert home.text.count('class="card"') == 24
+        assert "还有 6 件" in home.text
+        assert "wid=400" not in home.text
+        assert "store.storeimages.cdn-apple.com/is/mbp.jpg" in home.text
+        more = client.get(
+            "/?offset=24",
+            headers={"HX-Request": "true", "HX-Target": "product-grid"},
+        )
+        assert more.status_code == 200
+        assert more.text.count('class="card"') == 6
+        assert "还有 6 件" not in more.text
+        filtered = client.get("/", headers={"HX-Request": "true", "HX-Target": "shop"})
+        assert "filter-rail" in filtered.text
+        assert filtered.text.count('class="card"') == 24
+
+
+def test_events_page_shows_shanghai_time(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    db.conn.execute(
+        """
+        INSERT INTO events(type, sku, watch_id, title, price, url, message, created_at)
+        VALUES(?,?,?,?,?,?,?,?)
+        """,
+        ("scan", None, None, None, None, None, "完成扫描", "2026-08-29T06:45:00+00:00"),
+    )
+    db.conn.commit()
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        page = client.get("/events")
+        assert page.status_code == 200
+        assert "2026-08-29 14:45" in page.text
+        assert "扫描完成" in page.text
+        assert "<strong>scan</strong>" not in page.text
+        api = client.get("/api/events").json()
+        assert api[0]["created_at"] == "2026-08-29T06:45:00+00:00"
+

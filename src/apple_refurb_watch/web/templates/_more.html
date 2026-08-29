@@ -1,0 +1,10 @@
+{% if has_more %}
+<button type="button" id="more" class="btn more-btn"{% if oob_more %} hx-swap-oob="outerHTML"{% endif %}
+  hx-get="{{ more_url }}"
+  hx-target="#product-grid"
+  hx-swap="beforeend"
+  hx-select=".card"
+  hx-disabled-elt="this">还有 {{ remaining }} 件</button>
+{% elif oob_more %}
+<button type="button" id="more" hx-swap-oob="outerHTML" hidden></button>
+{% endif %}
