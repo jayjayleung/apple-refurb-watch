@@ -1,6 +1,21 @@
 {% for group in facets %}
 <section class="facet" data-key="{{ group.key }}">
-  <h3>{{ group.legend }}</h3>
+  {% if group.legend %}<h3>{{ group.legend }}</h3>{% endif %}
+  {% if group.layout == 'stack' %}
+  <div class="facet-options">
+    {% for opt in group.options %}
+    <label class="check{% if opt.count == 0 %} oos{% endif %}">
+      <input type="checkbox" name="d_{{ group.key }}" value="{{ opt.value }}" {% if opt.checked %}checked{% endif %}>
+      <span>{{ opt.label }}</span>
+      {% if opt.count == 0 %}
+      <span class="n">缺货</span>
+      {% elif opt.count is not none %}
+      <span class="n">{{ opt.count }}</span>
+      {% endif %}
+    </label>
+    {% endfor %}
+  </div>
+  {% else %}
   <div class="chips">
     {% for opt in group.options %}
     <label class="chip{% if opt.count == 0 %} oos{% endif %}">
@@ -14,5 +29,6 @@
     </label>
     {% endfor %}
   </div>
+  {% endif %}
 </section>
 {% endfor %}

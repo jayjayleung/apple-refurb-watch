@@ -42,12 +42,24 @@
     ],
     "airpods": [
       "heroAirPods"
+    ],
+    "homepod": [
+      "dimensionColor"
+    ],
+    "accessories": [
+      "refurbClearModel"
     ]
   },
   "listing_legends": {
     "ipad": {
       "dimensionScreensize": "屏幕尺寸",
       "dimensionCapacity": "存储容量"
+    },
+    "homepod": {
+      "dimensionColor": "颜色"
+    },
+    "accessories": {
+      "refurbClearModel": "类别"
     }
   },
   "dimensions": {
@@ -59,7 +71,9 @@
         "macbook-air",
         "ipad",
         "watch",
-        "airpods"
+        "airpods",
+        "homepod",
+        "accessories"
       ],
       "values": {
         "macbookneo": "MacBook Neo",
@@ -79,6 +93,8 @@
         "ipadpro_13": "13 英寸 iPad Pro",
         "ipadmini6": "iPad mini",
         "ipadaccessories": "iPad 配件",
+        "homepod": "HomePod",
+        "airpods": "AirPods",
         "watchseries9": "Apple Watch Series 9",
         "watchseries10": "Apple Watch Series 10",
         "watchseries11": "Apple Watch Series 11",
@@ -158,7 +174,8 @@
         "mac",
         "macbook-pro",
         "macbook-air",
-        "ipad"
+        "ipad",
+        "homepod"
       ],
       "order": [
         "silver",
@@ -177,7 +194,8 @@
         "rosegold",
         "blush",
         "citrus",
-        "indigo"
+        "indigo",
+        "white"
       ],
       "values": {
         "silver": "银色",
@@ -196,7 +214,8 @@
         "rosegold": "玫瑰金色",
         "blush": "腮红色",
         "citrus": "柑橘黄色",
-        "indigo": "靛蓝色"
+        "indigo": "靛蓝色",
+        "white": "白色"
       }
     },
     "tsMemorySize": {

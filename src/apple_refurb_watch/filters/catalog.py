@@ -12,10 +12,14 @@ from .tokens import (
     CHIP_LISTING_KEYS,
     CHIP_SPEC,
     CORE_LISTING_KEYS,
+    CORES_KEY,
+    CORES_SPEC,
     CPU_CORE_KEY,
     CPU_CORE_SPEC,
     GPU_CORE_KEY,
     GPU_CORE_SPEC,
+    core_label_from_token,
+    cores_label_from_token,
     format_dim_value,
     _chip_label_from_token,
 )
@@ -65,24 +69,18 @@ def load_catalog() -> dict[str, Any]:
 def dimension_keys_for(listing_key: str | None) -> list[str]:
     catalog = load_catalog()
     listing_dims = catalog.get("listing_dimensions") or {}
-    if listing_key and listing_key in listing_dims:
-        keys = list(listing_dims[listing_key])
-    else:
-        seen: list[str] = []
-        for listing_keys in listing_dims.values():
-            for key in listing_keys:
-                if key not in seen:
-                    seen.append(key)
-        keys = seen or list((catalog.get("dimensions") or {}).keys())
+    if not listing_key:
+        return []
+    keys = list(listing_dims.get(listing_key) or [])
     return _inject_derived_keys(keys, listing_key)
 
 
 def _listing_has_chip(listing_key: str | None) -> bool:
-    return listing_key is None or listing_key in CHIP_LISTING_KEYS
+    return bool(listing_key) and listing_key in CHIP_LISTING_KEYS
 
 
 def _listing_has_cores(listing_key: str | None) -> bool:
-    return listing_key is None or listing_key in CORE_LISTING_KEYS
+    return bool(listing_key) and listing_key in CORE_LISTING_KEYS
 
 
 def _inject_derived_keys(keys: list[str], listing_key: str | None) -> list[str]:
@@ -92,19 +90,18 @@ def _inject_derived_keys(keys: list[str], listing_key: str | None) -> list[str]:
             out.insert(out.index("refurbClearModel") + 1, CHIP_KEY)
         else:
             out.insert(0, CHIP_KEY)
-    if _listing_has_cores(listing_key):
+    if _listing_has_cores(listing_key) and CORES_KEY not in out:
         anchor = CHIP_KEY if CHIP_KEY in out else "refurbClearModel"
         pos = out.index(anchor) + 1 if anchor in out else 0
-        for key in (CPU_CORE_KEY, GPU_CORE_KEY):
-            if key not in out:
-                out.insert(pos, key)
-                pos += 1
+        out.insert(pos, CORES_KEY)
     return out
 
 
 def dim_spec(key: str) -> dict[str, Any]:
     if key == CHIP_KEY:
         return CHIP_SPEC
+    if key == CORES_KEY:
+        return CORES_SPEC
     if key == CPU_CORE_KEY:
         return CPU_CORE_SPEC
     if key == GPU_CORE_KEY:
@@ -121,6 +118,10 @@ def label_for(key: str, value: str | None) -> str:
         return str(labels[value])
     if key == CHIP_KEY:
         return _chip_label_from_token(value)
+    if key == CORES_KEY:
+        return cores_label_from_token(value)
+    if key in {CPU_CORE_KEY, GPU_CORE_KEY}:
+        return core_label_from_token(key, value)
     return format_dim_value(value)
 
 

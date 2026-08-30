@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+from apple_refurb_watch.categories import listen_listing_keys
 from apple_refurb_watch.filters import restrict_dims, selected_dims
-from apple_refurb_watch.match import matches_watch
+from apple_refurb_watch.match import listing_matches, matches_watch
 
 PAGE_SIZE = 24
 
@@ -74,6 +75,21 @@ def filter_products(
         "dim_filters": dim_filters or {},
     }
     return [item for item in items if matches_watch(item, fake_watch)]
+
+
+def products_in_listen_scope(items: list[dict], listings: list[str] | None) -> list[dict]:
+    keys = listen_listing_keys(listings)
+    return [item for item in items if any(listing_matches({"listing_key": key}, item) for key in keys)]
+
+
+def shop_listings_url(listing_key: str = "", sort: str | None = None) -> str:
+    pairs: list[tuple[str, str]] = []
+    if listing_key:
+        pairs.append(("listing_key", listing_key))
+    if sort:
+        pairs.append(("sort", sort))
+    query = urlencode(pairs)
+    return f"/?{query}" if query else "/"
 
 
 def sort_products(items: list[dict], sort: str | None) -> list[dict]:

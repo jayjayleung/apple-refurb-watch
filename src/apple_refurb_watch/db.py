@@ -354,6 +354,17 @@ class Database:
                 )
             self.conn.commit()
 
+    def mark_listings_out_except(self, keep_keys: list[str]) -> None:
+        with self._lock:
+            if not keep_keys:
+                return
+            keys_ph = ",".join("?" for _ in keep_keys)
+            self.conn.execute(
+                f"UPDATE products SET in_stock=0 WHERE listing_key NOT IN ({keys_ph})",
+                tuple(keep_keys),
+            )
+            self.conn.commit()
+
     def list_products(self, in_stock: bool | None = True) -> list[dict]:
         sql = "SELECT * FROM products"
         args: list[Any] = []

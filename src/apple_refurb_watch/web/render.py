@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from apple_refurb_watch.argv import is_frozen
-from apple_refurb_watch.categories import CATEGORIES, LISTING_GROUPS
+from apple_refurb_watch.categories import CATEGORIES, LISTING_GROUPS, SHOP_FAMILIES, shop_family_key
 from apple_refurb_watch.db import Database
 from apple_refurb_watch.filters import label_for, live_catalog_path, summarize_dims, user_catalog_path
 from apple_refurb_watch.listing import format_cny, format_gb, thumb_url
@@ -25,6 +25,8 @@ def templates() -> Environment:
     )
     env.globals["categories"] = CATEGORIES
     env.globals["listing_groups"] = LISTING_GROUPS
+    env.globals["shop_families"] = SHOP_FAMILIES
+    env.globals["shop_family_key"] = shop_family_key
     env.globals["dim_summary"] = summarize_dims
     env.globals["label_for"] = label_for
     env.filters["cny"] = format_cny

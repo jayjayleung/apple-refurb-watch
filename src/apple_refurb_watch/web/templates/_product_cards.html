@@ -10,13 +10,7 @@
     {% endif %}
     <div class="card-body">
       <h2>{{ item.title }}</h2>
-      <p class="price">{% if item.price %}¥{{ item.price|cny }}{% else %}价格待确认{% endif %}</p>
-      <p class="meta">
-        {{ item.sku }}
-        {% if item.ram_gb %} {{ item.ram_gb|gb }} 内存{% endif %}
-        {% if item.storage_gb %} {{ item.storage_gb|gb }} 硬盘{% endif %}
-        {% if item.color_label %} {{ item.color_label }}{% endif %}
-      </p>
+      <p class="price">{% if item.price %}RMB {{ item.price|cny }}{% else %}价格待确认{% endif %}</p>
     </div>
   </a>
   <div class="card-actions">

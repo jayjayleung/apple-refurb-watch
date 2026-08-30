@@ -5,7 +5,7 @@
 <header class="page-head">
   <div>
     <h1>动态</h1>
-    <p class="lede">上新、失败和扫描结果按天排列。时间按上海时区显示。</p>
+    <p class="lede">{% if event_digest %}扫描按天收成一条，上新排在下面。{% else %}按时间从新到旧。{% endif %}时间按上海时区显示。</p>
   </div>
   {% with scan_class='primary' %}{% include "_scan.html" %}{% endwith %}
 </header>

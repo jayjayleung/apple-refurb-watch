@@ -1,8 +1,8 @@
 <div id="event-feed">
 {% if event_total %}
 <nav class="event-tools" aria-label="显示方式">
+  <a class="chip-x{% if event_digest %} on{% endif %}" href="{{ events_url_digest }}"{% if event_digest %} aria-current="page"{% endif %}>每日动态</a>
   <a class="chip-x{% if not event_digest %} on{% endif %}" href="{{ events_url_all }}"{% if not event_digest %} aria-current="page"{% endif %}>全部记录</a>
-  <a class="chip-x{% if event_digest %} on{% endif %}" href="{{ events_url_digest }}"{% if event_digest %} aria-current="page"{% endif %}>按日合并</a>
   {% if event_pages > 1 %}
   <div class="event-pager">
     {% if has_prev %}

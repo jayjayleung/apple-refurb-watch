@@ -1,22 +1,29 @@
 <div class="shop">
+  {% set family = shop_family_key(listing_key) %}
+  {% set families = active_families if active_families is defined else shop_families %}
+  {% if show_shop_all is not defined %}{% set show_shop_all = families|length > 1 %}{% endif %}
+  <nav class="shop-families" aria-label="分类">
+    {% if show_shop_all %}
+    <a href="/{% if sort %}?sort={{ sort }}{% endif %}" class="{% if not family %}on{% endif %}"
+       hx-get="/{% if sort %}?sort={{ sort }}{% endif %}" hx-target="#shop" hx-push-url="true" hx-indicator="#shop">全部</a>
+    {% endif %}
+    {% for item in families %}
+    <a href="/?listing_key={{ item.key }}{% if sort %}&sort={{ sort }}{% endif %}" class="{% if family == item.key %}on{% endif %}"
+       hx-get="/?listing_key={{ item.key }}{% if sort %}&sort={{ sort }}{% endif %}" hx-target="#shop" hx-push-url="true" hx-indicator="#shop">{{ item.name }}</a>
+    {% endfor %}
+  </nav>
+  <div class="shop-body">
   <input type="checkbox" id="filter-open" class="filter-check" tabindex="-1">
   <label class="filter-scrim" for="filter-open" aria-hidden="true"></label>
   <form id="shop-filter" class="filter-rail" hx-get="/" hx-target="#shop" hx-push-url="true" hx-indicator="#shop" hx-sync="this:replace" hx-trigger="change, keyup delay:400ms from:input[type='search'], keyup delay:400ms from:input[type='number']">
+    <input type="hidden" name="listing_key" value="{{ listing_key }}">
     <label class="filter-done" for="filter-open">完成</label>
     <p class="filter-title">筛选</p>
-    <label class="facet-select">分类
-      <select name="listing_key">
-        <option value="">全部</option>
-        {% for key, item in categories.items() %}
-        <option value="{{ key }}" {% if listing_key == key %}selected{% endif %}>{{ item.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
 
     {% include "_facets.html" %}
 
-    <div class="facet extras">
-      <h3>更多条件</h3>
+    <details class="facet extras">
+      <summary>更多条件</summary>
       <label>关键词
         <input type="search" name="q" value="{{ q }}" placeholder="例如 纳米纹理">
       </label>
@@ -29,7 +36,7 @@
       <label>硬盘 ≥ GB
         <input type="number" name="min_storage_gb" value="{{ min_storage_gb }}" min="0" step="128" placeholder="不限">
       </label>
-    </div>
+    </details>
   </form>
 
   <div class="shop-main">
@@ -50,12 +57,13 @@
         <select name="sort" form="shop-filter" aria-label="排序"
                 hx-get="/" hx-include="#shop-filter" hx-target="#shop" hx-push-url="true"
                 hx-indicator="#shop" hx-sync="#shop-filter:replace">
-          <option value="price" {% if sort != '-price' %}selected{% endif %}>价格：由低至高</option>
-          <option value="-price" {% if sort == '-price' %}selected{% endif %}>价格：由高至低</option>
+          <option value="price" {% if sort != '-price' %}selected{% endif %}>价格： 由低至高</option>
+          <option value="-price" {% if sort == '-price' %}selected{% endif %}>价格： 由高至低</option>
         </select>
       </label>
       <label class="btn filter-toggle" for="filter-open">筛选{% if filter_chips %} {{ filter_chips|length }}{% endif %}</label>
     </div>
     {% include "_products.html" %}
+  </div>
   </div>
 </div>

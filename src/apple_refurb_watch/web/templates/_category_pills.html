@@ -1,11 +1,12 @@
 <div class="pills" role="radiogroup" aria-label="分类">
+  {% set family = shop_family_key(listing_key) %}
   <label class="pill">
     <input type="radio" name="listing_key" value="" {% if not listing_key %}checked{% endif %}>
     <span>{{ all_label|default('全部') }}</span>
   </label>
-  {% for key, item in categories.items() %}
+  {% for item in shop_families %}
   <label class="pill">
-    <input type="radio" name="listing_key" value="{{ key }}" {% if listing_key == key %}checked{% endif %}>
+    <input type="radio" name="listing_key" value="{{ item.key }}" {% if family == item.key %}checked{% endif %}>
     <span>{{ item.name }}</span>
   </label>
   {% endfor %}

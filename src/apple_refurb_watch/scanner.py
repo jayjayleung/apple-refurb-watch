@@ -106,13 +106,16 @@ def _run_scan_locked(
     db.upsert_products(rows)
     if fetched_keys:
         db.mark_listing_stock(fetched_keys, {p.sku for p in products if p.listing_key in fetched_keys})
+        db.mark_listings_out_except(listings)
 
     baseline_done = bool(settings.get("baseline_done"))
+    last_ok = str(settings.get("last_success_at") or "")
     scan_usable = bool(fetched_keys)
     notified = 0
     matched = 0
     for watch in watches:
         present: set[str] = set()
+        seed_watch = _should_seed_watch(watch, baseline_done, last_ok)
         for product in products:
             if not matches_watch(product, watch):
                 continue
@@ -121,8 +124,8 @@ def _run_scan_locked(
             state = db.watch_sku_state(watch["id"], product.sku)
             was_in_stock = bool(state and state.get("in_stock"))
             already_notified = bool(state and state.get("notified"))
-            if not baseline_done:
-                db.set_watch_sku(watch["id"], product.sku, in_stock=True, notified=False)
+            if seed_watch:
+                db.set_watch_sku(watch["id"], product.sku, in_stock=True, notified=True)
                 continue
             if was_in_stock and already_notified:
                 db.set_watch_sku(watch["id"], product.sku, in_stock=True, notified=True)
@@ -186,6 +189,13 @@ def _run_scan_locked(
         "errors": errors,
         "baseline": baseline_done,
     }
+
+
+def _should_seed_watch(watch: dict, baseline_done: bool, last_ok: str) -> bool:
+    if not baseline_done or not last_ok:
+        return True
+    created = str(watch.get("created_at") or "")
+    return bool(created) and created >= last_ok
 
 
 def _needs_detail(product: Product, watches: list[dict]) -> bool:

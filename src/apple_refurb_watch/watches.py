@@ -11,6 +11,7 @@ from apple_refurb_watch.filters import (
     selected_dims,
     summarize_dims,
 )
+from apple_refurb_watch.filters.tokens import CPU_CORE_KEY, GPU_CORE_KEY
 from apple_refurb_watch.listing import opt_number
 from apple_refurb_watch.match import matches_watch
 
@@ -29,7 +30,11 @@ def watch_from_product(item: Mapping[str, Any], mode: str) -> dict:
         "name": (item.get("title") or sku)[:40],
         "mode": "condition",
         "listing_key": item.get("listing_key"),
-        "dim_filters": {key: [value] for key, value in dims.items() if value},
+        "dim_filters": {
+            key: [value]
+            for key, value in dims.items()
+            if value and key not in {CPU_CORE_KEY, GPU_CORE_KEY}
+        },
         "max_price": item.get("price"),
     }
 

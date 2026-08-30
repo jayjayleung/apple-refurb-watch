@@ -8,15 +8,19 @@ from apple_refurb_watch.textutil import norm_text
 from .catalog import dimension_keys_for, dim_spec, label_for
 from .tokens import (
     CHIP_KEY,
+    COLOR_VALUE_LISTINGS,
+    CORES_KEY,
     CPU_CORE_KEY,
     GPU_CORE_KEY,
     MATERIAL_KEYS,
     chip_from_title,
     cores_from_title,
+    cores_token,
     _as_dim_token,
     _canonical_dim,
     _gb_token,
     _looks_like,
+    _value_listings,
 )
 
 def product_dims(item: Mapping[str, Any]) -> dict[str, str]:
@@ -27,12 +31,19 @@ def product_dims(item: Mapping[str, Any]) -> dict[str, str]:
         except json.JSONDecodeError:
             extra = {}
     raw = dict((extra or {}).get("dims") or {})
+    color = item.get("color_key")
+    if str(color or "").lower() in MATERIAL_KEYS:
+        color = None
+    if not color:
+        mapped = _canonical_dim("dimensionColor", _as_dim_token(item.get("color_label")))
+        if mapped and mapped in COLOR_VALUE_LISTINGS:
+            color = mapped
     fallbacks = {
         "refurbClearModel": item.get("model_key"),
         "dimensionScreensize": item.get("screensize") if _looks_like("inch", item.get("screensize")) else None,
         "dimensionCaseSize": item.get("screensize") if _looks_like("mm", item.get("screensize")) else None,
         "dimensionRelYear": item.get("year"),
-        "dimensionColor": None if str(item.get("color_key") or "").lower() in MATERIAL_KEYS else item.get("color_key"),
+        "dimensionColor": color,
         "tsMemorySize": _gb_token(item.get("ram_gb")),
         "dimensionCapacity": _gb_token(item.get("storage_gb")),
     }
@@ -57,6 +68,10 @@ def product_dims(item: Mapping[str, Any]) -> dict[str, str]:
         out[CPU_CORE_KEY] = cpu
     if GPU_CORE_KEY not in out and gpu:
         out[GPU_CORE_KEY] = gpu
+    if CORES_KEY not in out:
+        cores = cores_token(out.get(CPU_CORE_KEY) or cpu, out.get(GPU_CORE_KEY) or gpu)
+        if cores:
+            out[CORES_KEY] = cores
     return out
 
 
@@ -122,12 +137,28 @@ def restrict_dims(dim_filters: Mapping[str, Any] | None, listing_key: str | None
     if not listing_key:
         return clean
     allowed = set(dimension_keys_for(listing_key))
-    return {key: values for key, values in clean.items() if key in allowed}
+    out: dict[str, list[str]] = {}
+    for key, values in clean.items():
+        if key not in allowed:
+            continue
+        spec = dim_spec(key)
+        kept = []
+        for value in values:
+            listings = _value_listings(key, value, spec)
+            if listings and listing_key not in listings:
+                continue
+            kept.append(value)
+        if kept:
+            out[key] = kept
+    return out
 
 def summarize_dims(dim_filters: Mapping[str, Any] | None) -> list[str]:
     parts: list[str] = []
     for key, values in normalize_dim_filters(dim_filters).items():
-        legend = dim_spec(key).get("legend") or key
         labels = [label_for(key, value) for value in values]
+        if key == CORES_KEY:
+            parts.extend(labels)
+            continue
+        legend = dim_spec(key).get("legend") or key
         parts.append(f"{legend}：{' / '.join(labels)}")
     return parts

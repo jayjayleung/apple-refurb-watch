@@ -5,9 +5,10 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from apple_refurb_watch.categories import canonical_shop_listing_key, shop_families_for
 from apple_refurb_watch.db import EVENT_KEEP
 from apple_refurb_watch.filters import facet_groups
-from apple_refurb_watch.listing import filter_products, sort_products
+from apple_refurb_watch.listing import filter_products, products_in_listen_scope, shop_listings_url, sort_products
 from apple_refurb_watch.status_view import filter_event_days, paginate_event_days, present_event_days
 from apple_refurb_watch.web.auth import token_ok
 from apple_refurb_watch.web.listing import (
@@ -25,22 +26,31 @@ def _truthy(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def events_url(*, page: int = 1, digest: bool = False, kind: str = "all") -> str:
+def events_url(*, page: int = 1, digest: bool = True, kind: str = "all") -> str:
     pairs: list[tuple[str, str]] = []
     if kind and kind != "all":
         pairs.append(("kind", kind))
-    if digest:
-        pairs.append(("digest", "1"))
+    if not digest:
+        pairs.append(("all", "1"))
     if page > 1:
         pairs.append(("page", str(page)))
     query = urlencode(pairs)
     return f"/events?{query}" if query else "/events"
 
 
+def _event_digest(params) -> bool:
+    if _truthy(params.get("all")):
+        return False
+    raw = params.get("digest")
+    if raw is None or str(raw).strip() == "":
+        return True
+    return _truthy(raw)
+
+
 def _event_context(request: Request) -> dict:
     database = request.app.state.db
     kind = (request.query_params.get("kind") or "all").strip() or "all"
-    digest = _truthy(request.query_params.get("digest"))
+    digest = _event_digest(request.query_params)
     try:
         page = int(request.query_params.get("page") or 1)
     except (TypeError, ValueError):
@@ -50,8 +60,9 @@ def _event_context(request: Request) -> dict:
         for item in database.list_products()
         if item.get("sku") and item.get("image_url")
     }
+    watch_names = {int(item["id"]): str(item.get("name") or "") for item in database.list_watches() if item.get("id")}
     days = filter_event_days(
-        present_event_days(database.list_events(EVENT_KEEP), collapse_scans=digest),
+        present_event_days(database.list_events(EVENT_KEEP), collapse_scans=digest, watch_names=watch_names),
         kind,
     )
     paged = paginate_event_days(days, page, by_day=digest)
@@ -64,18 +75,24 @@ def _event_context(request: Request) -> dict:
         **paged,
         "event_kind": kind,
         "event_digest": digest,
-        "events_url_all": events_url(kind=kind),
+        "events_url_all": events_url(digest=False, kind=kind),
         "events_url_digest": events_url(digest=True, kind=kind),
         "events_url_prev": events_url(page=paged["event_page"] - 1, digest=digest, kind=kind),
         "events_url_next": events_url(page=paged["event_page"] + 1, digest=digest, kind=kind),
     }
 
 
-@router.get("/", response_class=HTMLResponse)
-def home(request: Request) -> HTMLResponse:
+@router.get("/", response_class=HTMLResponse, response_model=None)
+def home(request: Request) -> HTMLResponse | RedirectResponse:
     database = request.app.state.db
     render = request.app.state.render
-    stock = database.list_products(in_stock=True)
+    listings = database.settings().get("listings")
+    requested = (request.query_params.get("listing_key") or "").strip()
+    canonical = canonical_shop_listing_key(requested, listings)
+    if requested != canonical:
+        sort = (request.query_params.get("sort") or "").strip()
+        return RedirectResponse(shop_listings_url(canonical, sort or None), status_code=302)
+    stock = products_in_listen_scope(database.list_products(in_stock=True), listings)
     filters = query_filters(request)
     listing_only = filter_products(
         stock,
@@ -95,6 +112,7 @@ def home(request: Request) -> HTMLResponse:
     total_count = len(items)
     page_items = items[offset : offset + PAGE_SIZE]
     has_more = offset + PAGE_SIZE < total_count
+    families = shop_families_for(listings)
     ctx = {
         "items": page_items,
         "total_count": total_count,
@@ -109,7 +127,9 @@ def home(request: Request) -> HTMLResponse:
             listing_only,
             filters["listing_key"],
             filters["dim_filters"],
-            include_catalog=False,
+            include_catalog=True,
+            include_chip=False,
+            include_cores=False,
             show_counts=True,
             refine=True,
         ),
@@ -121,6 +141,8 @@ def home(request: Request) -> HTMLResponse:
         "offset": offset,
         "oob_more": hx_target == "product-grid",
         "stock_count": len(stock),
+        "active_families": families,
+        "show_shop_all": len(families) > 1,
     }
     if hx_request:
         if hx_target == "product-grid":

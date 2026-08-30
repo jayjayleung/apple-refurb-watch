@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from apple_refurb_watch.categories import LISTING_GROUPS, listing_name
+from apple_refurb_watch.categories import LISTING_GROUPS, shop_family_key
 from apple_refurb_watch.client import ApiClient
 from apple_refurb_watch.daemon import ensure_daemon
 from apple_refurb_watch.listing import format_cny, format_gb
@@ -420,7 +420,12 @@ def create_tui(client: ApiClient):
             if not events:
                 table.add_row("—", "—", "—", "还没有记录。首次扫描只建基线。")
                 return
-            for day in present_event_days(events):
+            watch_names = {
+                int(item["id"]): str(item.get("name") or "")
+                for item in (self._watches or [])
+                if item.get("id")
+            }
+            for day in present_event_days(events, watch_names=watch_names):
                 for event in day["entries"]:
                     when = str(event.get("when_local") or format_localtime(event.get("created_at")))
                     clock = when[11:] if len(when) >= 16 else when
@@ -444,14 +449,13 @@ def create_tui(client: ApiClient):
                 switch.value = bool(settings.get("listen_enabled"))
             finally:
                 self._syncing_switch = False
-            current = set(settings.get("listings") or [])
+            current = {shop_family_key(key) for key in settings.get("listings") or []}
+            current.discard("")
             lines = []
             for group in LISTING_GROUPS:
                 names = [item["name"] for item in group["options"] if item["key"] in current]
-                if "mac" in current and group["id"] == "computers":
-                    names = [listing_name("mac")]
                 lines.append(f"{group['label']}  {', '.join(names) if names else '—'}")
-            lines.append("勾选 Mac 时不必再选只要 Pro / Air。密钥请用网页设置。")
+            lines.append("密钥请用网页设置。")
             self.query_one("#settings-listings", Static).update("\n".join(lines))
             self.query_one("#settings-note", Static).update(
                 f"间隔 {settings.get('interval_seconds')} 秒 · {settings.get('bind_host')}:{settings.get('bind_port')}"

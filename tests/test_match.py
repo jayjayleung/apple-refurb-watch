@@ -1,4 +1,4 @@
-from apple_refurb_watch.match import matches_watch
+from apple_refurb_watch.match import listing_matches, matches_watch
 from apple_refurb_watch.parse import parse_listing_html
 
 
@@ -55,6 +55,38 @@ def test_missing_price_fails_budget() -> None:
     assert matches_watch(item, {"mode": "condition", "max_price": 18000})
 
 
+def test_screensize_dim_does_not_match_other_inch() -> None:
+    item = {
+        "title": "翻新 16 英寸 MacBook Pro Apple M5 Max 芯片 (配备 18 核中央处理器和 40 核图形处理器) 和纳米纹理显示屏 - 深空黑色",
+        "listing_key": "mac",
+        "model_key": "macbookpro",
+        "screensize": "16inch",
+        "ram_gb": 128,
+        "extra": {
+            "dims": {
+                "refurbClearModel": "macbookpro",
+                "dimensionScreensize": "16inch",
+                "dimensionCapacity": "4tb",
+            }
+        },
+    }
+    watch = {
+        "mode": "condition",
+        "listing_key": "macbook-pro",
+        "dim_filters": {
+            "refurbClearModel": ["macbookpro"],
+            "chip": ["m5_max"],
+            "dimensionScreensize": ["14inch"],
+        },
+        "min_ram_gb": 64,
+    }
+    assert not matches_watch(item, watch)
+    item["screensize"] = "14inch"
+    item["extra"]["dims"]["dimensionScreensize"] = "14inch"
+    item["title"] = item["title"].replace("16 英寸", "14 英寸")
+    assert matches_watch(item, watch)
+
+
 def test_dim_filters_from_bootstrap(listing_html: str) -> None:
     product = _pro(listing_html)
     assert matches_watch(
@@ -62,3 +94,14 @@ def test_dim_filters_from_bootstrap(listing_html: str) -> None:
         {"mode": "condition", "dim_filters": {"refurbClearModel": ["macbookpro"], "tsMemorySize": ["24gb"]}},
     )
     assert not matches_watch(product, {"mode": "condition", "dim_filters": {"tsMemorySize": ["48gb"]}})
+
+
+def test_mac_family_includes_studio_display() -> None:
+    item = {
+        "title": "翻新 Studio Display - 标准玻璃面板 - 可调倾斜度及高度的支架",
+        "listing_key": "accessories",
+        "model_key": "display",
+    }
+    assert listing_matches({"listing_key": "mac"}, item)
+    assert listing_matches({"listing_key": "accessories"}, item)
+    assert not listing_matches({"listing_key": "ipad"}, item)

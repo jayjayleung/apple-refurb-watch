@@ -30,13 +30,16 @@ from .model_dims import MODEL_DIMS
 from .sync import catalog_from_bootstrap, ingest_bootstrap_catalog, sync_filter_catalog
 from .tokens import (
     CHIP_KEY,
+    CORES_KEY,
     chip_from_title,
     cores_from_title,
+    cores_label_from_token,
     format_dim_value,
 )
 
 __all__ = [
     "CHIP_KEY",
+    "CORES_KEY",
     "MODEL_DIMS",
     "PACKAGED_CATALOG",
     "cascade_allowed_values",
@@ -44,6 +47,7 @@ __all__ = [
     "catalog_from_bootstrap",
     "chip_from_title",
     "cores_from_title",
+    "cores_label_from_token",
     "dim_spec",
     "dimension_keys_for",
     "dims_match",

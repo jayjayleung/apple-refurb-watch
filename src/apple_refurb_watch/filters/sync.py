@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from apple_refurb_watch.categories import MAC_CHILD_LISTINGS
+
 from .catalog import _cache, _merge_catalog, live_catalog_path, load_catalog
-from .tokens import _as_dim_token, _canonical_dim
+from .tokens import _as_dim_token, _canonical_dim, _value_listings
 
 def ingest_bootstrap_catalog(bootstrap: dict | None, listing_key: str) -> None:
     fragment = catalog_from_bootstrap(bootstrap, listing_key)
@@ -53,12 +55,18 @@ def catalog_from_bootstrap(bootstrap: dict | None, listing_key: str) -> dict[str
             if token not in values:
                 values[token] = label
                 order.append(token)
+        listing_tags = [listing_key]
+        if listing_key in MAC_CHILD_LISTINGS:
+            listing_tags.append("mac")
         dimensions[str(key)] = {
             "legend": legends.get(key) or key,
-            "listings": [listing_key],
+            "listings": list(listing_tags),
             "order": order,
             "values": values,
-            "value_listings": {token: [listing_key] for token in order},
+            "value_listings": {
+                token: _value_listings(str(key), token, {"listings": listing_tags, "values": values})
+                for token in order
+            },
         }
     listing_legends = {listing_key: legends} if legends else {}
     return {

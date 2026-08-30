@@ -11,6 +11,7 @@ from .model_dims import MODEL_DIMS
 from .tokens import (
     CASCADE_OOS_KEYS,
     CHIP_KEY,
+    CORES_KEY,
     _listings_for_key,
     _sort_values,
     _value_listings,
@@ -103,11 +104,21 @@ def facet_groups(
     show_counts: bool = True,
     cascade: bool = False,
     refine: bool = False,
+    include_cores: bool | None = None,
+    include_chip: bool | None = None,
 ) -> list[dict[str, Any]]:
     catalog = load_catalog()
     listing_dims = catalog.get("listing_dimensions") or {}
     listing_legends = (catalog.get("listing_legends") or {}).get(listing_key or "") or {}
     keys = dimension_keys_for(listing_key)
+    if include_cores is None:
+        include_cores = include_catalog
+    if include_chip is None:
+        include_chip = True
+    if not include_cores:
+        keys = [key for key in keys if key != CORES_KEY]
+    if not include_chip:
+        keys = [key for key in keys if key != CHIP_KEY]
     selected_map = normalize_dim_filters(selected)
     scoped = list(products or [])
     if listing_key:
@@ -210,12 +221,16 @@ def facet_groups(
             )
         if not options:
             continue
+        legend = listing_legends.get(key)
+        if legend is None:
+            legend = spec["legend"] if "legend" in spec else key
         groups.append(
             {
                 "key": key,
-                "legend": listing_legends.get(key) or spec.get("legend") or key,
+                "legend": legend or "",
                 "listings": spec.get("listings") or _listings_for_key(key, listing_dims),
                 "options": options,
+                "layout": "chips",
             }
         )
     return groups

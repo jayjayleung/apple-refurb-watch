@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from apple_refurb_watch.listing import products_in_listen_scope
+
 DISPLAY_TZ = ZoneInfo("Asia/Shanghai")
 
 
@@ -31,7 +33,7 @@ def load_status(database) -> dict[str, Any]:
     data = database.scan_status()
     watch_enabled = database.count_watches(enabled=True)
     watch_total = database.count_watches()
-    in_stock = database.count_products(in_stock=True)
+    in_stock = len(products_in_listen_scope(database.list_products(in_stock=True), settings.get("listings")))
     data["settings"] = {
         k: settings[k]
         for k in ("interval_seconds", "bind_host", "bind_port", "lan_enabled", "listings", "listen_enabled")
@@ -149,19 +151,29 @@ def _event_kind(event_type: str) -> str:
     return "routine"
 
 
-def _present_event(event: dict[str, Any]) -> dict[str, Any]:
+def _present_event(event: dict[str, Any], watch_names: dict[int, str] | None = None) -> dict[str, Any]:
     event_type = str(event.get("type") or "")
     local = format_localtime(event.get("created_at"))
+    label = EVENT_LABELS.get(event_type, event_type)
+    if event_type == "appeared":
+        watch_id = event.get("watch_id")
+        try:
+            name = (watch_names or {}).get(int(watch_id)) if watch_id is not None else None
+        except (TypeError, ValueError):
+            name = None
+        if name:
+            label = f"上新 · {name}"
     return {
         "created_at": event.get("created_at"),
         "type": event_type,
-        "label": EVENT_LABELS.get(event_type, event_type),
+        "label": label,
         "kind": _event_kind(event_type),
         "when_local": local,
         "title": event.get("title"),
         "message": event.get("message"),
         "url": event.get("url"),
         "sku": event.get("sku"),
+        "watch_id": event.get("watch_id"),
         "day": local[:10] if len(local) >= 10 else local,
     }
 
@@ -180,19 +192,11 @@ def _routine_summary(routines: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _collapse_day_scans(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     routines = [item for item in entries if item.get("kind") == "routine"]
-    if len(routines) <= 1:
-        return entries
-    summary = _routine_summary(routines)
-    out: list[dict[str, Any]] = []
-    inserted = False
-    for item in entries:
-        if item.get("kind") == "routine":
-            if not inserted:
-                out.append(summary)
-                inserted = True
-            continue
-        out.append(item)
-    return out
+    rest = [item for item in entries if item.get("kind") != "routine"]
+    if not routines:
+        return rest
+    summary = _routine_summary(routines) if len(routines) > 1 else routines[0]
+    return [summary, *rest]
 
 
 EVENT_PAGE_SIZE = 20
@@ -203,17 +207,21 @@ def present_event_days(
     events: list[dict[str, Any]],
     *,
     collapse_scans: bool = False,
+    watch_names: dict[int, str] | None = None,
 ) -> list[dict[str, Any]]:
+    presented = [_present_event(event, watch_names) for event in events]
+    presented.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
     days: list[dict[str, Any]] = []
-    for event in events:
-        item = _present_event(event)
+    for item in presented:
         if not days or days[-1]["day"] != item["day"]:
             days.append({"day": item["day"], "entries": [item]})
         else:
             days[-1]["entries"].append(item)
-    if not collapse_scans:
-        return days
-    return [{"day": day["day"], "entries": _collapse_day_scans(day["entries"])} for day in days]
+    out: list[dict[str, Any]] = []
+    for day in days:
+        entries = _collapse_day_scans(day["entries"]) if collapse_scans else list(day["entries"])
+        out.append({"day": day["day"], "entries": entries})
+    return out
 
 
 def _page_index(page: int, pages: int) -> int:

@@ -25,8 +25,9 @@
     <label class="check"><input type="checkbox" name="listen_enabled" {% if settings.listen_enabled %}checked{% endif %}> 定时监听官网（关闭后网页仍可用，只停自动扫描）</label>
     <fieldset>
       <legend>监听分类</legend>
-      {% for key, item in categories.items() %}
-      <label class="check"><input type="checkbox" name="listings" value="{{ key }}" {% if key in settings.listings %}checked{% endif %}> {{ item.name }}</label>
+      <p class="hint">这些分类会抓取，在售只展示它们；没勾的不会出现在顶栏。Pro / Air 在 Mac 机型里选，不必单独勾。</p>
+      {% for item in shop_families %}
+      <label class="check"><input type="checkbox" name="listings" value="{{ item.key }}" {% if shop_family_key(item.key) in settings.listings or (item.key == 'mac' and ('macbook-pro' in settings.listings or 'macbook-air' in settings.listings)) %}checked{% endif %}> {{ item.name }}</label>
       {% endfor %}
     </fieldset>
     <label class="check"><input type="checkbox" name="close_window_keeps_daemon" {% if settings.close_window_keeps_daemon %}checked{% endif %}> 关闭桌面窗口后继续后台扫描</label>
@@ -103,25 +104,4 @@
   {% include "_scan.html" %}
   <form method="post" action="/settings/sync-catalog"><button class="btn" type="submit">从官网同步筛选词条</button></form>
 </div>
-<script>
-(function () {
-  const form = document.getElementById("settings-form");
-  if (!form) return;
-  const mac = form.querySelector('input[name="listings"][value="mac"]');
-  const children = form.querySelectorAll('input[name="listings"][value="macbook-pro"], input[name="listings"][value="macbook-air"]');
-  function sync() {
-    const on = !!(mac && mac.checked);
-    children.forEach(function (el) {
-      el.disabled = on;
-      if (on) el.checked = false;
-    });
-  }
-  form.addEventListener("change", sync);
-  form.addEventListener("click", function (event) {
-    const t = event.target;
-    if (t && t.name === "listings") sync();
-  });
-  sync();
-})();
-</script>
 {% endblock %}

@@ -81,6 +81,47 @@ def test_baseline_then_notify(tmp_path: Path, listing_html: str) -> None:
     db.close()
 
 
+def test_staying_in_stock_after_baseline_does_not_notify(tmp_path: Path, listing_html: str) -> None:
+    db = Database(tmp_path / "app.db")
+    db.set_setting("listings", ["mac"])
+    db.create_watch({"name": "14 MBP", "all_of": ["MacBook Pro", "M5 Pro"], "min_ram_gb": 24})
+    first, notes = _scan(db, listing_html)
+    assert first["notified"] == 0
+    assert notes == []
+    second, notes = _scan(db, listing_html)
+    assert second["ok"]
+    assert second["notified"] == 0
+    assert notes == []
+    db.close()
+
+
+def test_new_watch_does_not_notify_existing_stock(tmp_path: Path, listing_html: str) -> None:
+    db = Database(tmp_path / "app.db")
+    db.set_setting("listings", ["mac"])
+    first, _ = _scan(db, listing_html)
+    assert first["ok"]
+    assert db.get_setting("baseline_done") is True
+
+    db.create_watch(
+        {
+            "name": "14 MBP",
+            "mode": "condition",
+            "all_of": ["MacBook Pro", "M5 Pro"],
+            "min_ram_gb": 24,
+        }
+    )
+    seeded, notes = _scan(db, listing_html)
+    assert seeded["notified"] == 0
+    assert notes == []
+
+    gone = listing_html.replace("FGDN4CH/A", "ZZZZ4CH/A").replace("MacBook Pro Apple M5 Pro", "Mac mini Apple M4")
+    _scan(db, gone)
+    back, notes = _scan(db, listing_html)
+    assert back["notified"] == 1
+    assert notes
+    db.close()
+
+
 def test_failed_listing_does_not_clear_stock(tmp_path: Path, listing_html: str) -> None:
     db = Database(tmp_path / "app.db")
     db.set_setting("listings", ["mac"])
@@ -194,4 +235,61 @@ def test_scan_skips_mac_child_listings(tmp_path: Path, listing_html: str) -> Non
         "https://www.apple.com.cn/shop/refurbished/mac",
         "https://www.apple.com.cn/shop/refurbished/ipad",
     ]
+    db.close()
+
+
+def _stale_row(sku: str, title: str, listing_key: str) -> dict:
+    return {
+        "sku": sku,
+        "title": title,
+        "url": f"https://www.apple.com.cn/shop/product/{sku}",
+        "price": 3000,
+        "listing_key": listing_key,
+    }
+
+
+def test_scan_marks_unselected_listings_out(tmp_path: Path, listing_html: str) -> None:
+    db = Database(tmp_path / "app.db")
+    db.upsert_products(
+        [
+            _stale_row("IPAD1CH/A", "翻新 iPad", "ipad"),
+            _stale_row("WATCH1CH/A", "翻新 Apple Watch", "watch"),
+            _stale_row("OLDPROCH/A", "翻新旧 MacBook Pro", "macbook-pro"),
+        ]
+    )
+    db.set_setting("listings", ["mac"])
+    result, _ = _scan(db, listing_html)
+    assert result["ok"]
+    stock = {p["sku"] for p in db.list_products(in_stock=True)}
+    assert "FGDN4CH/A" in stock
+    assert "IPAD1CH/A" not in stock
+    assert "WATCH1CH/A" not in stock
+    assert "OLDPROCH/A" not in stock
+    rows = {p["sku"]: p for p in db.list_products(in_stock=None)}
+    assert rows["IPAD1CH/A"]["in_stock"] == 0
+    assert rows["OLDPROCH/A"]["in_stock"] == 0
+    db.close()
+
+
+def test_scan_keeps_failed_selected_listing(tmp_path: Path, listing_html: str) -> None:
+    db = Database(tmp_path / "app.db")
+    db.upsert_products(
+        [
+            _stale_row("IPAD1CH/A", "翻新 iPad", "ipad"),
+            _stale_row("WATCH1CH/A", "翻新 Apple Watch", "watch"),
+        ]
+    )
+    db.set_setting("listings", ["mac", "ipad"])
+
+    def fetch_listing(url: str) -> str:
+        if "/ipad" in url:
+            raise RuntimeError("ipad down")
+        return listing_html
+
+    result, _ = _scan(db, listing_html, fetch_listing=fetch_listing)
+    assert result["ok"]
+    stock = {p["sku"] for p in db.list_products(in_stock=True)}
+    assert "FGDN4CH/A" in stock
+    assert "IPAD1CH/A" in stock
+    assert "WATCH1CH/A" not in stock
     db.close()

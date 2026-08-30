@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from apple_refurb_watch.filters import live_catalog_path, load_catalog, user_catalog_path
-from apple_refurb_watch.listing import filter_products, listing_filters
+from apple_refurb_watch.listing import filter_products, listing_filters, products_in_listen_scope
 from apple_refurb_watch.notify import NotifyError, send_test
 from apple_refurb_watch.scanner import run_scan
 from apple_refurb_watch.settings import normalize_settings_patch, public_settings
@@ -36,8 +36,10 @@ def api_filter_catalog() -> dict:
 @router.get("/api/listings")
 def api_listings(request: Request) -> dict:
     database = request.app.state.db
+    listings = database.settings().get("listings")
     filters = listing_filters(request.query_params)
-    items = filter_products(database.list_products(in_stock=True), **filters)
+    stock = products_in_listen_scope(database.list_products(in_stock=True), listings)
+    items = filter_products(stock, **filters)
     return {"items": items, "count": len(items)}
 
 

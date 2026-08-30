@@ -76,13 +76,29 @@ def listing_matches(watch: dict, item: dict) -> bool:
     title = str(item.get("title") or "")
     if key == prod:
         return True
-    if key == "mac" and (prod.startswith("mac") or "Mac" in title):
+    if key == "mac" and (
+        prod.startswith("mac")
+        or "Mac" in title
+        or model == "display"
+        or "Studio Display" in title
+    ):
         return True
     if key == "ipad" and (prod.startswith("ipad") or "iPad" in title or "Pencil" in title):
         return True
     if key == "watch" and (prod.startswith("watch") or "Watch" in title):
         return True
     if key == "airpods" and (prod == "airpods" or "AirPods" in title):
+        return True
+    if key == "homepod" and (prod == "homepod" or "HomePod" in title):
+        return True
+    if key == "accessories" and (
+        prod == "accessories"
+        or prod == "homepod"
+        or model in {"display", "homepod", "airpods", "ipadaccessories"}
+        or "Pencil" in title
+        or "Studio Display" in title
+        or "HomePod" in title
+    ):
         return True
     if key == "macbook-pro" and ("macbookpro" in model or "MacBook Pro" in title):
         return True

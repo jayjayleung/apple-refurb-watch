@@ -94,6 +94,16 @@ def test_watch_from_product_modes() -> None:
     assert condition["dim_filters"]["refurbClearModel"] == ["macbookpro"]
     assert condition["dim_filters"]["tsMemorySize"] == ["24gb"]
     assert condition["dim_filters"]["chip"] == ["m5_pro"]
+    cored = watch_from_product(
+        {
+            **item,
+            "title": "翻新 14 英寸 MacBook Pro Apple M5 Pro 芯片 (配备 12 核中央处理器和 16 核图形处理器)",
+        },
+        "condition",
+    )
+    assert cored["dim_filters"]["cores"] == ["12core_16core"]
+    assert "cpu_cores" not in cored["dim_filters"]
+    assert "gpu_cores" not in cored["dim_filters"]
 
 
 def test_tui_four_panes_load() -> None:

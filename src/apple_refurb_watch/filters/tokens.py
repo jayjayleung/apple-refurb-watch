@@ -17,6 +17,28 @@ VALUE_NORMALIZE = {
     "dimensionColor": {
         "spacegray": "space_gray",
         "spacegrey": "space_gray",
+        "深空灰色": "space_gray",
+        "深空灰": "space_gray",
+        "银色": "silver",
+        "深空黑色": "spaceblack",
+        "深空黑": "spaceblack",
+        "星光色": "starlight",
+        "午夜色": "midnight",
+        "天蓝色": "skyblue",
+        "蓝色": "blue",
+        "靛蓝色": "indigo",
+        "紫色": "purple",
+        "粉色": "pink",
+        "桃粉色": "pink",
+        "黄色": "yellow",
+        "柑橘黄色": "orange",
+        "橙色": "orange",
+        "黑色": "black",
+        "金色": "gold",
+        "原色": "natural",
+        "绿色": "green",
+        "白色": "white",
+        "腮红色": "blush",
     },
 }
 CHIP_KEY = "chip"
@@ -80,10 +102,12 @@ CHIP_TOKEN_RE = re.compile(r"^(m\d+(?:_(?:pro|max|ultra))?|a\d+(?:_pro)?)$", re.
 CASCADE_OOS_KEYS = frozenset({"tsMemorySize", "dimensionCapacity"})
 CPU_CORE_KEY = "cpu_cores"
 GPU_CORE_KEY = "gpu_cores"
+CORES_KEY = "cores"
 CORE_LISTING_KEYS = frozenset({"mac", "macbook-pro", "macbook-air"})
 CPU_CORE_RE = re.compile(r"(\d+)\s*核中央处理器")
 GPU_CORE_RE = re.compile(r"(\d+)\s*核图形处理器")
-DERIVED_KEYS = frozenset({CHIP_KEY, CPU_CORE_KEY, GPU_CORE_KEY})
+CORES_PAIR_RE = re.compile(r"^(\d+)core_(\d+)core$", re.I)
+DERIVED_KEYS = frozenset({CHIP_KEY, CORES_KEY, CPU_CORE_KEY, GPU_CORE_KEY})
 
 
 CPU_CORE_SPEC = {
@@ -94,6 +118,12 @@ CPU_CORE_SPEC = {
 }
 GPU_CORE_SPEC = {
     "legend": "图形处理器",
+    "listings": ["mac", "macbook-pro", "macbook-air"],
+    "order": [],
+    "values": {},
+}
+CORES_SPEC = {
+    "legend": "中央处理器 / 图形处理器",
     "listings": ["mac", "macbook-pro", "macbook-air"],
     "order": [],
     "values": {},
@@ -125,6 +155,46 @@ def cores_from_title(title: str | None) -> tuple[str | None, str | None]:
     )
 
 
+def cores_token(cpu: str | None, gpu: str | None) -> str | None:
+    cpu_token = _core_token(cpu) if cpu else None
+    gpu_token = _core_token(gpu) if gpu else None
+    if cpu_token and gpu_token:
+        return f"{cpu_token}_{gpu_token}"
+    return cpu_token or gpu_token
+
+
+def split_cores_token(token: str | None) -> tuple[str | None, str | None]:
+    mapped = _cores_token(token) if token else None
+    if not mapped:
+        return None, None
+    pair = CORES_PAIR_RE.fullmatch(mapped)
+    if pair:
+        return f"{int(pair.group(1))}core", f"{int(pair.group(2))}core"
+    return _core_token(mapped), None
+
+
+def cores_label_from_token(token: str | None) -> str:
+    cpu, gpu = split_cores_token(token)
+    parts: list[str] = []
+    if cpu:
+        parts.append(f"{int(cpu[:-4])} 核")
+    if gpu:
+        parts.append(f"{int(gpu[:-4])} 核")
+    if not parts:
+        return str(token or "")
+    return " / ".join(parts)
+
+
+def core_label_from_token(key: str, token: str | None) -> str:
+    mapped = _core_token(token) if token else None
+    if not mapped:
+        return format_dim_value(str(token or ""))
+    count = int(mapped[:-4])
+    if key == GPU_CORE_KEY:
+        return f"{count} 核图形处理器"
+    return f"{count} 核中央处理器"
+
+
 def format_dim_value(value: str) -> str:
     raw = str(value).strip()
     lower = raw.lower().replace(" ", "")
@@ -148,18 +218,71 @@ def format_dim_value(value: str) -> str:
         return f"{raw} 年"
     return raw
 
+_MAC = ["mac", "macbook-pro", "macbook-air"]
+_MAC_IPAD = ["mac", "macbook-pro", "macbook-air", "ipad"]
 SCREEN_VALUE_LISTINGS = {
     "8_3inch": ["ipad"],
     "10_2inch": ["ipad"],
     "10_9inch": ["ipad"],
     "11inch": ["ipad"],
     "12_9inch": ["ipad"],
-    "13inch": ["mac", "macbook-pro", "macbook-air", "ipad"],
+    "13inch": list(_MAC_IPAD),
     "14inch": ["mac", "macbook-pro"],
     "15inch": ["mac", "macbook-air"],
     "16inch": ["mac", "macbook-pro"],
     "24inch": ["mac"],
     "27inch": ["mac"],
+}
+COLOR_VALUE_LISTINGS = {
+    "silver": list(_MAC_IPAD),
+    "space_gray": list(_MAC_IPAD),
+    "starlight": list(_MAC_IPAD),
+    "skyblue": list(_MAC_IPAD),
+    "pink": list(_MAC_IPAD),
+    "green": list(_MAC_IPAD),
+    "blue": list(_MAC_IPAD),
+    "purple": list(_MAC_IPAD),
+    "gold": list(_MAC_IPAD),
+    "spaceblack": list(_MAC),
+    "midnight": list(_MAC) + ["homepod"],
+    "white": ["homepod"],
+    "yellow": list(_MAC),
+    "orange": list(_MAC),
+    "blush": list(_MAC),
+    "citrus": list(_MAC),
+    "indigo": list(_MAC),
+    "rosegold": ["ipad"],
+}
+YEAR_VALUE_LISTINGS = {
+    "2019": list(_MAC),
+    "2020": list(_MAC_IPAD),
+    "2021": list(_MAC_IPAD),
+    "2022": list(_MAC_IPAD),
+    "2023": list(_MAC_IPAD),
+    "2024": list(_MAC_IPAD),
+    "2025": list(_MAC_IPAD),
+    "2026": list(_MAC),
+}
+CAPACITY_VALUE_LISTINGS = {
+    "32gb": ["ipad"],
+    "64gb": ["ipad"],
+    "128gb": list(_MAC_IPAD),
+    "256gb": list(_MAC_IPAD),
+    "512gb": list(_MAC_IPAD),
+    "1tb": list(_MAC_IPAD),
+    "2tb": list(_MAC_IPAD),
+    "1point5tb": list(_MAC),
+    "1_5tb": list(_MAC),
+    "3tb": list(_MAC),
+    "4tb": list(_MAC),
+    "8tb": list(_MAC),
+}
+BUILTIN_VALUE_LISTINGS = {
+    "dimensionScreensize": SCREEN_VALUE_LISTINGS,
+    "dimensionColor": COLOR_VALUE_LISTINGS,
+    "dimensionRelYear": YEAR_VALUE_LISTINGS,
+    "dimensionCapacity": CAPACITY_VALUE_LISTINGS,
+    CHIP_KEY: CHIP_VALUE_LISTINGS,
 }
 
 
@@ -171,29 +294,63 @@ def _screen_token(value: str) -> str:
     return str(value).lower().replace("-", "_").replace(" ", "")
 
 
-def _value_listings(key: str, value: str, spec: Mapping[str, Any]) -> list[str]:
-    custom = (spec.get("value_listings") or {}).get(value)
-    if custom:
-        return list(custom)
-    if key == "dimensionScreensize":
-        mapped = SCREEN_VALUE_LISTINGS.get(_screen_token(value))
-        if mapped:
-            return list(mapped)
-    default = list(spec.get("listings") or [])
-    if key != "refurbClearModel":
-        return default
+def _with_mac_parent(listings: list[str]) -> list[str]:
+    out = list(dict.fromkeys(listings))
+    if any(key in {"macbook-pro", "macbook-air"} for key in out) and "mac" not in out:
+        out.append("mac")
+    return out
+
+
+def _model_listings(value: str) -> list[str]:
     low = value.lower()
+    if low == "ipadaccessories":
+        return ["ipad", "accessories"]
     if low.startswith("ipad"):
         return ["ipad"]
     if "watch" in low:
         return ["watch"]
+    if low == "airpods":
+        return ["airpods", "accessories"]
     if "airpod" in low:
         return ["airpods"]
+    if low == "homepod":
+        return ["homepod", "accessories"]
+    if low == "display":
+        return ["mac", "accessories"]
     if low == "macbookpro":
         return ["mac", "macbook-pro"]
     if low == "macbookair":
         return ["mac", "macbook-air"]
     return ["mac"]
+
+
+def _lookup_value_listings(key: str, value: str) -> list[str] | None:
+    table = BUILTIN_VALUE_LISTINGS.get(key)
+    if not table:
+        return None
+    token = _screen_token(value) if key == "dimensionScreensize" else str(value).lower()
+    mapped = table.get(token) or table.get(value)
+    return list(mapped) if mapped else None
+
+
+def _value_listings(key: str, value: str, spec: Mapping[str, Any]) -> list[str]:
+    if key == "refurbClearModel":
+        return _model_listings(value)
+    if key == "heroAirPods":
+        return ["airpods"]
+    if key == "tsMemorySize":
+        return list(_MAC)
+    if key in {"dimensionCaseSize", "dimensionCaseMaterial", "dimensionConnection"}:
+        return ["watch"]
+    if key == "dimensionconnectivity":
+        return ["ipad"]
+    builtin = _lookup_value_listings(key, value)
+    if builtin:
+        return builtin
+    custom = (spec.get("value_listings") or {}).get(value)
+    if custom:
+        return _with_mac_parent(list(custom))
+    return _with_mac_parent(list(spec.get("listings") or []))
 
 
 def _sort_values(values: list[str], spec: Mapping[str, Any]) -> list[str]:
@@ -226,6 +383,10 @@ def _canonical_dim(key: str, token: str | None) -> str | None:
         mapped = _chip_token(token)
         if mapped:
             return mapped
+    if key == CORES_KEY:
+        mapped = _cores_token(token)
+        if mapped:
+            return mapped
     if key in {CPU_CORE_KEY, GPU_CORE_KEY}:
         mapped = _core_token(token)
         if mapped:
@@ -250,6 +411,25 @@ def _core_token(raw: str) -> str | None:
     if text.isdigit():
         return f"{int(text)}core"
     return None
+
+
+def _cores_token(raw: str) -> str | None:
+    text = str(raw).strip()
+    if not text:
+        return None
+    folded = _fold_title(text)
+    cpu = CPU_CORE_RE.search(folded)
+    gpu = GPU_CORE_RE.search(folded)
+    if cpu or gpu:
+        return cores_token(
+            f"{int(cpu.group(1))}core" if cpu else None,
+            f"{int(gpu.group(1))}core" if gpu else None,
+        )
+    compact = folded.lower().replace(" ", "").replace("核", "")
+    pair = re.fullmatch(r"(\d+)(?:core)?_(\d+)(?:core)?", compact)
+    if pair:
+        return f"{int(pair.group(1))}core_{int(pair.group(2))}core"
+    return _core_token(text)
 
 
 def _chip_token(raw: str) -> str | None:

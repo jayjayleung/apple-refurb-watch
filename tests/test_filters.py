@@ -13,6 +13,7 @@ from apple_refurb_watch.filters import (
     load_catalog,
     product_dims,
     prune_cascade_dims,
+    restrict_dims,
     selected_dims,
     sync_filter_catalog,
 )
@@ -96,7 +97,9 @@ def test_chip_from_title_prefers_longer_token() -> None:
     )
     assert cores_from_title("芯片 (配\u200d备 10 核中央处理器和 10 核图形处理器)") == ("10core", "10core")
     assert cores_from_title("翻新 MacBook Neo (Apple A18 Pro 芯片) - 银色") == (None, None)
-    assert label_for("cpu_cores", "12core") == "12 核"
+    assert label_for("cpu_cores", "12core") == "12 核中央处理器"
+    assert label_for("gpu_cores", "16core") == "16 核图形处理器"
+    assert label_for("cores", "12core_16core") == "12 核 / 16 核"
     item = {
         "title": "翻新 14 英寸 MacBook Pro Apple M5 Pro 芯片 (配备 12 核中央处理器和 16 核图形处理器) - 银色",
         "listing_key": "mac",
@@ -104,8 +107,11 @@ def test_chip_from_title_prefers_longer_token() -> None:
     }
     assert product_dims(item)["cpu_cores"] == "12core"
     assert product_dims(item)["gpu_cores"] == "16core"
+    assert product_dims(item)["cores"] == "12core_16core"
     assert dims_match(item, {"cpu_cores": ["12core"]})
+    assert dims_match(item, {"cores": ["12core_16core"]})
     assert not dims_match(item, {"cpu_cores": ["10core"]})
+    assert not dims_match(item, {"cores": ["10core_10core"]})
     item = {
         "title": "翻新 14 英寸 MacBook Pro Apple M5 Pro 芯片",
         "listing_key": "mac",
@@ -169,6 +175,97 @@ def test_catalog_includes_oos_memory() -> None:
     assert mbp_models == {"macbookpro"}
 
 
+def test_family_facets_match_official_listings() -> None:
+    assert facet_groups([], None, {}, include_catalog=True, include_chip=False, include_cores=False) == []
+    mac = {
+        g["key"]: g
+        for g in facet_groups([], "mac", {}, include_catalog=True, include_chip=False, include_cores=False)
+    }
+    assert list(mac) == [
+        "refurbClearModel",
+        "dimensionScreensize",
+        "dimensionRelYear",
+        "dimensionColor",
+        "tsMemorySize",
+        "dimensionCapacity",
+    ]
+    models = {opt["value"] for opt in mac["refurbClearModel"]["options"]}
+    assert {"macbookair", "macbookpro", "imac", "macmini", "macstudio", "macpro", "macbookneo", "display"} <= models
+    assert "ipadpro_13" not in models
+    assert "watchseries11" not in models
+    sizes = {opt["value"] for opt in mac["dimensionScreensize"]["options"]}
+    assert {"13inch", "14inch", "15inch", "16inch", "24inch", "27inch"} <= sizes
+    assert "8_3inch" not in sizes
+    assert "11inch" not in sizes
+    colors = {opt["value"] for opt in mac["dimensionColor"]["options"]}
+    assert "blush" in colors
+    assert "spaceblack" in colors
+    assert "rosegold" not in colors
+    years = {opt["value"] for opt in mac["dimensionRelYear"]["options"]}
+    assert "2019" in years
+    assert "2026" in years
+    caps = {opt["value"] for opt in mac["dimensionCapacity"]["options"]}
+    assert "8tb" in caps
+    assert "32gb" not in caps
+    ipad = {
+        g["key"]: g
+        for g in facet_groups([], "ipad", {}, include_catalog=True, include_chip=False, include_cores=False)
+    }
+    assert list(ipad) == [
+        "refurbClearModel",
+        "dimensionColor",
+        "dimensionScreensize",
+        "dimensionCapacity",
+        "dimensionconnectivity",
+        "dimensionRelYear",
+    ]
+    ipad_models = {opt["value"] for opt in ipad["refurbClearModel"]["options"]}
+    assert "ipadpro_13" in ipad_models
+    assert "ipadair_11" in ipad_models
+    assert "macbookpro" not in ipad_models
+    ipad_sizes = {opt["value"] for opt in ipad["dimensionScreensize"]["options"]}
+    assert {"8_3inch", "10_9inch", "11inch", "13inch"} <= ipad_sizes
+    assert "14inch" not in ipad_sizes
+    assert "24inch" not in ipad_sizes
+    ipad_colors = {opt["value"] for opt in ipad["dimensionColor"]["options"]}
+    assert "rosegold" in ipad_colors
+    assert "blush" not in ipad_colors
+    ipad_years = {opt["value"] for opt in ipad["dimensionRelYear"]["options"]}
+    assert "2019" not in ipad_years
+    assert "2026" not in ipad_years
+    ipad_caps = {opt["value"] for opt in ipad["dimensionCapacity"]["options"]}
+    assert "32gb" in ipad_caps
+    assert "8tb" not in ipad_caps
+    watch = {g["key"]: g for g in facet_groups([], "watch", {}, include_catalog=True)}
+    assert list(watch) == [
+        "refurbClearModel",
+        "dimensionCaseSize",
+        "dimensionCaseMaterial",
+        "dimensionConnection",
+    ]
+    assert "watchultra3" in {opt["value"] for opt in watch["refurbClearModel"]["options"]}
+    assert "49mm" in {opt["value"] for opt in watch["dimensionCaseSize"]["options"]}
+    assert "stainless" in {opt["value"] for opt in watch["dimensionCaseMaterial"]["options"]}
+    airpods = {g["key"]: g for g in facet_groups([], "airpods", {}, include_catalog=True)}
+    assert list(airpods) == ["heroAirPods"]
+    assert "airpodspro2023" in {opt["value"] for opt in airpods["heroAirPods"]["options"]}
+    homepod = {
+        g["key"]: g
+        for g in facet_groups([], "homepod", {}, include_catalog=True, include_chip=False, include_cores=False)
+    }
+    assert list(homepod) == ["dimensionColor"]
+    assert {opt["value"] for opt in homepod["dimensionColor"]["options"]} == {"midnight", "white"}
+    accessories = {
+        g["key"]: g
+        for g in facet_groups([], "accessories", {}, include_catalog=True, include_chip=False, include_cores=False)
+    }
+    assert list(accessories) == ["refurbClearModel"]
+    assert accessories["refurbClearModel"]["legend"] == "类别"
+    acc_models = {opt["value"] for opt in accessories["refurbClearModel"]["options"]}
+    assert {"ipadaccessories", "display", "airpods", "homepod"} <= acc_models
+    assert "macbookpro" not in acc_models
+
+
 def test_model_cascade_keeps_oos_memory() -> None:
     products = [
         {
@@ -226,6 +323,7 @@ def test_model_cascade_keeps_oos_memory() -> None:
     assert "m5_pro" in {opt["value"] for opt in implied["chip"]["options"]}
     watch_keys = {g["key"] for g in facet_groups([], "watch", {}, include_catalog=True)}
     assert "chip" not in watch_keys
+    assert "cores" not in watch_keys
     assert "cpu_cores" not in watch_keys
     assert "gpu_cores" not in watch_keys
     pruned = prune_cascade_dims(
@@ -234,6 +332,13 @@ def test_model_cascade_keeps_oos_memory() -> None:
     )
     assert pruned["tsMemorySize"] == ["128gb"]
     assert pruned["dimensionScreensize"] == ["14inch"]
+    assert restrict_dims(
+        {"refurbClearModel": ["macbookpro", "watchseries11"]},
+        "watch",
+    ) == {"refurbClearModel": ["watchseries11"]}
+    assert restrict_dims({"refurbClearModel": ["macbookpro"]}, "mac") == {
+        "refurbClearModel": ["macbookpro"]
+    }
 
 
 def test_chip_cascade_narrows_size_keeps_oos_ram() -> None:
@@ -371,8 +476,9 @@ def test_shop_refine_matches_in_stock_like_official() -> None:
     rams = {opt["value"] for opt in groups["tsMemorySize"]["options"]}
     assert rams == {"24gb", "36gb", "16gb"}
     assert "128gb" not in rams
-    assert {opt["value"] for opt in groups["cpu_cores"]["options"]} == {"12core", "18core", "10core"}
-    assert {opt["label"] for opt in groups["gpu_cores"]["options"]} == {"16 核", "40 核", "8 核"}
+    assert "cpu_cores" not in groups
+    assert "gpu_cores" not in groups
+    assert "cores" not in groups
     pro = {
         g["key"]: g
         for g in facet_groups(
@@ -385,7 +491,6 @@ def test_shop_refine_matches_in_stock_like_official() -> None:
         )
     }
     assert {opt["value"] for opt in pro["dimensionScreensize"]["options"]} == {"14inch", "16inch"}
-    assert {opt["value"] for opt in pro["cpu_cores"]["options"]} == {"12core", "18core"}
     assert "macbookair" in {opt["value"] for opt in pro["refurbClearModel"]["options"]}
     m5_pro = {
         g["key"]: g
@@ -399,14 +504,13 @@ def test_shop_refine_matches_in_stock_like_official() -> None:
         )
     }
     assert {opt["value"] for opt in m5_pro["dimensionScreensize"]["options"]} == {"14inch"}
-    assert {opt["value"] for opt in m5_pro["cpu_cores"]["options"]} == {"12core"}
     assert {opt["value"] for opt in m5_pro["chip"]["options"]} == {"m5_pro", "m5_max"}
     cores = {
         g["key"]: g
         for g in facet_groups(
             products,
             "mac",
-            {"cpu_cores": ["18core"]},
+            {"cores": ["18core_40core"]},
             include_catalog=False,
             show_counts=True,
             refine=True,
@@ -414,6 +518,67 @@ def test_shop_refine_matches_in_stock_like_official() -> None:
     }
     assert {opt["value"] for opt in cores["refurbClearModel"]["options"]} == {"macbookpro"}
     assert {opt["value"] for opt in cores["chip"]["options"]} == {"m5_max"}
+
+
+def test_watch_cores_use_official_phrase() -> None:
+    products = [
+        {
+            "title": "翻新 14 英寸 MacBook Pro Apple M5 Pro 芯片 (配备 12 核中央处理器和 16 核图形处理器)",
+            "listing_key": "mac",
+            "extra": {
+                "dims": {
+                    "refurbClearModel": "macbookpro",
+                    "tsMemorySize": "24gb",
+                    "dimensionScreensize": "14inch",
+                }
+            },
+        },
+        {
+            "title": "翻新 16 英寸 MacBook Pro Apple M5 Max 芯片 (配备 18 核中央处理器和 40 核图形处理器)",
+            "listing_key": "mac",
+            "extra": {
+                "dims": {
+                    "refurbClearModel": "macbookpro",
+                    "tsMemorySize": "36gb",
+                    "dimensionScreensize": "16inch",
+                }
+            },
+        },
+        {
+            "title": "翻新 MacBook Air Apple M4 芯片 (配备 10 核中央处理器和 8 核图形处理器)",
+            "listing_key": "mac",
+            "extra": {
+                "dims": {
+                    "refurbClearModel": "macbookair",
+                    "tsMemorySize": "16gb",
+                    "dimensionScreensize": "13inch",
+                }
+            },
+        },
+    ]
+    groups = {
+        g["key"]: g
+        for g in facet_groups(products, "mac", {}, include_catalog=True, show_counts=True, cascade=True)
+    }
+    cores = {opt["value"]: opt for opt in groups["cores"]["options"]}
+    assert cores["12core_16core"]["label"] == "12 核 / 16 核"
+    assert cores["18core_40core"]["label"] == "18 核 / 40 核"
+    assert cores["10core_8core"]["label"] == "10 核 / 8 核"
+    assert groups["cores"]["legend"] == "中央处理器 / 图形处理器"
+    assert groups["cores"]["layout"] == "chips"
+    pro = {
+        g["key"]: g
+        for g in facet_groups(
+            products,
+            "mac",
+            {"refurbClearModel": ["macbookpro"], "chip": ["m5_pro"]},
+            include_catalog=True,
+            show_counts=True,
+            cascade=True,
+        )
+    }
+    assert {opt["value"] for opt in pro["cores"]["options"]} == {"12core_16core"}
+    assert {opt["label"] for opt in pro["cores"]["options"]} == {"12 核 / 16 核"}
 
 
 def test_listing_facets_ignore_other_category_stock() -> None:
@@ -473,3 +638,43 @@ def test_catalog_from_bootstrap_and_ingest(tmp_path, monkeypatch) -> None:
     assert synced["listing_legends"]["mac"]["tsMemorySize"] == "内存"
     assert synced["dimensions"]["tsMemorySize"]["values"]["128gb"] == "128GB"
     filters_mod._cache["sig"] = None
+
+
+def test_shop_in_stock_display_and_homepod_color_not_disabled() -> None:
+    products = [
+        {
+            "title": "翻新 Studio Display - 标准玻璃面板 - 可调倾斜度及高度的支架",
+            "listing_key": "accessories",
+            "model_key": "display",
+            "extra": {"dims": {"refurbClearModel": "display"}},
+        },
+        {
+            "title": "翻新 HomePod (第二代) - 午夜色",
+            "listing_key": "accessories",
+            "model_key": "homepod",
+            "color_label": "午夜色",
+            "extra": {"dims": {"refurbClearModel": "homepod"}},
+        },
+        {
+            "title": "翻新 HomePod (第二代) - 白色",
+            "listing_key": "accessories",
+            "model_key": "homepod",
+            "color_label": "白色",
+            "extra": {"dims": {"refurbClearModel": "homepod"}},
+        },
+    ]
+    assert product_dims(products[1])["dimensionColor"] == "midnight"
+    assert product_dims(products[2])["dimensionColor"] == "white"
+    assert "dimensionColor" not in product_dims(products[0])
+    mac = {g["key"]: g for g in facet_groups(products, "mac", {}, include_catalog=True, include_chip=False, include_cores=False, show_counts=True, refine=True)}
+    display = next(opt for opt in mac["refurbClearModel"]["options"] if opt["value"] == "display")
+    assert display["count"] == 1
+    homepod = {
+        g["key"]: g
+        for g in facet_groups(
+            products, "homepod", {}, include_catalog=True, include_chip=False, include_cores=False, show_counts=True, refine=True
+        )
+    }
+    colors = {opt["value"]: opt for opt in homepod["dimensionColor"]["options"]}
+    assert colors["midnight"]["count"] == 1
+    assert colors["white"]["count"] == 1
