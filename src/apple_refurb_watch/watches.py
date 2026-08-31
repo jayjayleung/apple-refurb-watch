@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from apple_refurb_watch.categories import CATEGORIES
+from apple_refurb_watch.categories import CATEGORIES, listing_family_name
 from apple_refurb_watch.filters import (
     facet_groups,
     product_dims,
@@ -122,3 +122,30 @@ def decorate_watches(stock: list, watches: list) -> list:
     for watch in watches:
         watch["in_stock_matches"] = sum(1 for item in stock if matches_watch(item, watch))
     return watches
+
+
+def watch_condition_label(watch: Mapping[str, Any]) -> str:
+    parts: list[str] = []
+    family = listing_family_name(watch.get("listing_key"))
+    if family:
+        parts.append(family)
+    if watch.get("mode") == "sku" and watch.get("sku"):
+        parts.append(str(watch["sku"]))
+    parts.extend(summarize_dims(watch.get("dim_filters")))
+    all_of = watch.get("all_of") or []
+    if isinstance(all_of, str):
+        all_of = [all_of]
+    if all_of:
+        parts.append("包含 " + " / ".join(str(item) for item in all_of if item))
+    none_of = watch.get("none_of") or []
+    if isinstance(none_of, str):
+        none_of = [none_of]
+    if none_of:
+        parts.append("排除 " + " / ".join(str(item) for item in none_of if item))
+    if watch.get("min_ram_gb"):
+        parts.append(f"内存 ≥ {watch['min_ram_gb']}GB")
+    if watch.get("min_storage_gb"):
+        parts.append(f"硬盘 ≥ {watch['min_storage_gb']}GB")
+    if watch.get("max_price") not in (None, ""):
+        parts.append(f"≤ ¥{int(float(watch['max_price'])):,}")
+    return " · ".join(parts)

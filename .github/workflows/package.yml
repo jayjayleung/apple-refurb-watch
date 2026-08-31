@@ -62,7 +62,37 @@ jobs:
           fi
           chmod +x "dist/out/${{ matrix.asset }}" || true
       - name: Smoke
-        run: ./dist/out/${{ matrix.asset }} version
+        env:
+          APPLE_REFURB_WATCH_HOME: ${{ runner.temp }}/arw-smoke
+          APPLE_REFURB_WATCH_LOG: ${{ runner.temp }}/arw-smoke-log
+        run: |
+          bin="./dist/out/${{ matrix.asset }}"
+          "$bin" version
+          "$bin" serve --detach
+          ok=
+          for _ in $(seq 1 25); do
+            if curl -fsS "http://127.0.0.1:8765/api/health"; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$ok" ]; then
+            echo "health check failed"
+            ls -la "${APPLE_REFURB_WATCH_LOG}" || true
+            cat "${APPLE_REFURB_WATCH_LOG}/daemon.log" || true
+            "$bin" stop || true
+            exit 1
+          fi
+          code=$(curl -sS -o "${RUNNER_TEMP}/arw-home.html" -w "%{http_code}" "http://127.0.0.1:8765/")
+          "$bin" stop || true
+          echo "home HTTP ${code}"
+          if [ "$code" != "200" ]; then
+            cat "${RUNNER_TEMP}/arw-home.html" || true
+            cat "${APPLE_REFURB_WATCH_LOG}/daemon.log" || true
+            exit 1
+          fi
+          grep -q "官翻监听" "${RUNNER_TEMP}/arw-home.html"
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}

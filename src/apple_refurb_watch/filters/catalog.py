@@ -5,7 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from apple_refurb_watch.paths import data_dir
+from apple_refurb_watch.paths import data_dir, package_root
 
 from .tokens import (
     CHIP_KEY,
@@ -24,12 +24,13 @@ from .tokens import (
     _chip_label_from_token,
 )
 
-PACKAGED_CATALOG = Path(__file__).resolve().parent.parent / "data" / "filter_catalog.json"
-_cache: dict[str, Any] = {"sig": None, "data": None}
-
 
 def packaged_catalog_path() -> Path:
-    return PACKAGED_CATALOG
+    return package_root() / "data" / "filter_catalog.json"
+
+
+PACKAGED_CATALOG = packaged_catalog_path()
+_cache: dict[str, Any] = {"sig": None, "data": None}
 
 
 def user_catalog_path() -> Path:
@@ -40,8 +41,16 @@ def live_catalog_path() -> Path:
     return data_dir() / "filter_catalog.live.json"
 
 
+def _read_json(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def load_catalog() -> dict[str, Any]:
-    packaged = PACKAGED_CATALOG
+    packaged = packaged_catalog_path()
     live = live_catalog_path()
     overlay = user_catalog_path()
     sig = (
@@ -51,15 +60,10 @@ def load_catalog() -> dict[str, Any]:
     )
     if _cache["sig"] == sig and _cache["data"] is not None:
         return _cache["data"]
-    data = json.loads(packaged.read_text(encoding="utf-8"))
+    data = _read_json(packaged)
     for path in (live, overlay):
-        if not path.exists():
-            continue
-        try:
-            extra = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            extra = {}
-        if isinstance(extra, dict):
+        extra = _read_json(path)
+        if extra:
             data = _merge_catalog(data, extra)
     _cache["sig"] = sig
     _cache["data"] = data

@@ -1,7 +1,7 @@
 import asyncio
 
 from apple_refurb_watch.tui_app import create_tui
-from apple_refurb_watch.watches import watch_from_product
+from apple_refurb_watch.watches import watch_condition_label, watch_from_product
 
 
 class FakeTuiClient:
@@ -28,7 +28,16 @@ class FakeTuiClient:
         }
 
     def watches(self):
-        return [{"id": 3, "enabled": True, "mode": "condition", "name": "14 MBP"}]
+        return [
+            {
+                "id": 3,
+                "enabled": True,
+                "mode": "condition",
+                "name": "14 MBP",
+                "listing_key": "mac",
+                "dim_filters": {"chip": ["m5"]},
+            }
+        ]
 
     def events(self, limit: int = 80):
         return [
@@ -59,7 +68,7 @@ class FakeTuiClient:
         return None
 
     def update_settings(self, data: dict):
-        return data
+        return {**self.settings(), **data}
 
     def notify_test(self):
         return {"ok": True}
@@ -69,6 +78,9 @@ class FakeTuiClient:
 
     def clear_events(self):
         return {"ok": True, "deleted": 1}
+
+    def sync_catalog(self):
+        return {"ok": True}
 
 
 def test_watch_from_product_modes() -> None:
@@ -104,6 +116,7 @@ def test_watch_from_product_modes() -> None:
     assert cored["dim_filters"]["cores"] == ["12core_16core"]
     assert "cpu_cores" not in cored["dim_filters"]
     assert "gpu_cores" not in cored["dim_filters"]
+    assert "Mac" in watch_condition_label({"listing_key": "macbook-pro", "dim_filters": {"chip": ["m5"]}})
 
 
 def test_tui_four_panes_load() -> None:
@@ -120,13 +133,19 @@ def test_tui_four_panes_load() -> None:
             table = app.query_one("#table")
             assert table.row_count == 1
             assert "¥15,000" in str(table.get_row_at(0))
+            assert "Mac" in str(table.get_row_at(0))
             assert app.query_one("#watch-table").row_count == 1
             assert app.query_one("#event-table").row_count == 1
             assert "已停止" in str(app.query_one("#status").render())
-            listings = str(app.query_one("#settings-listings").render())
-            assert "电脑" in listings
-            assert "Mac" in listings
-            assert "平板" in listings
+            assert app.query_one("#listing-mac").value is True
+            assert app.query_one("#listing-ipad").value is False
+            assert "Mac" in str(app.query_one("#family-label").render())
+            assert "低→高" in str(app.query_one("#sort-label").render())
+            assert "密钥请用网页设置" in str(app.query_one("#settings-note").render())
+
+            await pilot.press("o")
+            await pilot.pause()
+            assert "高→低" in str(app.query_one("#sort-label").render())
 
             await pilot.press("n")
             await pilot.pause()

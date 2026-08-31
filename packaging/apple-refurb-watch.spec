@@ -9,7 +9,31 @@ from PyInstaller.utils.hooks import collect_all
 
 spec_dir = Path(SPEC).resolve().parent
 repo_root = spec_dir.parent
+pkg = repo_root / "src" / "apple_refurb_watch"
 datas, binaries, hiddenimports = collect_all("apple_refurb_watch")
+
+datas += [
+    (str(pkg / "web" / "templates"), "apple_refurb_watch/web/templates"),
+    (str(pkg / "web" / "static"), "apple_refurb_watch/web/static"),
+    (str(pkg / "data"), "apple_refurb_watch/data"),
+]
+
+try:
+    tz_datas, tz_bins, tz_hidden = collect_all("tzdata")
+    datas += tz_datas
+    binaries += tz_bins
+    hiddenimports += tz_hidden
+except Exception:
+    pass
+try:
+    import tzdata
+
+    tz_dir = Path(tzdata.__file__).resolve().parent
+    zoneinfo = tz_dir / "zoneinfo"
+    if zoneinfo.is_dir():
+        datas.append((str(zoneinfo), "tzdata/zoneinfo"))
+except Exception:
+    pass
 
 try:
     w_datas, w_bins, w_hidden = collect_all("webview")
@@ -20,6 +44,7 @@ except Exception:
     pass
 
 hiddenimports += [
+    "tzdata",
     "uvicorn.logging",
     "uvicorn.lifespan.on",
     "uvicorn.protocols.http.auto",

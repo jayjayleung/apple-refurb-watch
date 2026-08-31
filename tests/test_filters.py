@@ -61,6 +61,19 @@ def test_catalog_overlay(tmp_path, monkeypatch) -> None:
     filters_mod._cache["sig"] = None
 
 
+def test_load_catalog_survives_missing_packaged(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch.filters import catalog as catalog_mod
+
+    monkeypatch.setattr(catalog_mod, "packaged_catalog_path", lambda: tmp_path / "missing.json")
+    catalog_mod._cache["sig"] = None
+    catalog_mod._cache["data"] = None
+    try:
+        assert catalog_mod.load_catalog() == {}
+    finally:
+        catalog_mod._cache["sig"] = None
+        catalog_mod._cache["data"] = None
+
+
 def test_dim_filters_and_or() -> None:
     item = {
         "title": "翻新 14 英寸 MacBook Pro",

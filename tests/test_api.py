@@ -179,6 +179,10 @@ def test_status_and_dim_watch_api(tmp_path) -> None:
         filtered = client.get("/api/listings", params=[("d_tsMemorySize", "24gb")])
         assert filtered.json()["count"] == 1
         assert filtered.json()["items"][0]["sku"] == "AAAA4CH/A"
+        cheapest = client.get("/api/listings", params={"sort": "price"}).json()["items"]
+        assert [item["sku"] for item in cheapest] == ["BBBB4CH/A", "AAAA4CH/A"]
+        pricey = client.get("/api/listings", params={"sort": "-price"}).json()["items"]
+        assert [item["sku"] for item in pricey] == ["AAAA4CH/A", "BBBB4CH/A"]
         home = client.get("/")
         assert "filter-rail" in home.text
         assert "<summary>机型</summary>" not in home.text
@@ -712,5 +716,51 @@ def test_shop_follows_listen_listings(tmp_path) -> None:
         assert listed["count"] == 3
         status = client.get("/api/status").json()
         assert status["in_stock"] == 3
+
+
+def test_unhandled_page_error_shows_reason(tmp_path, monkeypatch) -> None:
+    import apple_refurb_watch.web.render as render_mod
+    from apple_refurb_watch.web import routes_api
+
+    db = Database(tmp_path / "app.db")
+    app = create_app(db, with_scheduler=False)
+
+    def boom(_db):
+        raise RuntimeError("frozen-home-crash")
+
+    monkeypatch.setattr(render_mod, "load_status", boom)
+    monkeypatch.setattr(routes_api, "load_status", boom)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        home = client.get("/")
+        assert home.status_code == 500
+        assert "Internal Server Error" not in home.text
+        assert "页面出错" in home.text
+        assert "frozen-home-crash" in home.text
+        api = client.get("/api/status")
+        assert api.status_code == 500
+        assert api.json()["detail"] == "frozen-home-crash"
+
+
+def test_api_sync_catalog(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch.web import routes_api
+
+    calls: list[object] = []
+
+    def fake_sync(fetch) -> dict:
+        calls.append(fetch)
+        return {}
+
+    monkeypatch.setattr(routes_api, "sync_filter_catalog", fake_sync)
+    db = Database(tmp_path / "app.db")
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        ok = client.post("/api/filter-catalog/sync")
+        assert ok.status_code == 200
+        assert ok.json()["ok"] is True
+        assert calls
+        monkeypatch.setattr(routes_api, "sync_filter_catalog", lambda fetch: (_ for _ in ()).throw(RuntimeError("offline")))
+        bad = client.post("/api/filter-catalog/sync")
+        assert bad.status_code == 502
+        assert "offline" in bad.json()["detail"]
 
 

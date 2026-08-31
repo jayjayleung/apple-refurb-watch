@@ -9,7 +9,7 @@ from apple_refurb_watch.api import create_app
 from apple_refurb_watch.client import ApiClient, wait_health
 from apple_refurb_watch.daemon import acquire_lock_retry
 from apple_refurb_watch.db import Database
-from apple_refurb_watch.web.app import uvicorn_options
+from apple_refurb_watch.web.app import apply_windows_loop_policy, uvicorn_options
 
 
 class EmbeddedServer:
@@ -50,6 +50,7 @@ class EmbeddedServer:
 
         def _run() -> None:
             try:
+                apply_windows_loop_policy()
                 server.run()
             except SystemExit as exc:
                 self._run_error = RuntimeError(f"uvicorn 退出: {exc.code}")

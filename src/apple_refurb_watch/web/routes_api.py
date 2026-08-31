@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from apple_refurb_watch.filters import live_catalog_path, load_catalog, user_catalog_path
-from apple_refurb_watch.listing import filter_products, listing_filters, products_in_listen_scope
+from apple_refurb_watch.fetch import fetch_html
+from apple_refurb_watch.filters import live_catalog_path, load_catalog, sync_filter_catalog, user_catalog_path
+from apple_refurb_watch.listing import filter_products, listing_filters, products_in_listen_scope, sort_products
 from apple_refurb_watch.notify import NotifyError, send_test
 from apple_refurb_watch.scanner import run_scan
 from apple_refurb_watch.settings import normalize_settings_patch, public_settings
@@ -33,13 +34,26 @@ def api_filter_catalog() -> dict:
     }
 
 
+@router.post("/api/filter-catalog/sync")
+def api_sync_catalog() -> dict:
+    try:
+        sync_filter_catalog(fetch_html)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"同步筛选词条失败: {exc}") from exc
+    return {
+        "ok": True,
+        "user_catalog_path": str(user_catalog_path()),
+        "live_catalog_path": str(live_catalog_path()),
+    }
+
+
 @router.get("/api/listings")
 def api_listings(request: Request) -> dict:
     database = request.app.state.db
     listings = database.settings().get("listings")
     filters = listing_filters(request.query_params)
     stock = products_in_listen_scope(database.list_products(in_stock=True), listings)
-    items = filter_products(stock, **filters)
+    items = sort_products(filter_products(stock, **filters), request.query_params.get("sort"))
     return {"items": items, "count": len(items)}
 
 

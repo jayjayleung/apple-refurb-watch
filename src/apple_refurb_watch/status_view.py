@@ -1,12 +1,24 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from apple_refurb_watch.listing import products_in_listen_scope
 
-DISPLAY_TZ = ZoneInfo("Asia/Shanghai")
+
+def _display_tz():
+    try:
+        import tzdata  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        return ZoneInfo("Asia/Shanghai")
+    except Exception:  # noqa: BLE001
+        return timezone(timedelta(hours=8))
+
+
+DISPLAY_TZ = _display_tz()
 
 
 def parse_iso(iso: str | None) -> datetime | None:

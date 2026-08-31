@@ -2,11 +2,21 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 from platformdirs import user_data_dir, user_log_dir
 
 APP_NAME = "apple-refurb-watch"
+
+
+def package_root() -> Path:
+    """源码包目录；冻结 exe 用 PyInstaller 的 _MEIPASS，不要信 __file__.resolve()。"""
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            return Path(meipass) / "apple_refurb_watch"
+    return Path(__file__).resolve().parent
 
 
 def data_dir() -> Path:

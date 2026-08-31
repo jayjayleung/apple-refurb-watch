@@ -63,7 +63,12 @@ class ApiClient:
         return self.request("GET", "/api/health")
 
     def listings(self, **params: Any) -> dict:
-        return self.request("GET", "/api/listings", params={k: v for k, v in params.items() if v not in (None, "")})
+        dim_filters = params.pop("dim_filters", None) or {}
+        query: list[tuple[str, Any]] = [(key, value) for key, value in params.items() if value not in (None, "")]
+        for key, values in dim_filters.items():
+            for value in values:
+                query.append((f"d_{key}", value))
+        return self.request("GET", "/api/listings", params=query)
 
     def watches(self) -> list:
         return self.request("GET", "/api/watches")
@@ -97,6 +102,12 @@ class ApiClient:
 
     def status(self) -> dict:
         return self.request("GET", "/api/status")
+
+    def filter_catalog(self) -> dict:
+        return self.request("GET", "/api/filter-catalog")
+
+    def sync_catalog(self) -> dict:
+        return self.request("POST", "/api/filter-catalog/sync")
 
 
 def wait_health(timeout: float = 15.0, base: str | None = None) -> ApiClient:

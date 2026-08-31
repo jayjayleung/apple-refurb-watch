@@ -50,6 +50,17 @@ def test_uvicorn_uses_h11_on_windows(monkeypatch) -> None:
     assert appmod.uvicorn_options() == {}
 
 
+def test_package_root_uses_meipass(tmp_path, monkeypatch) -> None:
+    import sys
+
+    from apple_refurb_watch.paths import package_root
+
+    mei = tmp_path / "_MEI"
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(mei), raising=False)
+    assert package_root() == mei / "apple_refurb_watch"
+
+
 def test_embedded_server_starts_and_stops():
     import socket
 

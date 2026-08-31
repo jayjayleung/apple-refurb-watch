@@ -9,16 +9,17 @@ import uvicorn
 
 from apple_refurb_watch import __version__
 from apple_refurb_watch.api import create_app
-from apple_refurb_watch.web.app import uvicorn_options
+from apple_refurb_watch.web.app import apply_windows_loop_policy, uvicorn_options
 from apple_refurb_watch.argv import with_frozen_default_command
-from apple_refurb_watch.categories import listing_name
+from apple_refurb_watch.categories import listing_family_name, listings_family_names
 from apple_refurb_watch.client import ApiClient, ApiError
 from apple_refurb_watch.daemon import acquire_lock, ensure_daemon, is_running, stop_daemon
 from apple_refurb_watch.db import Database
-from apple_refurb_watch.listing import filter_products, format_cny, format_gb
+from apple_refurb_watch.listing import filter_products, format_cny, format_gb, products_in_listen_scope, sort_products
 from apple_refurb_watch.paths import data_dir
 from apple_refurb_watch.scanner import run_scan
-from apple_refurb_watch.status_view import EVENT_LABELS, format_localtime
+from apple_refurb_watch.status_view import EVENT_LABELS, format_localtime, present_event_days
+from apple_refurb_watch.watches import watch_condition_label
 
 app = typer.Typer(help="苹果中国官翻指定配置监听", no_args_is_help=True, rich_markup_mode="rich")
 watch_app = typer.Typer(help="监听规则", rich_help_panel="监听")
@@ -92,6 +93,7 @@ def serve(
     fastapi_app = create_app(db, with_scheduler=True)
     typer.echo(f"网页: http://{'127.0.0.1' if bind_host in {'0.0.0.0', '::'} else bind_host}:{bind_port}")
     try:
+        apply_windows_loop_policy()
         uvicorn.run(fastapi_app, host=bind_host, port=bind_port, log_level="info", **uvicorn_options())
     finally:
         lock.close()
@@ -123,17 +125,30 @@ def tui() -> None:
 @app.command("list", rich_help_panel="在售")
 def list_products(
     q: Optional[str] = typer.Option(None, "--q", help="关键词"),
-    listing: Optional[str] = typer.Option(None, "--listing", help="分类 key"),
+    listing: Optional[str] = typer.Option(None, "--listing", help="分类 key，如 mac / ipad"),
+    sort: str = typer.Option("price", "--sort", help="price 低到高，-price 高到低"),
+    dim: Optional[list[str]] = typer.Option(None, "--dim", help="维度 key=value，可重复"),
+    max_price: Optional[float] = typer.Option(None, "--max-price"),
+    min_ram: Optional[int] = typer.Option(None, "--min-ram"),
+    min_storage: Optional[int] = typer.Option(None, "--min-storage"),
     local: bool = typer.Option(False, "--local", help="不走 daemon，直接读本地库"),
     as_json: bool = typer.Option(False, "--json", help="输出 JSON"),
 ) -> None:
-    """在售列表。"""
+    """在售列表。只显示当前监听分类。"""
+    filters = {
+        "q": q,
+        "listing_key": listing,
+        "max_price": max_price,
+        "min_ram_gb": min_ram,
+        "min_storage_gb": min_storage,
+        "dim_filters": _parse_dims(dim),
+    }
     if local:
-        items = Database().list_products(in_stock=True)
-        if q or listing:
-            items = filter_products(items, q=q, listing_key=listing)
+        database = Database()
+        stock = products_in_listen_scope(database.list_products(in_stock=True), database.settings().get("listings"))
+        items = sort_products(filter_products(stock, **filters), sort)
     else:
-        items = _client().listings(q=q, listing_key=listing).get("items") or []
+        items = _client().listings(sort=sort, **filters).get("items") or []
     if as_json:
         _dump(items)
         return
@@ -144,7 +159,8 @@ def list_products(
         price = f"¥{format_cny(item['price'])}" if item.get("price") is not None else "-"
         ram = format_gb(item.get("ram_gb")) or "-"
         ssd = format_gb(item.get("storage_gb")) or "-"
-        typer.echo(f"{item['sku']:<16} {price:<10} {ram:<8} {ssd:<8} {item['title']}")
+        family = listing_family_name(item.get("listing_key")) or "-"
+        typer.echo(f"{item['sku']:<16} {family:<8} {price:<10} {ram:<8} {ssd:<8} {item['title']}")
 
 
 @app.command()
@@ -198,10 +214,20 @@ def watch_ls(
     if not watches:
         typer.echo("还没有规则。用 watch add 或网页监听页创建。")
         return
+    stock = []
+    try:
+        stock = _client().listings().get("items") or []
+    except ApiError:
+        stock = []
+    from apple_refurb_watch.match import matches_watch
+
     for watch in watches:
         flag = "启用" if watch.get("enabled") else "暂停"
         mode = "精确 SKU" if watch.get("mode") == "sku" else "条件"
-        typer.echo(f"{watch['id']:<4} {flag:<4} {mode:<8} {watch['name']}")
+        matched = sum(1 for item in stock if matches_watch(item, watch)) if stock else 0
+        cond = watch_condition_label(watch)
+        extra = f"  {cond}" if cond else ""
+        typer.echo(f"{watch['id']:<4} {flag:<4} {mode:<8} 在售 {matched:<3} {watch['name']}{extra}")
 
 
 @watch_app.command("add")
@@ -214,6 +240,7 @@ def watch_add(
     colors: Optional[str] = typer.Option(None, "--colors"),
     min_ram_gb: Optional[int] = typer.Option(None, "--min-ram"),
     min_storage_gb: Optional[int] = typer.Option(None, "--min-storage"),
+    min_price: Optional[float] = typer.Option(None, "--min-price"),
     max_price: Optional[float] = typer.Option(None, "--max-price"),
     listing: Optional[str] = typer.Option(None, "--listing"),
     dim: Optional[list[str]] = typer.Option(None, "--dim", help="维度 key=value，可重复"),
@@ -233,6 +260,7 @@ def watch_add(
             "colors": split(colors),
             "min_ram_gb": min_ram_gb,
             "min_storage_gb": min_storage_gb,
+            "min_price": min_price,
             "max_price": max_price,
             "listing_key": listing,
             "dim_filters": _parse_dims(dim),
@@ -287,18 +315,29 @@ def events(
     """动态。无子命令时列出记录。"""
     if ctx.invoked_subcommand:
         return
-    rows = _client().events(limit=limit)
+    client = _client()
+    rows = client.events(limit=limit)
     if as_json:
         _dump(rows)
         return
     if not rows:
         typer.echo("还没有记录。先运行 apple-refurb-watch scan")
         return
-    for event in rows:
-        kind = str(event.get("type") or "")
-        when = format_localtime(event.get("created_at"))
-        body = event.get("title") or event.get("message") or ""
-        typer.echo(f"{when}  {EVENT_LABELS.get(kind, kind):<8}  {body}")
+    watch_names: dict[int, str] = {}
+    try:
+        watch_names = {
+            int(item["id"]): str(item.get("name") or "")
+            for item in (client.watches() or [])
+            if item.get("id")
+        }
+    except ApiError:
+        watch_names = {}
+    for day in present_event_days(rows, watch_names=watch_names):
+        for event in day["entries"]:
+            kind = str(event.get("type") or "")
+            when = str(event.get("when_local") or format_localtime(event.get("created_at")))
+            body = event.get("title") or event.get("message") or ""
+            typer.echo(f"{when}  {str(event.get('label') or EVENT_LABELS.get(kind, kind)):<8}  {body}")
 
 
 @events_app.command("clear")
@@ -321,8 +360,7 @@ def settings_get(
     typer.echo(f"间隔  {data.get('interval_seconds')} 秒")
     typer.echo(f"绑定  {data.get('bind_host')}:{data.get('bind_port')}")
     typer.echo(f"局域网  {'开' if data.get('lan_enabled') else '关'}")
-    listings = data.get("listings") or []
-    names = [listing_name(key) for key in listings]
+    names = listings_family_names(data.get("listings"))
     typer.echo(f"分类  {', '.join(names) if names else '-'}")
 
 
@@ -331,6 +369,7 @@ def settings_set(
     interval: Optional[int] = typer.Option(None, "--interval", help="扫描间隔（秒）"),
     listen: Optional[bool] = typer.Option(None, "--listen/--no-listen", help="定时监听"),
     listings: Optional[str] = typer.Option(None, "--listings", help="分类 key，逗号分隔"),
+    lan: Optional[bool] = typer.Option(None, "--lan/--no-lan", help="允许局域网访问"),
 ) -> None:
     """改安全项。口令和 Webhook 请用网页设置页。"""
     patch: dict = {}
@@ -340,10 +379,23 @@ def settings_set(
         patch["listen_enabled"] = listen
     if listings is not None:
         patch["listings"] = [part.strip() for part in listings.split(",") if part.strip()]
+    if lan is not None:
+        patch["lan_enabled"] = lan
     if not patch:
-        typer.echo("没有要改的项。可用 --interval / --listen / --listings")
+        typer.echo("没有要改的项。可用 --interval / --listen / --listings / --lan")
         raise typer.Exit(1)
     _dump(_client().update_settings(patch))
+
+
+@settings_app.command("sync-catalog")
+def settings_sync_catalog() -> None:
+    """从官网同步筛选词条。"""
+    result = _client().sync_catalog() or {}
+    if result.get("ok"):
+        typer.echo("已从官网同步筛选词条")
+        return
+    typer.echo(str(result), err=True)
+    raise typer.Exit(1)
 
 
 def main() -> None:

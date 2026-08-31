@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import html
+import logging
 import sys
+import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any
@@ -12,10 +14,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from apple_refurb_watch.db import Database
-from apple_refurb_watch.paths import write_runtime
+from apple_refurb_watch.paths import log_path, write_runtime
 from apple_refurb_watch.scanner import run_scan
 from apple_refurb_watch.web.auth import AuthMiddleware
-from apple_refurb_watch.web.render import WEB_DIR, PageRenderer, templates
+from apple_refurb_watch.web.render import PageRenderer, templates, web_dir
 from apple_refurb_watch.web.routes_api import router as api_router
 from apple_refurb_watch.web.routes_pages import router as pages_router
 from apple_refurb_watch.web.routes_settings import router as settings_router
@@ -28,6 +30,26 @@ def uvicorn_options() -> dict[str, Any]:
     if sys.platform == "win32":
         return {"http": "h11"}
     return {}
+
+
+def apply_windows_loop_policy() -> None:
+    if sys.platform == "win32":
+        import asyncio
+
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+def _log_unhandled(exc: BaseException) -> str:
+    text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    logging.exception("网页请求失败")
+    try:
+        with log_path().open("a", encoding="utf-8") as handle:
+            handle.write(text)
+            if not text.endswith("\n"):
+                handle.write("\n")
+    except OSError:
+        pass
+    return text
 
 
 def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> FastAPI:
@@ -80,7 +102,10 @@ def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> Fa
     app.state.reschedule = reschedule
     app.state.render = renderer
     app.state.jinja = jinja
-    app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
+    static_dir = web_dir() / "static"
+    if not static_dir.is_dir():
+        raise RuntimeError(f"安装包缺少网页静态文件: {static_dir}")
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     app.add_middleware(AuthMiddleware, db=database)
     app.include_router(api_router)
     app.include_router(pages_router)
@@ -95,5 +120,18 @@ def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> Fa
             return RedirectResponse("/login")
         detail = html.escape(str(exc.detail))
         return HTMLResponse(f"<p>{detail}</p><p><a href='/'>返回</a></p>", status_code=exc.status_code)
+
+    @app.exception_handler(Exception)
+    async def unhandled(request: Request, exc: Exception):
+        text = _log_unhandled(exc)
+        if request.url.path.startswith("/api/") or "application/json" in (request.headers.get("accept") or ""):
+            return JSONResponse({"detail": str(exc)}, status_code=500)
+        body = (
+            "<h1>页面出错</h1>"
+            "<p>后台已启动，但打开页面时崩溃。下面是原因；完整记录在本机日志。</p>"
+            f"<pre>{html.escape(text)}</pre>"
+            "<p><a href='/'>重试</a></p>"
+        )
+        return HTMLResponse(body, status_code=500)
 
     return app

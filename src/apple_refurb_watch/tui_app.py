@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from apple_refurb_watch.categories import LISTING_GROUPS, shop_family_key
+from apple_refurb_watch.categories import SHOP_FAMILIES, listing_family_name, shop_families_for, shop_family_key
 from apple_refurb_watch.client import ApiClient
 from apple_refurb_watch.daemon import ensure_daemon
 from apple_refurb_watch.listing import format_cny, format_gb
 from apple_refurb_watch.status_view import EVENT_LABELS, format_localtime, present_event_days
-from apple_refurb_watch.watches import watch_from_product
+from apple_refurb_watch.watches import watch_condition_label, watch_from_product
 
 
 def _parse_dims(text: str) -> dict[str, list[str]]:
@@ -56,6 +56,8 @@ def create_tui(client: ApiClient):
             yield Static(
                 "快捷键\n"
                 "/ 过滤在售关键词\n"
+                "f 切换分类\n"
+                "o 切换价格排序\n"
                 "n 新建规则（表单）\n"
                 "w 听配置\n"
                 "k 精确 SKU\n"
@@ -82,7 +84,7 @@ def create_tui(client: ApiClient):
             yield Static("新建监听规则", classes="title")
             yield Label("名称")
             yield Input(placeholder="14 M5 Pro", id="watch-name")
-            yield Label("分类 key（mac / ipad / watch / airpods）")
+            yield Label("分类 key（mac / ipad / watch / airpods / homepod / accessories，留空不限）")
             yield Input(value="mac", id="watch-listing")
             yield Label("方式：condition 或 sku")
             yield Input(value="condition", id="watch-mode")
@@ -90,6 +92,8 @@ def create_tui(client: ApiClient):
             yield Input(placeholder="AAAA4CH/A", id="watch-sku")
             yield Label("维度 key=value，逗号分隔")
             yield Input(placeholder="chip=m5,tsMemorySize=24gb", id="watch-dims")
+            yield Label("最高价（可选）")
+            yield Input(placeholder="18000", id="watch-max-price")
             with Horizontal():
                 yield Button("保存", id="save", variant="primary")
                 yield Button("取消", id="cancel")
@@ -116,6 +120,12 @@ def create_tui(client: ApiClient):
                 dims = _parse_dims(self.query_one("#watch-dims", Input).value)
                 if dims:
                     payload["dim_filters"] = dims
+                raw_price = self.query_one("#watch-max-price", Input).value.strip()
+                if raw_price:
+                    try:
+                        payload["max_price"] = float(raw_price)
+                    except ValueError:
+                        pass
             self.dismiss(payload)
 
     class RefurbApp(App[None]):
@@ -129,7 +139,11 @@ def create_tui(client: ApiClient):
         DataTable { height: 1fr; }
         #side { width: 28; border-right: solid #424245; padding: 1; }
         #status { color: #a1a1a6; }
-        #settings-listings { color: #a1a1a6; margin: 1 0; }
+        #family-label, #sort-label { color: #a1a1a6; margin-bottom: 1; }
+        #listing-switches { height: auto; margin: 1 0; }
+        .setting-row { height: auto; }
+        .setting-row Label { padding-left: 1; }
+        #settings-note { color: #a1a1a6; margin: 1 0; }
         .title { text-style: bold; color: #0a84ff; }
         Input { margin-bottom: 1; }
         Confirm, HelpScreen, WatchForm { align: center middle; }
@@ -147,6 +161,8 @@ def create_tui(client: ApiClient):
             Binding("q", "quit", "退出"),
             Binding("question_mark", "help", "帮助"),
             Binding("slash", "filter", "过滤"),
+            Binding("f", "cycle_family", "分类"),
+            Binding("o", "cycle_sort", "排序"),
             Binding("s", "scan", "扫描"),
             Binding("r", "reload", "刷新"),
             Binding("n", "new_watch", "新建"),
@@ -162,6 +178,9 @@ def create_tui(client: ApiClient):
             self.client = client
             self._listings: list[dict] = []
             self._watches: list[dict] = []
+            self._settings_listings: list[str] = []
+            self._listing_key = ""
+            self._sort = "price"
             self._syncing_switch = False
 
         def compose(self) -> ComposeResult:
@@ -173,6 +192,10 @@ def create_tui(client: ApiClient):
                             yield Static("官翻监听", classes="title")
                             yield Button("刷新在售", id="reload")
                             yield Button("立即扫描", id="scan")
+                            yield Label("分类")
+                            yield Static("全部", id="family-label")
+                            yield Label("排序")
+                            yield Static("价格低→高", id="sort-label")
                             yield Label("关键词")
                             yield Input(placeholder="M5 Pro", id="q")
                             yield Label("状态")
@@ -186,17 +209,23 @@ def create_tui(client: ApiClient):
                     with Vertical():
                         yield Static("监听开关", classes="title")
                         yield Switch(id="listen-switch")
-                        yield Static("", id="settings-listings")
+                        yield Static("监听分类", classes="title")
+                        with Vertical(id="listing-switches"):
+                            for item in SHOP_FAMILIES:
+                                with Horizontal(classes="setting-row"):
+                                    yield Switch(id=f"listing-{item['key']}")
+                                    yield Label(item["name"])
                         yield Button("测试通知", id="notify")
+                        yield Button("同步筛选词条", id="sync-catalog")
                         yield Static("", id="settings-note")
             yield Footer()
 
         def on_mount(self) -> None:
             table = self.query_one("#table", DataTable)
-            table.add_columns("SKU", "价格", "内存", "硬盘", "标题")
+            table.add_columns("SKU", "分类", "价格", "内存", "硬盘", "标题")
             table.cursor_type = "row"
             watches = self.query_one("#watch-table", DataTable)
-            watches.add_columns("ID", "状态", "方式", "在售", "名称")
+            watches.add_columns("ID", "状态", "方式", "在售", "条件", "名称")
             watches.cursor_type = "row"
             events = self.query_one("#event-table", DataTable)
             events.add_columns("日期", "时间", "类型", "内容")
@@ -214,15 +243,26 @@ def create_tui(client: ApiClient):
                     self.notify("测试通知已发出" if result.get("ok") else str(result))
                 except Exception as exc:  # noqa: BLE001
                     self.notify(str(exc))
+            elif event.button.id == "sync-catalog":
+                try:
+                    result = self.client.sync_catalog() or {}
+                    self.notify("已同步筛选词条" if result.get("ok") else str(result))
+                except Exception as exc:  # noqa: BLE001
+                    self.notify(str(exc))
 
         def on_switch_changed(self, event: Switch.Changed) -> None:
-            if event.switch.id != "listen-switch" or self._syncing_switch:
+            switch_id = event.switch.id or ""
+            if self._syncing_switch:
                 return
-            try:
-                self.client.update_settings({"listen_enabled": event.value})
-                self.notify("已开始监听" if event.value else "已停止监听")
-            except Exception as exc:  # noqa: BLE001
-                self.notify(str(exc))
+            if switch_id == "listen-switch":
+                try:
+                    self.client.update_settings({"listen_enabled": event.value})
+                    self.notify("已开始监听" if event.value else "已停止监听")
+                except Exception as exc:  # noqa: BLE001
+                    self.notify(str(exc))
+                return
+            if switch_id.startswith("listing-"):
+                self._save_listings()
 
         def on_input_submitted(self, event: Input.Submitted) -> None:
             if event.input.id == "q":
@@ -234,6 +274,26 @@ def create_tui(client: ApiClient):
         def action_filter(self) -> None:
             self.query_one(TabbedContent).active = "listings"
             self.set_focus(self.query_one("#q", Input))
+
+        def action_cycle_family(self) -> None:
+            self.query_one(TabbedContent).active = "listings"
+            choices = self._family_choices()
+            keys = [key for key, _ in choices]
+            if not keys:
+                return
+            try:
+                index = keys.index(self._listing_key)
+            except ValueError:
+                index = -1
+            self._listing_key = keys[(index + 1) % len(keys)]
+            self._update_family_label()
+            self.reload_listings()
+
+        def action_cycle_sort(self) -> None:
+            self.query_one(TabbedContent).active = "listings"
+            self._sort = "-price" if self._sort != "-price" else "price"
+            self._update_sort_label()
+            self.reload_listings()
 
         def action_reload(self) -> None:
             if self.query_one(TabbedContent).active == "events":
@@ -356,17 +416,72 @@ def create_tui(client: ApiClient):
             self.push_screen(Confirm("清除全部动态记录？不影响在售和规则。", "确认清除"), finish)
 
         def reload_all(self) -> None:
+            self.reload_settings()
             self.reload_listings()
             self.reload_watches()
             self.reload_events()
-            self.reload_settings()
+
+        def _family_choices(self) -> list[tuple[str, str]]:
+            families = shop_families_for(self._settings_listings)
+            if len(families) > 1:
+                return [("", "全部"), *[(item["key"], item["name"]) for item in families]]
+            if len(families) == 1:
+                return [(families[0]["key"], families[0]["name"])]
+            return [("", "全部")]
+
+        def _update_family_label(self) -> None:
+            label = "全部"
+            for key, name in self._family_choices():
+                if key == self._listing_key:
+                    label = name
+                    break
+            self.query_one("#family-label", Static).update(label)
+
+        def _update_sort_label(self) -> None:
+            text = "价格高→低" if self._sort == "-price" else "价格低→高"
+            self.query_one("#sort-label", Static).update(text)
+
+        def _sync_family_from_settings(self) -> None:
+            keys = [key for key, _ in self._family_choices()]
+            if self._listing_key not in keys:
+                self._listing_key = keys[0] if keys else ""
+            self._update_family_label()
+
+        def _save_listings(self) -> None:
+            keys = [
+                item["key"]
+                for item in SHOP_FAMILIES
+                if self.query_one(f"#listing-{item['key']}", Switch).value
+            ]
+            try:
+                updated = self.client.update_settings({"listings": keys})
+                self._apply_listing_switches(updated.get("listings") or [])
+                self.notify("已更新监听分类")
+                self.reload_listings()
+                self.reload_watches()
+            except Exception as exc:  # noqa: BLE001
+                self.notify(str(exc))
+
+        def _apply_listing_switches(self, listings: list[str]) -> None:
+            current = {shop_family_key(key) for key in listings}
+            current.discard("")
+            self._settings_listings = list(listings)
+            self._syncing_switch = True
+            try:
+                for item in SHOP_FAMILIES:
+                    switch = self.query_one(f"#listing-{item['key']}", Switch)
+                    with switch.prevent(Switch.Changed):
+                        switch.value = item["key"] in current
+            finally:
+                self._syncing_switch = False
+            self._sync_family_from_settings()
 
         def reload_listings(self) -> None:
             table = self.query_one("#table", DataTable)
             table.clear()
             q = self.query_one("#q", Input).value.strip() or None
             try:
-                payload = self.client.listings(q=q)
+                payload = self.client.listings(q=q, listing_key=self._listing_key or None, sort=self._sort)
                 self._listings = payload.get("items") or []
                 status = self.client.status()
                 view = status.get("view") or {}
@@ -382,6 +497,7 @@ def create_tui(client: ApiClient):
                 price = f"¥{format_cny(item.get('price'))}" if item.get("price") is not None else "-"
                 table.add_row(
                     item.get("sku") or "",
+                    listing_family_name(item.get("listing_key")) or "-",
                     price,
                     format_gb(item.get("ram_gb")) or "-",
                     format_gb(item.get("storage_gb")) or "-",
@@ -398,14 +514,19 @@ def create_tui(client: ApiClient):
                 return
             from apple_refurb_watch.match import matches_watch
 
-            stock = self._listings
+            try:
+                stock = (self.client.listings() or {}).get("items") or []
+            except Exception:  # noqa: BLE001
+                stock = self._listings
             for watch in self._watches:
                 matched = sum(1 for item in stock if matches_watch(item, watch)) if stock else 0
+                cond = watch_condition_label(watch)
                 table.add_row(
                     str(watch.get("id") or ""),
                     "启用" if watch.get("enabled") else "暂停",
                     "精确 SKU" if watch.get("mode") == "sku" else "条件",
                     str(matched),
+                    (cond or "—")[:40],
                     str(watch.get("name") or ""),
                 )
 
@@ -444,21 +565,12 @@ def create_tui(client: ApiClient):
                 self.query_one("#settings-note", Static).update(str(exc))
                 return
             switch = self.query_one("#listen-switch", Switch)
-            self._syncing_switch = True
-            try:
+            with switch.prevent(Switch.Changed):
                 switch.value = bool(settings.get("listen_enabled"))
-            finally:
-                self._syncing_switch = False
-            current = {shop_family_key(key) for key in settings.get("listings") or []}
-            current.discard("")
-            lines = []
-            for group in LISTING_GROUPS:
-                names = [item["name"] for item in group["options"] if item["key"] in current]
-                lines.append(f"{group['label']}  {', '.join(names) if names else '—'}")
-            lines.append("密钥请用网页设置。")
-            self.query_one("#settings-listings", Static).update("\n".join(lines))
+            self._apply_listing_switches(settings.get("listings") or [])
+            self._update_sort_label()
             self.query_one("#settings-note", Static).update(
-                f"间隔 {settings.get('interval_seconds')} 秒 · {settings.get('bind_host')}:{settings.get('bind_port')}"
+                f"间隔 {settings.get('interval_seconds')} 秒 · {settings.get('bind_host')}:{settings.get('bind_port')} · 密钥请用网页设置"
             )
 
     return RefurbApp(client)

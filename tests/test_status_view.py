@@ -221,5 +221,17 @@ def test_format_localtime_utc_to_shanghai() -> None:
     assert format_localtime("not-a-time") == "not-a-time"
 
 
+def test_display_tz_falls_back_without_iana(monkeypatch) -> None:
+    import apple_refurb_watch.status_view as status_mod
+    from datetime import timedelta, timezone
+    from zoneinfo import ZoneInfoNotFoundError
+
+    def boom(_key):
+        raise ZoneInfoNotFoundError("Asia/Shanghai")
+
+    monkeypatch.setattr(status_mod, "ZoneInfo", boom)
+    assert status_mod._display_tz() == timezone(timedelta(hours=8))
+
+
 def test_format_reltime_old_uses_shanghai() -> None:
     assert format_reltime("2026-08-27T06:45:00+00:00") == "08-27 14:45"

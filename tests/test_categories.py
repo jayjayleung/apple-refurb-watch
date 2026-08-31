@@ -1,6 +1,8 @@
 from apple_refurb_watch.categories import (
     compact_listings,
     canonical_shop_listing_key,
+    listing_family_name,
+    listings_family_names,
     shop_families_for,
     shop_family_key,
 )
@@ -46,4 +48,12 @@ def test_canonical_shop_listing_key() -> None:
     assert canonical_shop_listing_key("watch", ["mac", "ipad"]) == ""
     assert canonical_shop_listing_key("mac", ["mac", "ipad"]) == "mac"
     assert canonical_shop_listing_key("macbook-pro", ["mac", "ipad"]) == "mac"
+
+
+def test_listing_family_names() -> None:
+    assert listing_family_name("macbook-pro") == "Mac"
+    assert listing_family_name("watch") == "Watch"
+    assert listing_family_name("accessories") == "配件"
+    assert listings_family_names(["macbook-pro", "ipad", "mac"]) == ["Mac", "iPad"]
+    assert listings_family_names([]) == []
 

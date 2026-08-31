@@ -143,6 +143,25 @@ def listing_name(key: str) -> str:
     return key
 
 
+def listing_family_name(listing_key: str | None) -> str:
+    key = shop_family_key(listing_key)
+    for item in SHOP_FAMILIES:
+        if item["key"] == key:
+            return item["name"]
+    return listing_name(key) if key else ""
+
+
+def listings_family_names(listings: list[str] | None) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for key in listings or []:
+        name = listing_family_name(key) or listing_name(key)
+        if name and name not in seen:
+            names.append(name)
+            seen.add(name)
+    return names
+
+
 def shop_family_key(listing_key: str | None) -> str:
     key = str(listing_key or "").strip()
     if key in MAC_CHILD_LISTINGS:

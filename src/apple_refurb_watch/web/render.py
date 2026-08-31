@@ -11,15 +11,24 @@ from apple_refurb_watch.categories import CATEGORIES, LISTING_GROUPS, SHOP_FAMIL
 from apple_refurb_watch.db import Database
 from apple_refurb_watch.filters import label_for, live_catalog_path, summarize_dims, user_catalog_path
 from apple_refurb_watch.listing import format_cny, format_gb, thumb_url
+from apple_refurb_watch.paths import package_root
 from apple_refurb_watch.settings import public_settings
 from apple_refurb_watch.status_view import format_localtime, load_status
 
-WEB_DIR = Path(__file__).resolve().parent
+
+def web_dir() -> Path:
+    return package_root() / "web"
+
+
+WEB_DIR = web_dir()
 
 
 def templates() -> Environment:
+    folder = web_dir() / "templates"
+    if not folder.is_dir():
+        raise RuntimeError(f"安装包缺少网页模板: {folder}")
     env = Environment(
-        loader=FileSystemLoader(str(WEB_DIR / "templates")),
+        loader=FileSystemLoader(str(folder)),
         autoescape=select_autoescape(["html"]),
         auto_reload=not is_frozen(),
     )

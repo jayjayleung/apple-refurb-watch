@@ -14,6 +14,7 @@ class FakeClient:
         self.patched: dict | None = None
 
     def listings(self, **params):
+        self.listed = params
         return {
             "items": [
                 {
@@ -22,24 +23,39 @@ class FakeClient:
                     "price": 15000,
                     "ram_gb": 24,
                     "storage_gb": 1024,
+                    "listing_key": "mac",
                 }
             ]
         }
 
     def watches(self):
         return [
-            {"id": 3, "enabled": True, "mode": "condition", "name": "14 MBP"},
-            {"id": 4, "enabled": False, "mode": "sku", "name": "SKU X"},
+            {
+                "id": 3,
+                "enabled": True,
+                "mode": "condition",
+                "name": "14 MBP",
+                "listing_key": "mac",
+                "dim_filters": {"chip": ["m5"]},
+            },
+            {"id": 4, "enabled": False, "mode": "sku", "name": "SKU X", "sku": "XXXX4CH/A"},
         ]
 
     def events(self, limit: int = 50):
         return [
             {
+                "type": "appeared",
+                "created_at": "2026-08-29T07:00:00+00:00",
+                "title": "翻新 MacBook Pro",
+                "message": None,
+                "watch_id": 3,
+            },
+            {
                 "type": "scan_ok",
                 "created_at": "2026-08-29T06:45:00+00:00",
                 "title": None,
                 "message": "完成扫描",
-            }
+            },
         ]
 
     def settings(self):
@@ -49,7 +65,7 @@ class FakeClient:
             "bind_host": "0.0.0.0",
             "bind_port": 8766,
             "lan_enabled": True,
-            "listings": ["mac"],
+            "listings": ["macbook-pro"],
             "access_token": "",
         }
 
@@ -66,6 +82,9 @@ class FakeClient:
 
     def clear_events(self):
         return {"ok": True, "deleted": 2}
+
+    def sync_catalog(self):
+        return {"ok": True}
 
 
 def test_home_prints_data_dir(tmp_path, monkeypatch) -> None:
@@ -101,6 +120,52 @@ def test_list_local_human_table() -> None:
     assert items[0]["sku"] == "AAAA4CH/A"
 
 
+def test_list_local_listen_scope_sort_and_dim() -> None:
+    db = Database()
+    db.update_settings({"listings": ["mac"]})
+    db.upsert_products(
+        [
+            {
+                "sku": "PRO1CH/A",
+                "title": "翻新 MacBook Pro",
+                "url": "https://www.apple.com.cn/shop/product/PRO1CH/A",
+                "price": 15000,
+                "listing_key": "mac",
+                "ram_gb": 24,
+                "storage_gb": 1024,
+                "extra": {"dims": {"tsMemorySize": "24gb"}},
+            },
+            {
+                "sku": "AIR1CH/A",
+                "title": "翻新 MacBook Air",
+                "url": "https://www.apple.com.cn/shop/product/AIR1CH/A",
+                "price": 8000,
+                "listing_key": "mac",
+                "ram_gb": 16,
+                "extra": {"dims": {"tsMemorySize": "16gb"}},
+            },
+            {
+                "sku": "PAD1CH/A",
+                "title": "翻新 iPad",
+                "url": "https://www.apple.com.cn/shop/product/PAD1CH/A",
+                "price": 4000,
+                "listing_key": "ipad",
+            },
+        ]
+    )
+    shown = runner.invoke(app, ["list", "--local"])
+    assert shown.exit_code == 0
+    assert "PRO1CH/A" in shown.stdout
+    assert "AIR1CH/A" in shown.stdout
+    assert "PAD1CH/A" not in shown.stdout
+    assert shown.stdout.index("AIR1CH/A") < shown.stdout.index("PRO1CH/A")
+    desc = runner.invoke(app, ["list", "--local", "--sort", "-price"])
+    assert desc.stdout.index("PRO1CH/A") < desc.stdout.index("AIR1CH/A")
+    dimmed = runner.invoke(app, ["list", "--local", "--dim", "tsMemorySize=24gb"])
+    assert "PRO1CH/A" in dimmed.stdout
+    assert "AIR1CH/A" not in dimmed.stdout
+
+
 def test_watch_ls_events_settings_and_dim(monkeypatch) -> None:
     fake = FakeClient()
     monkeypatch.setattr("apple_refurb_watch.cli._client", lambda: fake)
@@ -110,6 +175,8 @@ def test_watch_ls_events_settings_and_dim(monkeypatch) -> None:
     assert "启用" in ls.stdout
     assert "暂停" in ls.stdout
     assert "精确 SKU" in ls.stdout
+    assert "在售" in ls.stdout
+    assert "Mac" in ls.stdout
     assert "on " not in ls.stdout
 
     ls_json = runner.invoke(app, ["watch", "ls", "--json"])
@@ -119,16 +186,19 @@ def test_watch_ls_events_settings_and_dim(monkeypatch) -> None:
     assert events.exit_code == 0
     assert "2026-08-29 14:45" in events.stdout
     assert "扫描完成" in events.stdout
+    assert "上新 · 14 MBP" in events.stdout
 
     events_json = runner.invoke(app, ["events", "--json"])
     payload = json.loads(events_json.stdout)
-    assert payload[0]["created_at"] == "2026-08-29T06:45:00+00:00"
+    assert payload[0]["type"] == "appeared"
+    assert payload[0]["created_at"] == "2026-08-29T07:00:00+00:00"
 
     settings = runner.invoke(app, ["settings", "get"])
     assert settings.exit_code == 0
     assert "监听  开" in settings.stdout
     assert "8766" in settings.stdout
     assert "分类  Mac" in settings.stdout
+    assert "MacBook Pro" not in settings.stdout
 
     cleared = runner.invoke(app, ["events", "clear"])
     assert cleared.exit_code == 0
@@ -160,9 +230,24 @@ def test_watch_ls_events_settings_and_dim(monkeypatch) -> None:
     assert scan.exit_code == 0
     assert json.loads(scan.stdout)["ok"] is True
 
+    listed = runner.invoke(app, ["list", "--listing", "mac", "--sort", "-price", "--dim", "chip=m5"])
+    assert listed.exit_code == 0
+    assert fake.listed["listing_key"] == "mac"
+    assert fake.listed["sort"] == "-price"
+    assert fake.listed["dim_filters"] == {"chip": ["m5"]}
+    assert "Mac" in listed.stdout
+
     patched = runner.invoke(app, ["settings", "set", "--interval", "120", "--no-listen"])
     assert patched.exit_code == 0
     assert fake.patched == {"interval_seconds": 120, "listen_enabled": False}
+
+    lan = runner.invoke(app, ["settings", "set", "--lan"])
+    assert lan.exit_code == 0
+    assert fake.patched == {"lan_enabled": True}
+
+    synced = runner.invoke(app, ["settings", "sync-catalog"])
+    assert synced.exit_code == 0
+    assert "已从官网同步筛选词条" in synced.stdout
 
     empty = runner.invoke(app, ["settings", "set"])
     assert empty.exit_code == 1

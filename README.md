@@ -190,8 +190,12 @@ apple-refurb-watch desktop
 apple-refurb-watch tui
 apple-refurb-watch scan
 apple-refurb-watch list --q "MacBook Pro"
-apple-refurb-watch watch add --name "14 MBP" --all-of "14 英寸,MacBook Pro,M5 Pro" --min-ram 24 --max-price 18000
+apple-refurb-watch list --listing mac --sort -price --dim chip=m5
+apple-refurb-watch watch add --name "14 MBP" --listing mac --dim chip=m5_pro --dim dimensionScreensize=14inch --min-ram 24 --max-price 18000
 apple-refurb-watch watch ls
+apple-refurb-watch settings get
+apple-refurb-watch settings set --listings mac,ipad --listen
+apple-refurb-watch settings sync-catalog
 apple-refurb-watch notify-test
 apple-refurb-watch status
 apple-refurb-watch stop
