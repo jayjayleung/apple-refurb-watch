@@ -73,24 +73,14 @@ apple-refurb-watch service status
 
 也可在设置页勾选「开机后自动运行服务」。Linux 走 systemd --user，macOS 走 LaunchAgent，Windows 走登录计划任务。同一系统只装一份任务：要么托盘，要么服务。
 
-**已经用 Docker 时：**
-
-```bash
-docker run --rm \
-  -p 127.0.0.1:8765:8765 \
-  -v "$PWD/data:/data" \
-  -e APPLE_REFURB_WATCH_HOME=/data \
-  ghcr.io/jayjayleung/apple-refurb-watch:latest
-```
-
-或仓库里的 compose（数据在宿主机 `./data`）：
+**已经用 Docker 时**，用仓库里的 compose 本地构建（数据在宿主机 `./data`）：
 
 ```bash
 cp .env.example .env
-docker compose up -d
+docker compose up -d --build
 ```
 
-不要再在同一数据目录上装本机 `service`。镜像名只出现在这一节。Docker 用 compose 的 `restart: unless-stopped`。
+不要再在同一数据目录上装本机 `service`。Docker 用 compose 的 `restart: unless-stopped`。CI 不推镜像。
 
 ## 网页里做什么
 
@@ -238,8 +228,8 @@ JSON API 是网页 / 桌面 / CLI / TUI 的共同入口，先看 `GET /api/healt
 GitHub Actions 只留一套 `ci`：
 
 - PR 和 `main`：Linux / Windows / macOS pytest，不打包。
-- `v*` 标签：同一套测试通过后打三端 onedir zip、烟测 `serve` 的 `GET /` 200 和 `desktop --probe`，发 GitHub Release，并推 GHCR `latest` 与 semver。
-- 手动运行只留 artifacts，不发 Release、不推镜像。
+- `v*` 标签：同一套测试通过后打三端 onedir zip、烟测 `serve` 的 `GET /` 200 和 `desktop --probe`，发 GitHub Release。
+- 手动运行只留 artifacts，不发 Release。不打 Docker 镜像。
 
 Windows / macOS 托盘依赖系统通知区域。Linux 开发机只能验证 `--probe` 与导入，不能代替真机关窗留守。`desktop --probe` 是打包烟测用的，日常打开窗口请直接双击或 `desktop`。
 
