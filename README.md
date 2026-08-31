@@ -6,7 +6,7 @@
 
 仓库：[github.com/jayjayleung/apple-refurb-watch](https://github.com/jayjayleung/apple-refurb-watch)
 
-当前版本：**0.2.0**
+当前版本：**0.2.1**
 
 默认地址 `http://127.0.0.1:8765`。数据目录可用 `APPLE_REFURB_WATCH_HOME` 覆盖，看当前目录：`apple-refurb-watch home`。
 
@@ -237,14 +237,14 @@ JSON API 是网页 / 桌面 / CLI / TUI 的共同入口，先看 `GET /api/healt
 
 GitHub Actions 两套流水线：
 
-- `ci`：PR 和 `main` 上跑 Linux / Windows / macOS pytest。`main` 通过后推 GHCR `latest` 与 `sha-*`。PR 只构建镜像不推送。不在每次 `main` 推送打桌面包。
-- `release`：`v*` 标签或手动运行。先测试，再打三端 onedir zip、烟测前台 `serve` 的 `GET /` 200，以及 `desktop --probe`（不打开窗口：本机服务 + 首页；Win/mac 安装包还检查 webview/托盘能否导入）。标签会发 GitHub Release 和 GHCR semver 镜像；手动运行只留 artifacts。
+- `ci`：PR 和 `main` 只跑 Linux / Windows / macOS pytest，不打安装包、不推镜像。
+- `release`：`v*` 标签才打包。先测试，再打三端 onedir zip、烟测前台 `serve` 的 `GET /` 200，以及 `desktop --probe`。标签会发 GitHub Release，并推 GHCR `latest` 与 semver；手动运行只留 artifacts。
 
 Windows / macOS 托盘依赖系统通知区域。Linux 开发机只能验证 `--probe` 与导入，不能代替真机关窗留守。`desktop --probe` 是打包烟测用的，日常打开窗口请直接双击或 `desktop`。
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 本地打当前系统一份：
