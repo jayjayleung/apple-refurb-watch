@@ -227,9 +227,9 @@ JSON API 是网页 / 桌面 / CLI / TUI 的共同入口，先看 `GET /api/healt
 
 GitHub Actions 只留一套 `ci`：
 
-- PR 和 `main`：Linux / Windows / macOS pytest，不打包。
-- `v*` 标签：同一套测试通过后打三端 onedir zip，发 GitHub Release。
-- 手动运行只留 artifacts，不发 Release。不打 Docker 镜像。不跑安装包烟测。
+- 推 `main` 不跑。PR 才跑 Linux / Windows / macOS pytest。
+- `v*` 标签：打三端 onedir zip，发 GitHub Release。不再先跑一遍 pytest，也不烟测。
+- 手动运行只留 artifacts，不发 Release。不打 Docker 镜像。
 
 Windows / macOS 托盘依赖系统通知区域。Linux 开发机只能验证 `--probe` 与导入，不能代替真机关窗留守。`desktop --probe` 只检查本机服务能否启动，日常打开窗口请直接双击或 `desktop`。
 
