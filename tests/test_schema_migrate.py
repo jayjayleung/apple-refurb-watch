@@ -166,3 +166,11 @@ def test_migrate_failure_restores_backup(tmp_path, monkeypatch) -> None:
         assert tables == []
     finally:
         live.close()
+
+
+def test_create_watch_normalizes_dim_filters(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    watch = db.create_watch({"name": "内存", "dim_filters": {"tsMemorySize": "24gb"}})
+    assert watch["dim_filters"]["tsMemorySize"] == ["24gb"]
+    loaded = db.get_watch(watch["id"])
+    assert loaded["dim_filters"]["tsMemorySize"] == ["24gb"]

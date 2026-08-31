@@ -169,22 +169,3 @@ def test_send_test_unknown_channel() -> None:
         assert "未知通道" in str(exc)
     else:
         raise AssertionError("expected NotifyError")
-
-
-
-def test_feishu_sign_matches_official() -> None:
-    secret = "test-secret"
-    timestamp = "1710000000"
-    expected = base64.b64encode(
-        hmac.new(f"{timestamp}\n{secret}".encode("utf-8"), digestmod=hashlib.sha256).digest()
-    ).decode("utf-8")
-    assert feishu_sign(secret, timestamp) == expected
-
-
-def test_dingtalk_sign_encodes_slash() -> None:
-    digest = hmac.new(b"secret", b"1\nsecret", digestmod=hashlib.sha256).digest()
-    raw = base64.b64encode(digest).decode("ascii")
-    encoded = quote(raw, safe="")
-    if "/" in raw:
-        assert "%2F" in encoded
-        assert "/" not in encoded

@@ -1,4 +1,8 @@
+import httpx
+import pytest
+
 from apple_refurb_watch.categories import listing_url
+from apple_refurb_watch.fetch import FetchError, fetch_html
 from apple_refurb_watch.parse import first_srcset_url, parse_detail_specs, parse_listing_html, parse_size_gb
 
 
@@ -35,8 +39,6 @@ def test_first_srcset_url() -> None:
 
 
 def test_listing_url_rejects_ssrf() -> None:
-    import pytest
-
     with pytest.raises(KeyError):
         listing_url("https://evil.example/steal")
     assert listing_url("mac").startswith("https://www.apple.com.cn/")
@@ -47,3 +49,35 @@ def test_parse_detail_specs(detail_html: str) -> None:
     specs = parse_detail_specs(detail_html)
     assert specs["ram_gb"] == 8
     assert specs["storage_gb"] == 256
+
+
+def test_fetch_html_breaks_cookie_redirect_loop() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "geo=" in request.headers.get("cookie", ""):
+            return httpx.Response(200, text="<html>ok</html>")
+        return httpx.Response(
+            302,
+            headers={
+                "Location": str(request.url),
+                "Set-Cookie": "geo=cn; Path=/",
+            },
+        )
+
+    html = fetch_html(
+        "https://www.apple.com.cn/shop/refurbished/mac/macbook-pro",
+        retries=1,
+        transport=httpx.MockTransport(handler),
+    )
+    assert html == "<html>ok</html>"
+
+
+def test_fetch_html_rejects_offsite_redirect() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"Location": "https://evil.example/x"})
+
+    with pytest.raises(FetchError, match="非苹果域名"):
+        fetch_html(
+            "https://www.apple.com.cn/shop/refurbished/mac/macbook-pro",
+            retries=1,
+            transport=httpx.MockTransport(handler),
+        )

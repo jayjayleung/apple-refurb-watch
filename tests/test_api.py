@@ -601,6 +601,18 @@ def test_events_digest_pages_by_day(tmp_path) -> None:
 
 def test_clear_events_api_and_page(tmp_path) -> None:
     db = Database(tmp_path / "app.db")
+    db.upsert_products(
+        [
+            {
+                "sku": "AAAA4CH/A",
+                "title": "翻新 MacBook Pro",
+                "url": "https://www.apple.com.cn/shop/product/AAAA4CH/A",
+                "price": 15000,
+                "listing_key": "mac",
+            }
+        ]
+    )
+    db.create_watch({"name": "规则", "mode": "condition"})
     db.add_event(type="scan_ok", message="完成扫描")
     db.add_event(type="appeared", title="翻新 MacBook Pro")
     app = create_app(db, with_scheduler=False)
@@ -612,6 +624,8 @@ def test_clear_events_api_and_page(tmp_path) -> None:
         assert cleared.json()["ok"] is True
         assert cleared.json()["deleted"] == 2
         assert client.get("/api/events").json() == []
+        assert db.count_products(in_stock=True) == 1
+        assert db.count_watches() == 1
         db.add_event(type="scan_ok", message="又扫了一次")
         page_clear = client.post("/events/clear", follow_redirects=False)
         assert page_clear.status_code == 303

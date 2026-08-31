@@ -1,5 +1,5 @@
 from apple_refurb_watch.db import DEFAULT_NOTIFY, DEFAULT_SETTINGS
-from apple_refurb_watch.settings import notify_channel_ready, notify_channel_status
+from apple_refurb_watch.settings import notify_channel_ready, notify_channel_status, public_settings
 from apple_refurb_watch.web.settings_public import form_settings
 
 
@@ -64,3 +64,26 @@ def test_notify_channel_status_labels() -> None:
     assert notify_channel_status({"enabled": True}, "bark") == "已启用，缺密钥"
     assert notify_channel_ready({"bot_token_set": True, "chat_id": "1"}, "telegram") is True
     assert notify_channel_ready({"bot_token_set": True}, "telegram") is False
+
+
+def test_public_settings_redacts_secrets() -> None:
+    data = public_settings(
+        {
+            "interval_seconds": 300,
+            "bind_host": "0.0.0.0",
+            "bind_port": 8766,
+            "lan_enabled": True,
+            "listings": ["mac"],
+            "detail_delay_seconds": 1.4,
+            "close_window_keeps_daemon": True,
+            "listen_enabled": True,
+            "access_token": "super-secret-token",
+            "notify": {"telegram": {"enabled": True, "bot_token": "123:ABC", "chat_id": "99"}},
+        }
+    )
+    assert data["access_token"] == ""
+    assert data["access_token_set"] is True
+    assert data["close_window_keeps_daemon"] is True
+    assert data["notify"]["telegram"]["bot_token"] == ""
+    assert data["notify"]["telegram"]["bot_token_set"] is True
+    assert data["notify"]["telegram"]["chat_id"] == "99"
