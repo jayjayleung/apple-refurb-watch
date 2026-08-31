@@ -51,9 +51,10 @@ class EmbeddedServer:
         def _run() -> None:
             try:
                 server.run()
+            except SystemExit as exc:
+                self._run_error = RuntimeError(f"uvicorn 退出: {exc.code}")
             except BaseException as exc:  # noqa: BLE001
                 self._run_error = exc
-                raise
 
         thread = threading.Thread(target=_run, name="arw-uvicorn", daemon=True)
         self._thread = thread
