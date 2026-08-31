@@ -20,16 +20,6 @@ jobs:
       - name: Test
         env:
           PYTHONUTF8: "1"
+        # pwsh 会把 pytest 写到 stderr 的 warnings 当成步骤失败。
         shell: bash
-        run: |
-          python -m pytest --tb=short -q >pytest-out.txt 2>&1
-          status=$?
-          cat pytest-out.txt
-          exit $status
-      - name: Publish pytest failures
-        if: failure()
-        shell: bash
-        run: |
-          echo '==== pytest-out.txt ===='
-          cat pytest-out.txt || echo 'missing pytest-out.txt'
-          python -c "from pathlib import Path; p=Path('pytest-out.txt'); t=(p.read_text(encoding='utf-8', errors='replace') if p.exists() else 'missing pytest-out.txt')[:2000].replace('%','%25').replace('\r','').replace('\n','%0A'); print('::error::'+t)"
+        run: python -m pytest --tb=short -q
