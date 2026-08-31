@@ -26,10 +26,8 @@ from apple_refurb_watch.settings import public_url
 
 
 def uvicorn_options() -> dict[str, Any]:
-    # Windows 默认 ProactorEventLoop 不支持 httptools 的 add_reader。
-    if sys.platform == "win32":
-        return {"http": "h11"}
-    return {}
+    # 钉死 h11，避免 uvicorn[standard] 在 Windows 上选 httptools + ProactorEventLoop。
+    return {"http": "h11"}
 
 
 def apply_windows_loop_policy() -> None:

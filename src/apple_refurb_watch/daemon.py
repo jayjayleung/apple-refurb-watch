@@ -16,8 +16,8 @@ CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 CREATE_NO_WINDOW = 0x08000000
 
 
-def acquire_lock():
-    path = lock_path()
+def acquire_lock(path: Path | None = None, *, label: str = "daemon"):
+    path = Path(path) if path else lock_path()
     handle = open(path, "a+", encoding="utf-8")
     try:
         if os.name == "nt":
@@ -35,7 +35,7 @@ def acquire_lock():
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as exc:
         handle.close()
-        raise RuntimeError("daemon 已在运行") from exc
+        raise RuntimeError(f"{label} 已在运行") from exc
     handle.seek(0)
     handle.truncate()
     handle.write(str(os.getpid()))
@@ -43,15 +43,15 @@ def acquire_lock():
     return handle
 
 
-def acquire_lock_retry(attempts: int = 12, delay: float = 0.25):
+def acquire_lock_retry(attempts: int = 12, delay: float = 0.25, path: Path | None = None, *, label: str = "daemon"):
     last: Exception | None = None
     for _ in range(attempts):
         try:
-            return acquire_lock()
+            return acquire_lock(path, label=label)
         except RuntimeError as exc:
             last = exc
             time.sleep(delay)
-    raise last or RuntimeError("daemon 已在运行")
+    raise last or RuntimeError(f"{label} 已在运行")
 
 
 def pid_is_alive(pid: int) -> bool:

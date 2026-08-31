@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import secrets
 from typing import Any
 from urllib.parse import urlparse
 
-from apple_refurb_watch.settings import public_settings, public_url, safe_listings
+from apple_refurb_watch.settings import normalize_settings_patch, public_settings, public_url, safe_listings
 
 __all__ = ["form_settings", "public_settings", "public_url", "safe_listings", "safe_next"]
 
@@ -43,8 +42,7 @@ def form_settings(form: dict, current: dict) -> dict:
     token = str(form.get("access_token") or "").strip()
     if token:
         patch["access_token"] = token
-    elif lan and not current.get("access_token"):
-        patch["access_token"] = secrets.token_urlsafe(16)
+    patch = normalize_settings_patch(patch, current)
     notify = current.get("notify") or {}
     for name, conf in notify.items():
         enabled = form.get(f"notify_{name}_enabled") in {"1", "on", "true"}

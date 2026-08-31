@@ -21,13 +21,12 @@ def send_all(settings: dict[str, Any], title: str, body: str, url: str | None = 
     errors: list[str] = []
     sent = 0
     for name, conf in notify.items():
-        if not isinstance(conf, dict) or not conf.get("enabled"):
-            continue
-        try:
-            _dispatch(name, conf, title, body, url)
-            sent += 1
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"{name}: {exc}")
+        if isinstance(conf, dict) and conf.get("enabled") and name in CHANNELS:
+            try:
+                send_channel(name, conf, title, body, url)
+                sent += 1
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{name}: {exc}")
     if sent == 0 and not errors:
         raise NotifyError("没有已启用的通知通道")
     return errors
@@ -42,23 +41,15 @@ def send_test(settings: dict[str, Any]) -> list[str]:
     return send_all(settings, TEST_TITLE, TEST_BODY, TEST_URL)
 
 
-def _dispatch(name: str, conf: dict, title: str, body: str, url: str | None) -> None:
-    if name == "bark":
-        _bark(conf, title, body, url)
-    elif name == "serverchan":
-        _serverchan(conf, title, body, url)
-    elif name == "pushplus":
-        _pushplus(conf, title, body, url)
-    elif name == "feishu":
-        _feishu(conf, title, body, url)
-    elif name == "dingtalk":
-        _dingtalk(conf, title, body, url)
-    elif name == "telegram":
-        _telegram(conf, title, body, url)
-    elif name == "email":
-        _email(conf, title, body, url)
-    else:
+def send_channel(name: str, conf: dict, title: str, body: str, url: str | None) -> None:
+    handler = CHANNELS.get(name)
+    if handler is None:
         raise NotifyError(f"未知通道 {name}")
+    handler(conf, title, body, url)
+
+
+def _dispatch(name: str, conf: dict, title: str, body: str, url: str | None) -> None:
+    send_channel(name, conf, title, body, url)
 
 
 def _bark(conf: dict, title: str, body: str, url: str | None) -> None:
@@ -183,3 +174,14 @@ def _post_form(url: str, payload: dict) -> None:
     with httpx.Client(timeout=15.0) as client:
         response = client.post(url, data=payload)
         response.raise_for_status()
+
+
+CHANNELS = {
+    "bark": _bark,
+    "serverchan": _serverchan,
+    "pushplus": _pushplus,
+    "feishu": _feishu,
+    "dingtalk": _dingtalk,
+    "telegram": _telegram,
+    "email": _email,
+}

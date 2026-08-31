@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "apple-refurb-watch"
-version = "0.1.6"
+version = "0.2.0"
 description = "监听苹果中国官翻指定配置上线，并推送到多种通知通道"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,7 +14,8 @@ dependencies = [
   "beautifulsoup4>=4.12",
   "platformdirs>=4.2",
   "fastapi>=0.115",
-  "uvicorn[standard]>=0.30",
+  "uvicorn>=0.30",
+  "h11>=0.14",
   "jinja2>=3.1",
   "apscheduler>=3.10",
   "pydantic>=2.7",
@@ -25,8 +26,8 @@ dependencies = [
 
 [project.optional-dependencies]
 tui = ["textual>=0.80"]
-desktop = ["pywebview>=5.0"]
-all = ["textual>=0.80", "pywebview>=5.0"]
+desktop = ["pywebview>=5.0", "pystray>=0.19", "pillow>=10.0"]
+all = ["textual>=0.80", "pywebview>=5.0", "pystray>=0.19", "pillow>=10.0"]
 dev = ["pytest>=8.0", "respx>=0.21", "textual>=0.80"]
 pack = ["pyinstaller>=6.3"]
 

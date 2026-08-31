@@ -52,6 +52,19 @@ class PageRenderer:
 
     def __call__(self, name: str, request: Request, **ctx) -> HTMLResponse:
         settings = public_settings(self.db.settings())
+        hx = bool(request.headers.get("HX-Request"))
+        if hx:
+            html_body = self.jinja.get_template(name).render(
+                request=request,
+                settings=settings,
+                status={},
+                status_view={},
+                watch_count=0,
+                user_catalog_path=str(user_catalog_path()),
+                live_catalog_path=str(live_catalog_path()),
+                **ctx,
+            )
+            return HTMLResponse(html_body)
         payload = load_status(self.db)
         html_body = self.jinja.get_template(name).render(
             request=request,

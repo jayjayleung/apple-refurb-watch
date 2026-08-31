@@ -13,12 +13,14 @@ from apple_refurb_watch.web.app import apply_windows_loop_policy, uvicorn_option
 from apple_refurb_watch.argv import with_frozen_default_command
 from apple_refurb_watch.categories import listing_family_name, listings_family_names
 from apple_refurb_watch.client import ApiClient, ApiError
+from apple_refurb_watch.connection import clear_connection, load_connection, resolve_client, save_connection
 from apple_refurb_watch.daemon import acquire_lock, ensure_daemon, is_running, stop_daemon
 from apple_refurb_watch.db import Database
-from apple_refurb_watch.listing import filter_products, format_cny, format_gb, products_in_listen_scope, sort_products
+from apple_refurb_watch.listing import format_cny, format_gb
 from apple_refurb_watch.paths import data_dir
 from apple_refurb_watch.scanner import run_scan
 from apple_refurb_watch.status_view import EVENT_LABELS, format_localtime, present_event_days
+from apple_refurb_watch.usecases import list_shop
 from apple_refurb_watch.watches import watch_condition_label
 
 app = typer.Typer(help="苹果中国官翻指定配置监听", no_args_is_help=True, rich_markup_mode="rich")
@@ -33,7 +35,14 @@ app.add_typer(events_app, name="events")
 
 
 def _client() -> ApiClient:
-    return ensure_daemon()
+    return resolve_client(start_local=True)
+
+
+def _refuse_local_against_remote() -> None:
+    conn = load_connection()
+    if conn.url:
+        typer.echo("已配置远端服务器，--local 只读本机库。请去掉 --local，或先 apple-refurb-watch disconnect。", err=True)
+        raise typer.Exit(2)
 
 
 def _dump(data) -> None:
@@ -100,12 +109,21 @@ def serve(
 
 
 @app.command()
-def desktop() -> None:
-    """打开桌面窗口（自动拉起 daemon）。"""
-    from apple_refurb_watch.desktop import run_desktop
+def desktop(
+    hidden: bool = typer.Option(False, "--hidden", help="启动后隐藏窗口，只留托盘"),
+    probe: bool = typer.Option(False, "--probe", help="不打开窗口，只检查本机服务能否启动"),
+) -> None:
+    """打开桌面窗口（本机模式同进程自带服务）。"""
+    from apple_refurb_watch.desktop import probe_runtime, run_desktop
 
     try:
-        run_desktop()
+        if probe:
+            result = probe_runtime()
+            typer.echo("desktop probe ok")
+            for key, value in (result.get("notes") or {}).items():
+                typer.echo(f"{key}: {value}")
+            return
+        run_desktop(hidden=hidden)
     except RuntimeError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
@@ -144,9 +162,9 @@ def list_products(
         "dim_filters": _parse_dims(dim),
     }
     if local:
+        _refuse_local_against_remote()
         database = Database()
-        stock = products_in_listen_scope(database.list_products(in_stock=True), database.settings().get("listings"))
-        items = sort_products(filter_products(stock, **filters), sort)
+        items = list_shop(database, filters, sort, page_size=None)["all_items"]
     else:
         items = _client().listings(sort=sort, **filters).get("items") or []
     if as_json:
@@ -168,6 +186,7 @@ def scan(
     local: bool = typer.Option(False, "--local", help="不启动 daemon，本进程扫描一次"),
 ) -> None:
     if local:
+        _refuse_local_against_remote()
         result = run_scan()
     else:
         result = _client().scan()
@@ -286,10 +305,17 @@ def watch_rm(watch_id: int) -> None:
 
 
 @service_app.command("install")
-def service_install() -> None:
+def service_install(
+    serve: bool = typer.Option(False, "--serve", help="拉起网页服务，不要托盘"),
+    tray: bool = typer.Option(False, "--tray", help="拉起桌面托盘"),
+) -> None:
     from apple_refurb_watch.service import install_service
 
-    typer.echo(install_service())
+    if serve and tray:
+        typer.echo("不要同时使用 --serve 和 --tray", err=True)
+        raise typer.Exit(2)
+    desktop = True if tray else False if serve else None
+    typer.echo(install_service(desktop=desktop))
 
 
 @service_app.command("uninstall")
@@ -304,6 +330,38 @@ def service_status() -> None:
     from apple_refurb_watch.service import service_status as status_fn
 
     typer.echo(status_fn())
+
+
+def _service_action(fn) -> None:
+    try:
+        typer.echo(fn())
+    except RuntimeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+
+@service_app.command("start")
+def service_start() -> None:
+    """启动已安装的开机任务。"""
+    from apple_refurb_watch.service import start_service
+
+    _service_action(start_service)
+
+
+@service_app.command("stop")
+def service_stop() -> None:
+    """停止已安装的开机任务（不卸载）。"""
+    from apple_refurb_watch.service import stop_service
+
+    _service_action(stop_service)
+
+
+@service_app.command("restart")
+def service_restart() -> None:
+    """重启已安装的开机任务。"""
+    from apple_refurb_watch.service import restart_service
+
+    _service_action(restart_service)
 
 
 @events_app.callback(invoke_without_command=True)
@@ -359,7 +417,7 @@ def settings_get(
     typer.echo(f"监听  {'开' if data.get('listen_enabled') else '关'}")
     typer.echo(f"间隔  {data.get('interval_seconds')} 秒")
     typer.echo(f"绑定  {data.get('bind_host')}:{data.get('bind_port')}")
-    typer.echo(f"局域网  {'开' if data.get('lan_enabled') else '关'}")
+    typer.echo(f"远程访问  {'开' if data.get('lan_enabled') else '关'}")
     names = listings_family_names(data.get("listings"))
     typer.echo(f"分类  {', '.join(names) if names else '-'}")
 
@@ -369,7 +427,7 @@ def settings_set(
     interval: Optional[int] = typer.Option(None, "--interval", help="扫描间隔（秒）"),
     listen: Optional[bool] = typer.Option(None, "--listen/--no-listen", help="定时监听"),
     listings: Optional[str] = typer.Option(None, "--listings", help="分类 key，逗号分隔"),
-    lan: Optional[bool] = typer.Option(None, "--lan/--no-lan", help="允许局域网访问"),
+    lan: Optional[bool] = typer.Option(None, "--lan/--no-lan", help="允许远程访问"),
 ) -> None:
     """改安全项。口令和 Webhook 请用网页设置页。"""
     patch: dict = {}
@@ -396,6 +454,28 @@ def settings_sync_catalog() -> None:
         return
     typer.echo(str(result), err=True)
     raise typer.Exit(1)
+
+
+@app.command()
+def connect(
+    url: str = typer.Argument(..., help="服务器地址，如 http://192.168.1.8:8765"),
+    token: Optional[str] = typer.Option(None, "--token", help="访问口令"),
+    insecure: bool = typer.Option(False, "--insecure", help="允许公网 HTTP"),
+) -> None:
+    """改连远端服务器。本机不再扫描。"""
+    try:
+        conn = save_connection(url, token, allow_insecure=insecure)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(f"已连接 {conn.url}")
+
+
+@app.command()
+def disconnect() -> None:
+    """改回本机服务。"""
+    clear_connection()
+    typer.echo("已改回本机")
 
 
 def main() -> None:

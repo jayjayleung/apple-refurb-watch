@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
-
-from apple_refurb_watch.parse import Product, color_from_title, normalize_sku
+from apple_refurb_watch.categories import listing_item_matches
+from apple_refurb_watch.parse import Product, color_from_title
 from apple_refurb_watch.textutil import norm_text
 
 COLOR_ALIASES: dict[str, list[str]] = {
@@ -27,12 +26,6 @@ COLOR_ALIASES: dict[str, list[str]] = {
 
 
 
-
-
-def _product_dict(product: Product | dict) -> dict:
-    if is_dataclass(product):
-        return asdict(product)
-    return dict(product)
 
 
 def _color_candidates(token: str) -> list[str]:
@@ -68,43 +61,7 @@ def color_matches(wanted: list[str], product: dict) -> bool:
 
 
 def listing_matches(watch: dict, item: dict) -> bool:
-    key = watch.get("listing_key")
-    if not key:
-        return True
-    prod = str(item.get("listing_key") or "")
-    model = str(item.get("model_key") or "")
-    title = str(item.get("title") or "")
-    if key == prod:
-        return True
-    if key == "mac" and (
-        prod.startswith("mac")
-        or "Mac" in title
-        or model == "display"
-        or "Studio Display" in title
-    ):
-        return True
-    if key == "ipad" and (prod.startswith("ipad") or "iPad" in title or "Pencil" in title):
-        return True
-    if key == "watch" and (prod.startswith("watch") or "Watch" in title):
-        return True
-    if key == "airpods" and (prod == "airpods" or "AirPods" in title):
-        return True
-    if key == "homepod" and (prod == "homepod" or "HomePod" in title):
-        return True
-    if key == "accessories" and (
-        prod == "accessories"
-        or prod == "homepod"
-        or model in {"display", "homepod", "airpods", "ipadaccessories"}
-        or "Pencil" in title
-        or "Studio Display" in title
-        or "HomePod" in title
-    ):
-        return True
-    if key == "macbook-pro" and ("macbookpro" in model or "MacBook Pro" in title):
-        return True
-    if key == "macbook-air" and ("macbookair" in model or "MacBook Air" in title):
-        return True
-    return False
+    return listing_item_matches(watch.get("listing_key"), item)
 
 
 def matches_watch(
@@ -114,42 +71,9 @@ def matches_watch(
     ignore_ram: bool = False,
     ignore_storage: bool = False,
 ) -> bool:
-    item = _product_dict(product)
-    if not listing_matches(watch, item):
-        return False
-    mode = watch.get("mode") or "condition"
-    if mode == "sku":
-        want = normalize_sku(watch.get("sku") or "")
-        return bool(want) and normalize_sku(item.get("sku") or "") == want
+    from apple_refurb_watch.query import ProductQuery
 
-    title_n = norm_text(item.get("title"))
-    for token in watch.get("all_of") or []:
-        if norm_text(token) not in title_n:
-            return False
-    for token in watch.get("none_of") or []:
-        if norm_text(token) and norm_text(token) in title_n:
-            return False
-    if watch.get("min_price") is not None:
-        if item.get("price") is None or float(item["price"]) < float(watch["min_price"]):
-            return False
-    if watch.get("max_price") is not None:
-        if item.get("price") is None or float(item["price"]) > float(watch["max_price"]):
-            return False
-    if not ignore_ram and watch.get("min_ram_gb") is not None:
-        ram = item.get("ram_gb")
-        if ram is None or int(ram) < int(watch["min_ram_gb"]):
-            return False
-    if not ignore_storage and watch.get("min_storage_gb") is not None:
-        storage = item.get("storage_gb")
-        if storage is None or int(storage) < int(watch["min_storage_gb"]):
-            return False
-    if not color_matches(watch.get("colors") or [], item):
-        return False
-    from apple_refurb_watch.filters import dims_match
-
-    if not dims_match(item, watch.get("dim_filters") or {}):
-        return False
-    return True
+    return ProductQuery.from_watch(watch).matches(product, ignore_ram=ignore_ram, ignore_storage=ignore_storage)
 
 
 def needs_ram(watch: dict) -> bool:

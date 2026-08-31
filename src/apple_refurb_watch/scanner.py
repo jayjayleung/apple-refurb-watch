@@ -5,12 +5,12 @@ import time
 from dataclasses import asdict
 from typing import Any, Callable
 
-from apple_refurb_watch.categories import compact_listings, listing_url
+from apple_refurb_watch.categories import compact_listings
 from apple_refurb_watch.db import Database
-from apple_refurb_watch.fetch import HtmlFetcher
+from apple_refurb_watch.deliveries import deliver_event, retry_pending_deliveries
+from apple_refurb_watch.listing_source import ListingSource
 from apple_refurb_watch.match import matches_watch, needs_ram, needs_storage
-from apple_refurb_watch.notify import NotifyError, send_all
-from apple_refurb_watch.parse import Product, extract_bootstrap, parse_detail_specs, parse_listing_html
+from apple_refurb_watch.parse import Product
 
 _scan_lock = threading.Lock()
 
@@ -34,29 +34,22 @@ def run_scan(
         return {"ok": False, "message": "已有扫描在进行"}
     own_db = db is None
     db = db or Database()
-    fetcher: HtmlFetcher | None = None
-    if fetch_listing is None or fetch_detail is None:
-        fetcher = HtmlFetcher()
-        fetch_listing = fetch_listing or fetcher
-        fetch_detail = fetch_detail or fetcher
-    notifier = notifier or send_all
+    source = ListingSource(fetch_listing=fetch_listing, fetch_detail=fetch_detail)
     sleep_fn = sleep_fn or time.sleep
     try:
-        return _run_scan_locked(db, fetch_listing, fetch_detail, notifier, sleep_fn)
+        return _run_scan_locked(db, source, notifier, sleep_fn)
     finally:
         db.set_setting("scanning", False)
         _scan_lock.release()
-        if fetcher is not None:
-            fetcher.close()
+        source.close()
         if own_db:
             db.close()
 
 
 def _run_scan_locked(
     db: Database,
-    fetch_listing: Callable[[str], str],
-    fetch_detail: Callable[[str], str],
-    notifier: Callable[[dict, str, str, str | None], list[str]],
+    source: ListingSource,
+    hook: Callable[[dict, str, str, str | None], list[str]] | None,
     sleep_fn: Callable[[float], None],
 ) -> dict[str, Any]:
     settings = db.settings()
@@ -67,18 +60,10 @@ def _run_scan_locked(
     errors: list[str] = []
     fetched_keys: list[str] = []
     for key in listings:
-        url = listing_url(key)
         try:
-            html = fetch_listing(url)
-            batch = parse_listing_html(html, key, url)
+            batch = source.fetch_listing(key)
             products.extend(batch)
             fetched_keys.append(key)
-            try:
-                from apple_refurb_watch.filters import ingest_bootstrap_catalog
-
-                ingest_bootstrap_catalog(extract_bootstrap(html), key)
-            except Exception:  # noqa: BLE001
-                pass
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{key}: {exc}")
             db.add_event(type="scan_error", message=f"抓取 {key} 失败: {exc}")
@@ -95,7 +80,7 @@ def _run_scan_locked(
                 continue
         try:
             sleep_fn(delay)
-            specs = parse_detail_specs(fetch_detail(product.url))
+            specs = source.fetch_detail(product.url)
             product.ram_gb = product.ram_gb or specs.get("ram_gb")
             product.storage_gb = product.storage_gb or specs.get("storage_gb")
             db.set_spec(product.sku, product.ram_gb, product.storage_gb)
@@ -111,7 +96,7 @@ def _run_scan_locked(
     baseline_done = bool(settings.get("baseline_done"))
     last_ok = str(settings.get("last_success_at") or "")
     scan_usable = bool(fetched_keys)
-    notified = 0
+    notified = retry_pending_deliveries(db, settings, hook)
     matched = 0
     for watch in watches:
         present: set[str] = set()
@@ -139,26 +124,17 @@ def _run_scan_locked(
             if product.price is not None:
                 specs.append(f"RMB {product.price:,.0f}")
             body = f"{product.title}\n" + " · ".join(specs) + f"\n{product.sku}"
-            try:
-                notify_errors = notifier(settings, title, body, product.url)
-            except NotifyError as exc:
-                notify_errors = [str(exc)]
-            except Exception as exc:  # noqa: BLE001
-                notify_errors = [str(exc)]
-            notify_ok = not notify_errors
-            db.set_watch_sku(watch["id"], product.sku, in_stock=True, notified=notify_ok)
-            if notify_ok or not was_in_stock:
-                db.add_event(
-                    type="appeared",
-                    sku=product.sku,
-                    watch_id=watch["id"],
-                    title=product.title,
-                    price=product.price,
-                    url=product.url,
-                    message=body if notify_ok else f"{body}\n通知失败: {'; '.join(notify_errors)}",
-                )
-            if notify_ok:
-                notified += 1
+            event_id = db.add_event(
+                type="appeared",
+                sku=product.sku,
+                watch_id=watch["id"],
+                title=product.title,
+                price=product.price,
+                url=product.url,
+                message=body,
+            )
+            db.set_watch_sku(watch["id"], product.sku, in_stock=True, notified=True)
+            notified += deliver_event(db, event_id, settings, title, body, product.url, hook)
         db.mark_watch_skus_out(watch["id"], present)
 
     from apple_refurb_watch.db import utcnow

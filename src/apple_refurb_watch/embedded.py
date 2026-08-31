@@ -27,12 +27,12 @@ class EmbeddedServer:
     def running(self) -> bool:
         return bool(self._thread and self._thread.is_alive() and self._server and not self._server.should_exit)
 
-    def start(self, timeout: float = 15.0) -> ApiClient:
+    def start(self, timeout: float = 15.0, *, host: str | None = None, port: int | None = None) -> ApiClient:
         self._lock = acquire_lock_retry()
         db = Database()
         settings = db.settings()
-        bind_host = settings.get("bind_host") or "127.0.0.1"
-        bind_port = int(settings.get("bind_port") or 8765)
+        bind_host = host or settings.get("bind_host") or "127.0.0.1"
+        bind_port = int(port if port is not None else (settings.get("bind_port") or 8765))
         self.host = "127.0.0.1" if bind_host in {"0.0.0.0", "::"} else bind_host
         self.port = bind_port
         app = create_app(db, with_scheduler=True)

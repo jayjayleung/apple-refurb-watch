@@ -5,11 +5,9 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from apple_refurb_watch.categories import canonical_shop_listing_key, shop_families_for
-from apple_refurb_watch.db import EVENT_KEEP
-from apple_refurb_watch.filters import facet_groups
-from apple_refurb_watch.listing import filter_products, products_in_listen_scope, shop_listings_url, sort_products
-from apple_refurb_watch.status_view import filter_event_days, paginate_event_days, present_event_days
+from apple_refurb_watch.categories import canonical_shop_listing_key
+from apple_refurb_watch.listing import shop_listings_url
+from apple_refurb_watch.usecases import list_shop, present_events
 from apple_refurb_watch.web.auth import token_ok
 from apple_refurb_watch.web.listing import (
     PAGE_SIZE,
@@ -48,33 +46,15 @@ def _event_digest(params) -> bool:
 
 
 def _event_context(request: Request) -> dict:
-    database = request.app.state.db
     kind = (request.query_params.get("kind") or "all").strip() or "all"
     digest = _event_digest(request.query_params)
     try:
         page = int(request.query_params.get("page") or 1)
     except (TypeError, ValueError):
         page = 1
-    thumbs = {
-        str(item.get("sku") or ""): item.get("image_url")
-        for item in database.list_products()
-        if item.get("sku") and item.get("image_url")
-    }
-    watch_names = {int(item["id"]): str(item.get("name") or "") for item in database.list_watches() if item.get("id")}
-    days = filter_event_days(
-        present_event_days(database.list_events(EVENT_KEEP), collapse_scans=digest, watch_names=watch_names),
-        kind,
-    )
-    paged = paginate_event_days(days, page, by_day=digest)
-    for day in paged["event_days"]:
-        for event in day["entries"]:
-            sku = str(event.get("sku") or "")
-            if sku and thumbs.get(sku):
-                event["image_url"] = thumbs[sku]
+    paged = present_events(request.app.state.db, digest=digest, kind=kind, page=page)
     return {
         **paged,
-        "event_kind": kind,
-        "event_digest": digest,
         "events_url_all": events_url(digest=False, kind=kind),
         "events_url_digest": events_url(digest=True, kind=kind),
         "events_url_prev": events_url(page=paged["event_page"] - 1, digest=digest, kind=kind),
@@ -92,57 +72,32 @@ def home(request: Request) -> HTMLResponse | RedirectResponse:
     if requested != canonical:
         sort = (request.query_params.get("sort") or "").strip()
         return RedirectResponse(shop_listings_url(canonical, sort or None), status_code=302)
-    stock = products_in_listen_scope(database.list_products(in_stock=True), listings)
     filters = query_filters(request)
-    listing_only = filter_products(
-        stock,
-        listing_key=filters["listing_key"],
-        q=None,
-        color=None,
-        max_price=None,
-        min_ram_gb=None,
-        min_storage_gb=None,
-        dim_filters={},
-    )
-    items = filter_products(stock, **filters)
-    items = sort_products(items, request.query_params.get("sort"))
     hx_request = bool(request.headers.get("HX-Request"))
     hx_target = (request.headers.get("HX-Target") or "").lstrip("#")
     offset = page_offset(request) if hx_request and hx_target == "product-grid" else 0
-    total_count = len(items)
-    page_items = items[offset : offset + PAGE_SIZE]
-    has_more = offset + PAGE_SIZE < total_count
-    families = shop_families_for(listings)
+    shop = list_shop(database, filters, request.query_params.get("sort"), offset=offset, page_size=PAGE_SIZE)
     ctx = {
-        "items": page_items,
-        "total_count": total_count,
-        "sort": (request.query_params.get("sort") or "price").strip() or "price",
+        "items": shop["items"],
+        "total_count": shop["total_count"],
+        "sort": shop["sort"],
         "q": filters["q"] or "",
         "listing_key": filters["listing_key"] or "",
         "color": filters["color"] or "",
         "max_price": filters["max_price"] if filters["max_price"] is not None else "",
         "min_ram_gb": filters["min_ram_gb"] if filters["min_ram_gb"] is not None else "",
         "min_storage_gb": filters["min_storage_gb"] if filters["min_storage_gb"] is not None else "",
-        "facets": facet_groups(
-            listing_only,
-            filters["listing_key"],
-            filters["dim_filters"],
-            include_catalog=True,
-            include_chip=False,
-            include_cores=False,
-            show_counts=True,
-            refine=True,
-        ),
-        "selected_dims": filters["dim_filters"],
+        "facets": shop["facets"],
+        "selected_dims": shop["selected_dims"],
         "filter_chips": filter_chips(request, filters),
-        "has_more": has_more,
-        "remaining": max(0, total_count - offset - len(page_items)),
-        "more_url": listings_path(request, offset + PAGE_SIZE) if has_more else "",
-        "offset": offset,
+        "has_more": shop["has_more"],
+        "remaining": shop["remaining"],
+        "more_url": listings_path(request, offset + PAGE_SIZE) if shop["has_more"] else "",
+        "offset": shop["offset"],
         "oob_more": hx_target == "product-grid",
-        "stock_count": len(stock),
-        "active_families": families,
-        "show_shop_all": len(families) > 1,
+        "stock_count": shop["stock_count"],
+        "active_families": shop["active_families"],
+        "show_shop_all": shop["show_shop_all"],
     }
     if hx_request:
         if hx_target == "product-grid":

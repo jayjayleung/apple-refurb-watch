@@ -9,19 +9,64 @@ from textwrap import dedent
 
 from xml.sax.saxutils import escape
 
-from apple_refurb_watch.argv import invoke_argv
+from apple_refurb_watch.argv import invoke_argv, is_frozen
 from apple_refurb_watch.paths import data_dir
 
 SERVICE_NAME = "apple-refurb-watch"
 
 
-def install_service() -> str:
+def desktop_autostart_preferred(*, frozen: bool | None = None, platform: str | None = None) -> bool:
+    frozen = is_frozen() if frozen is None else frozen
+    platform = sys.platform if platform is None else platform
+    return bool(frozen) and platform in {"win32", "darwin"}
+
+
+def autostart_argv(
+    *,
+    desktop: bool | None = None,
+    frozen: bool | None = None,
+    platform: str | None = None,
+    executable: str | None = None,
+) -> list[str]:
+    """开机拉起的命令：Win/mac 桌面包走托盘，其它走 serve。"""
+    frozen = is_frozen() if frozen is None else frozen
+    platform = sys.platform if platform is None else platform
+    if desktop is None:
+        desktop = desktop_autostart_preferred(frozen=frozen, platform=platform)
+    if desktop:
+        return invoke_argv("desktop", "--hidden", frozen=frozen, executable=executable)
+    return invoke_argv("serve", frozen=frozen, executable=executable)
+
+
+def autostart_status(*, desktop: bool | None = None) -> dict:
+    if desktop is None:
+        desktop = desktop_autostart_preferred()
+    return {
+        "installed": is_service_installed(),
+        "kind": "tray" if desktop else "serve",
+        "command": autostart_argv(desktop=desktop),
+    }
+
+
+def set_autostart(enabled: bool, *, desktop: bool | None = None) -> dict:
+    if enabled:
+        message = install_service(desktop=desktop)
+    else:
+        message = uninstall_service()
+    info = autostart_status(desktop=desktop)
+    info["ok"] = True
+    info["message"] = message
+    return info
+
+
+def install_service(*, desktop: bool | None = None) -> str:
+    argv = autostart_argv(desktop=desktop)
     if sys.platform.startswith("linux"):
-        return _install_systemd()
+        return _install_systemd(argv)
     if sys.platform == "darwin":
-        return _install_launchd()
+        return _install_launchd(argv)
     if os.name == "nt":
-        return _install_windows()
+        return _install_windows(argv)
     return "当前系统暂不支持 service install，请用 apple-refurb-watch serve --detach"
 
 
@@ -55,13 +100,93 @@ def service_status() -> str:
     return "未知"
 
 
+def is_service_installed() -> bool:
+    if sys.platform.startswith("linux"):
+        return _systemd_unit().exists()
+    if sys.platform == "darwin":
+        return _launchd_plist().exists()
+    if os.name == "nt":
+        result = subprocess.run(["schtasks", "/Query", "/TN", SERVICE_NAME], capture_output=True)
+        return result.returncode == 0
+    return False
+
+
+def control_commands(
+    action: str,
+    *,
+    platform: str | None = None,
+    plist: str | None = None,
+) -> list[list[str]]:
+    """start / stop / restart 对应的系统命令。restart 可能是两条。"""
+    if action not in {"start", "stop", "restart"}:
+        raise ValueError(action)
+    platform = sys.platform if platform is None else platform
+    if platform.startswith("linux"):
+        return [["systemctl", "--user", action, SERVICE_NAME]]
+    if platform == "darwin":
+        path = plist if plist is not None else str(_launchd_plist())
+        if action == "start":
+            return [["launchctl", "load", path]]
+        if action == "stop":
+            return [["launchctl", "unload", path]]
+        return [["launchctl", "unload", path], ["launchctl", "load", path]]
+    if platform == "win32":
+        if action == "start":
+            return [["schtasks", "/Run", "/TN", SERVICE_NAME]]
+        if action == "stop":
+            return [["schtasks", "/End", "/TN", SERVICE_NAME]]
+        return [["schtasks", "/End", "/TN", SERVICE_NAME], ["schtasks", "/Run", "/TN", SERVICE_NAME]]
+    raise RuntimeError("当前系统暂不支持 service start/stop，请用 apple-refurb-watch serve")
+
+
+def start_service() -> str:
+    return _control("start")
+
+
+def stop_service() -> str:
+    return _control("stop")
+
+
+def restart_service() -> str:
+    return _control("restart")
+
+
+def _control(action: str) -> str:
+    if not is_service_installed():
+        raise RuntimeError("尚未安装开机任务。请先 apple-refurb-watch service install")
+    return _run_control_commands(action, control_commands(action))
+
+
+def _ignore_control_error(action: str, text: str) -> bool:
+    low = text.lower()
+    if action == "start":
+        return any(token in low for token in ("already loaded", "already running", "already started"))
+    if action == "stop":
+        return any(token in low for token in ("not loaded", "not running", "not started", "has not yet started"))
+    return False
+
+
+def _run_control_commands(action: str, commands: list[list[str]]) -> str:
+    for index, cmd in enumerate(commands):
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        text = f"{result.stderr or ''}{result.stdout or ''}".strip()
+        if result.returncode == 0:
+            continue
+        step = "stop" if action == "restart" and index == 0 else action
+        if _ignore_control_error(step, text):
+            continue
+        raise RuntimeError(text or f"{' '.join(cmd)} 失败")
+    labels = {"start": "已启动", "stop": "已停止", "restart": "已重启"}
+    return labels.get(action, "已执行")
+
+
 def _systemd_unit() -> Path:
     path = Path.home() / ".config/systemd/user"
     path.mkdir(parents=True, exist_ok=True)
     return path / f"{SERVICE_NAME}.service"
 
 
-def _install_systemd() -> str:
+def _install_systemd(argv: list[str]) -> str:
     unit = _systemd_unit()
     unit.write_text(
         dedent(
@@ -72,7 +197,7 @@ def _install_systemd() -> str:
 
             [Service]
             Type=simple
-            ExecStart={" ".join(invoke_argv("serve"))}
+            ExecStart={" ".join(argv)}
             Restart=on-failure
             RestartSec=8
             WorkingDirectory={data_dir()}
@@ -95,7 +220,7 @@ def _launchd_plist() -> Path:
     return path / f"cn.apple-refurb-watch.plist"
 
 
-def _install_launchd() -> str:
+def _install_launchd(argv: list[str]) -> str:
     plist = _launchd_plist()
     plist.write_text(
         dedent(
@@ -107,7 +232,7 @@ def _install_launchd() -> str:
               <key>Label</key><string>{SERVICE_NAME}</string>
               <key>ProgramArguments</key>
               <array>
-                {"".join(f"<string>{escape(part)}</string>" for part in invoke_argv("serve"))}
+                {"".join(f"<string>{escape(part)}</string>" for part in argv)}
               </array>
               <key>RunAtLoad</key><true/>
               <key>KeepAlive</key><true/>
@@ -123,9 +248,8 @@ def _install_launchd() -> str:
     return f"已写入 {plist}"
 
 
-def _install_windows() -> str:
-    parts = invoke_argv("serve")
-    cmd = " ".join(f'"{part}"' if " " in part else part for part in parts)
+def _install_windows(argv: list[str]) -> str:
+    cmd = " ".join(f'"{part}"' if " " in part else part for part in argv)
     subprocess.run(
         ["schtasks", "/Create", "/SC", "ONLOGON", "/TN", SERVICE_NAME, "/TR", cmd, "/F"],
         check=False,

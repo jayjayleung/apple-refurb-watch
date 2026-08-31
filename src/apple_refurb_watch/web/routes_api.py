@@ -4,24 +4,24 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from apple_refurb_watch.fetch import fetch_html
 from apple_refurb_watch.filters import live_catalog_path, load_catalog, sync_filter_catalog, user_catalog_path
-from apple_refurb_watch.listing import filter_products, listing_filters, products_in_listen_scope, sort_products
+from apple_refurb_watch.listing import listing_filters
 from apple_refurb_watch.notify import NotifyError, send_test
 from apple_refurb_watch.scanner import run_scan
-from apple_refurb_watch.settings import normalize_settings_patch, public_settings
-from apple_refurb_watch.status_view import load_status
-from apple_refurb_watch.web.schemas import SettingsPatch, WatchIn, WatchPatch
+from apple_refurb_watch.settings import public_settings
+from apple_refurb_watch.usecases import health_payload, list_shop, patch_settings, public_settings_view, public_status
+from apple_refurb_watch.web.schemas import AutostartPatch, SettingsPatch, WatchIn, WatchPatch
 
 router = APIRouter()
 
 
 @router.get("/api/health")
 def health() -> dict:
-    return {"ok": True}
+    return health_payload()
 
 
 @router.get("/api/status")
 def status(request: Request) -> dict:
-    return load_status(request.app.state.db)
+    return public_status(request.app.state.db)
 
 
 @router.get("/api/filter-catalog")
@@ -49,12 +49,9 @@ def api_sync_catalog() -> dict:
 
 @router.get("/api/listings")
 def api_listings(request: Request) -> dict:
-    database = request.app.state.db
-    listings = database.settings().get("listings")
     filters = listing_filters(request.query_params)
-    stock = products_in_listen_scope(database.list_products(in_stock=True), listings)
-    items = sort_products(filter_products(stock, **filters), request.query_params.get("sort"))
-    return {"items": items, "count": len(items)}
+    result = list_shop(request.app.state.db, filters, request.query_params.get("sort"), page_size=None)
+    return {"items": result["all_items"], "count": result["total_count"]}
 
 
 @router.get("/api/watches")
@@ -89,8 +86,13 @@ def api_scan(request: Request) -> dict:
 
 
 @router.get("/api/events")
-def api_events(request: Request, limit: int = Query(80, ge=1, le=500)) -> list:
-    return request.app.state.db.list_events(limit)
+def api_events(
+    request: Request,
+    limit: int = Query(80, ge=1, le=500),
+    after_id: int | None = Query(None, ge=0),
+    type: str | None = Query(None),
+) -> list:
+    return request.app.state.db.list_events(limit, after_id=after_id, type=type)
 
 
 @router.delete("/api/events")
@@ -101,17 +103,31 @@ def api_clear_events(request: Request) -> dict:
 
 @router.get("/api/settings")
 def api_settings(request: Request) -> dict:
-    return public_settings(request.app.state.db.settings())
+    return public_settings_view(request.app.state.db)
 
 
 @router.patch("/api/settings")
 def api_patch_settings(request: Request, payload: SettingsPatch) -> dict:
     database = request.app.state.db
-    patch = normalize_settings_patch(payload.model_dump(exclude_unset=True), database.settings())
-    updated = database.update_settings(patch)
+    patch = payload.model_dump(exclude_unset=True)
+    updated = patch_settings(database, patch)
     if "interval_seconds" in patch or "listen_enabled" in patch:
         request.app.state.reschedule()
     return public_settings(updated)
+
+
+@router.get("/api/autostart")
+def api_autostart_get() -> dict:
+    from apple_refurb_watch.service import autostart_status
+
+    return autostart_status(desktop=False)
+
+
+@router.post("/api/autostart")
+def api_autostart_set(payload: AutostartPatch) -> dict:
+    from apple_refurb_watch.service import set_autostart
+
+    return set_autostart(payload.enabled, desktop=False)
 
 
 @router.post("/api/notify/test")

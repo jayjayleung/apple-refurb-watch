@@ -479,6 +479,8 @@ legend { padding: 0 0.3rem; color: var(--muted); }
 .flash { padding: 0.7rem 0.9rem; border-radius: 12px; }
 .flash.ok { background: #e8f6ec; color: var(--ok); }
 .flash.bad { background: #fde8ea; color: var(--bad); }
+.flash.warn { background: #fff4d6; color: var(--busy); }
+#compat-banner[hidden] { display: none; }
 .empty { padding: 2.4rem 0; color: var(--muted); display: flex; flex-direction: column; gap: 0.85rem; align-items: flex-start; }
 .empty p { margin: 0; }
 
@@ -1200,6 +1202,7 @@ legend { padding: 0 0.3rem; color: var(--muted); }
   .watch-save { background: var(--card); box-shadow: 0 -16px 20px var(--card); }
   .flash.ok { background: #13351d; }
   .flash.bad { background: #3b1216; }
+  .flash.warn { background: #3a2e12; color: #e5c07a; }
   .skel { background: linear-gradient(90deg, #3a3a3c 20%, #48484a 50%, #3a3a3c 80%); background-size: 200% 100%; }
   .login-shell { background: var(--paper); }
   .timeline .event-appear { background: var(--card); }

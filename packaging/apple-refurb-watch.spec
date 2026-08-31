@@ -17,6 +17,9 @@ datas += [
     (str(pkg / "web" / "static"), "apple_refurb_watch/web/static"),
     (str(pkg / "data"), "apple_refurb_watch/data"),
 ]
+install_sh = repo_root / "scripts" / "install.sh"
+if install_sh.is_file():
+    datas.append((str(install_sh), "."))
 
 try:
     tz_datas, tz_bins, tz_hidden = collect_all("tzdata")
@@ -42,9 +45,24 @@ try:
     hiddenimports += w_hidden
 except Exception:
     pass
+try:
+    s_datas, s_bins, s_hidden = collect_all("pystray")
+    datas += s_datas
+    binaries += s_bins
+    hiddenimports += s_hidden
+except Exception:
+    pass
+try:
+    p_datas, p_bins, p_hidden = collect_all("PIL")
+    datas += p_datas
+    binaries += p_bins
+    hiddenimports += p_hidden
+except Exception:
+    pass
 
 hiddenimports += [
     "tzdata",
+    "h11",
     "uvicorn.logging",
     "uvicorn.lifespan.on",
     "uvicorn.protocols.http.auto",
@@ -83,13 +101,18 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="apple-refurb-watch",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
     console=True,
+)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    name="apple-refurb-watch",
 )

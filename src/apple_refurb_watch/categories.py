@@ -167,3 +167,73 @@ def shop_family_key(listing_key: str | None) -> str:
     if key in MAC_CHILD_LISTINGS:
         return "mac"
     return key
+
+
+# 新品类加 CATEGORIES 一条，再在这里加匹配规则；不要往 match.listing_matches 堆 if。
+LISTING_MATCH_RULES: dict[str, dict] = {
+    "mac": {
+        "prod_prefixes": ("mac",),
+        "title_any": ("Mac", "Studio Display"),
+        "models": frozenset({"display"}),
+    },
+    "ipad": {
+        "prod_prefixes": ("ipad",),
+        "title_any": ("iPad", "Pencil"),
+    },
+    "watch": {
+        "prod_prefixes": ("watch",),
+        "title_any": ("Watch",),
+    },
+    "airpods": {
+        "prod_exact": frozenset({"airpods"}),
+        "title_any": ("AirPods",),
+    },
+    "homepod": {
+        "prod_exact": frozenset({"homepod"}),
+        "title_any": ("HomePod",),
+    },
+    "accessories": {
+        "prod_exact": frozenset({"accessories", "homepod"}),
+        "title_any": ("Pencil", "Studio Display", "HomePod"),
+        "models": frozenset({"display", "homepod", "airpods", "ipadaccessories"}),
+    },
+}
+LISTING_CHILD_RULES: dict[str, dict] = {
+    "macbook-pro": {
+        "model_substrings": ("macbookpro",),
+        "title_any": ("MacBook Pro",),
+    },
+    "macbook-air": {
+        "model_substrings": ("macbookair",),
+        "title_any": ("MacBook Air",),
+    },
+}
+
+
+def listing_item_matches(key: str | None, item: dict) -> bool:
+    if not key:
+        return True
+    prod = str(item.get("listing_key") or "")
+    model = str(item.get("model_key") or "")
+    title = str(item.get("title") or "")
+    if key == prod:
+        return True
+    rule = LISTING_MATCH_RULES.get(key)
+    if rule:
+        if any(prod.startswith(prefix) for prefix in rule.get("prod_prefixes") or ()):
+            return True
+        if prod in (rule.get("prod_exact") or frozenset()):
+            return True
+        if model in (rule.get("models") or frozenset()):
+            return True
+        if any(token in title for token in (rule.get("title_any") or ())):
+            return True
+        return False
+    child = LISTING_CHILD_RULES.get(key)
+    if child:
+        if any(token in model for token in child.get("model_substrings") or ()):
+            return True
+        if any(token in title for token in child.get("title_any") or ()):
+            return True
+        return False
+    return False

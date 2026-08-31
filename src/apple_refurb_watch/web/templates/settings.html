@@ -5,7 +5,7 @@
 <header class="page-head">
   <div>
     <h1>设置</h1>
-    <p class="lede">扫描间隔、局域网口令和通知通道。</p>
+    <p class="lede">扫描间隔、远程访问、开机自启和通知通道。桌面包还可在本页改连远端。</p>
   </div>
 </header>
 
@@ -30,14 +30,42 @@
       <label class="check"><input type="checkbox" name="listings" value="{{ item.key }}" {% if shop_family_key(item.key) in settings.listings or (item.key == 'mac' and ('macbook-pro' in settings.listings or 'macbook-air' in settings.listings)) %}checked{% endif %}> {{ item.name }}</label>
       {% endfor %}
     </fieldset>
-    <label class="check"><input type="checkbox" name="close_window_keeps_daemon" {% if settings.close_window_keeps_daemon %}checked{% endif %}> 关闭桌面窗口后继续后台扫描</label>
+    <label class="check"><input type="checkbox" name="close_window_keeps_daemon" {% if settings.close_window_keeps_daemon %}checked{% endif %}> 关闭窗口到托盘（退出请用托盘菜单）</label>
   </section>
 
   <section class="panel">
-    <h2>局域网</h2>
-    <label class="check"><input type="checkbox" name="lan_enabled" {% if settings.lan_enabled %}checked{% endif %}> 允许局域网访问（绑定 0.0.0.0）</label>
+    <h2>远程访问</h2>
+    <label class="check"><input type="checkbox" name="lan_enabled" {% if settings.lan_enabled %}checked{% endif %}> 允许远程访问（绑定 0.0.0.0，非本机需口令）</label>
     <label>访问口令 <input type="text" name="access_token" placeholder="{% if settings.access_token_set %}已保存，留空不改{% endif %}"></label>
-    <p class="hint">当前绑定 {{ settings.bind_host }}:{{ settings.bind_port }}。改绑定后请重启进程。</p>
+    <p class="hint">当前绑定 {{ settings.bind_host }}:{{ settings.bind_port }}。改绑定后请重启进程。公网请用 Caddy/nginx 做 HTTPS，应用本身继续 HTTP + 口令。</p>
+  </section>
+
+  <section class="panel desktop-only" id="desktop-this-computer" hidden>
+    <h2>这台电脑</h2>
+    <p class="hint" id="desktop-conn-status">桌面包可在此改连 NAS / VPS 上的服务，不必先用命令行 connect。</p>
+    <label>服务器地址 <input id="desktop-url" type="url" placeholder="http://192.168.1.8:8765" autocomplete="off"></label>
+    <label>访问口令 <input id="desktop-token" type="password" placeholder="远端口令，已保存可留空"></label>
+    <label class="check"><input type="checkbox" id="desktop-insecure"> 允许公网 HTTP（不推荐）</label>
+    <div class="row">
+      <button class="btn" type="button" id="desktop-connect">连接服务器</button>
+      <button class="btn" type="button" id="desktop-disconnect">改回本机</button>
+    </div>
+    <label class="check"><input type="checkbox" id="desktop-autostart"> 开机自启（这台电脑的托盘）</label>
+    <p class="hint" id="desktop-autostart-hint">登录后拉起这台电脑的窗口/托盘。跑扫描的 NAS 请用下面的「本机服务开机自启」。</p>
+  </section>
+
+  <section class="panel" id="server-autostart">
+    <h2>本机服务开机自启</h2>
+    <p class="hint">登录后拉起网页服务（<code>serve</code>）。这是扫描和数据库所在的那台机器，例如 NAS / VPS。同一系统只装一份开机任务：要么托盘，要么服务。</p>
+    <label class="check"><input type="checkbox" id="server-autostart-enabled"> 开机后自动运行服务</label>
+    <p class="hint" id="server-autostart-status"></p>
+  </section>
+
+  <section class="panel" id="computer-notify">
+    <h2>电脑通知</h2>
+    <p class="hint">在这台电脑或已打开的浏览器页弹出系统通知，与 Bark / 飞书等通道互不影响。关掉本页后网页不会再弹；锁屏仍靠 Bark 等，或让桌面窗口留在托盘。</p>
+    <label class="check"><input type="checkbox" id="computer-notify-enabled"> 启用电脑通知</label>
+    <p class="hint" id="computer-notify-status"></p>
   </section>
 
   <section class="panel">

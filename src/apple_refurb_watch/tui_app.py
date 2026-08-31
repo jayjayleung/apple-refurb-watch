@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from apple_refurb_watch.categories import SHOP_FAMILIES, listing_family_name, shop_families_for, shop_family_key
 from apple_refurb_watch.client import ApiClient
-from apple_refurb_watch.daemon import ensure_daemon
+from apple_refurb_watch.connection import check_client_compat, load_connection, resolve_client
 from apple_refurb_watch.listing import format_cny, format_gb
 from apple_refurb_watch.status_view import EVENT_LABELS, format_localtime, present_event_days
 from apple_refurb_watch.watches import watch_condition_label, watch_from_product
@@ -66,7 +66,10 @@ def create_tui(client: ApiClient):
                 "c 清除动态记录\n"
                 "r 刷新\n"
                 "s 扫描\n"
-                "q 退出",
+                "q 退出\n"
+                "\n"
+                "核心操作与网页对齐：在售、规则、扫描、监听开关、连本机或远端。\n"
+                "不对等：侧栏 facets、每日动态、通知密钥、电脑通知。",
                 id="help-body",
             )
             yield Button("关闭", id="close")
@@ -577,4 +580,10 @@ def create_tui(client: ApiClient):
 
 
 def run_tui() -> None:
-    create_tui(ensure_daemon()).run()
+    conn = load_connection()
+    client = resolve_client(start_local=not bool(conn.url))
+    if conn.url:
+        err = check_client_compat(client.health())
+        if err:
+            raise RuntimeError(err)
+    create_tui(client).run()

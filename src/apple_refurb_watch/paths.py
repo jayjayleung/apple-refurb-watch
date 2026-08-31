@@ -41,6 +41,14 @@ def lock_path() -> Path:
     return data_dir() / "daemon.lock"
 
 
+def desktop_lock_path() -> Path:
+    return data_dir() / "desktop.lock"
+
+
+def desktop_signal_path() -> Path:
+    return data_dir() / "desktop.signal"
+
+
 def runtime_path() -> Path:
     return data_dir() / "daemon.json"
 

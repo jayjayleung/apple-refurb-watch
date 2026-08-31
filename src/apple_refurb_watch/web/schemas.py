@@ -19,6 +19,7 @@ class WatchIn(BaseModel):
     min_price: float | None = None
     max_price: float | None = None
     dim_filters: dict[str, list[str]] | None = None
+    query: dict[str, Any] | None = None
 
 
 class WatchPatch(BaseModel):
@@ -35,6 +36,11 @@ class WatchPatch(BaseModel):
     min_price: float | None = Field(default=None)
     max_price: float | None = Field(default=None)
     dim_filters: dict[str, list[str]] | None = None
+    query: dict[str, Any] | None = None
+
+
+class AutostartPatch(BaseModel):
+    enabled: bool
 
 
 class SettingsPatch(BaseModel):

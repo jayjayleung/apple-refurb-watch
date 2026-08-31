@@ -13,14 +13,14 @@
   <main class="login-wrap">
     <p class="login-mark">官翻监听</p>
     <h1>输入访问口令</h1>
-    <p class="lede">局域网已打开，需要口令才能看在售和管理规则。本机地址打开时通常不用这一步。</p>
+    <p class="lede">远程访问已打开，需要口令才能看在售和管理规则。本机地址打开时通常不用这一步。</p>
     <form class="login-card" method="post" action="/login">
       <label for="token">访问口令</label>
       <input id="token" name="token" type="password" autocomplete="current-password" required autofocus {% if error %}aria-invalid="true"{% endif %}>
       {% if error %}<p class="field-error" role="alert">口令不对，请再试一次。</p>{% endif %}
       <button class="btn primary login-go" type="submit">进入</button>
     </form>
-    <p class="login-hint">口令在设置页。把这个页面发给别人之前，先确认绑定的是局域网地址而不是本机回环。</p>
+    <p class="login-hint">口令在设置页。把这个页面发给别人之前，先确认绑定的是远程可访问地址而不是本机回环。</p>
   </main>
 </body>
 </html>

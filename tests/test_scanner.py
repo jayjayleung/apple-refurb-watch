@@ -177,7 +177,11 @@ def test_notify_failure_retries(tmp_path: Path, listing_html: str) -> None:
     assert failed["notified"] == 0
     state = db.watch_sku_state(watch["id"], "FGDN4CH/A")
     assert state and state["in_stock"] == 1
-    assert state["notified"] == 0
+    assert state["notified"] == 1
+    pending = db.list_pending_deliveries()
+    assert pending
+    events = [item for item in db.list_events() if item.get("type") == "appeared"]
+    assert len(events) == 1
 
     retried = run_scan(
         db,
@@ -189,6 +193,8 @@ def test_notify_failure_retries(tmp_path: Path, listing_html: str) -> None:
     assert retried["notified"] == 1
     state = db.watch_sku_state(watch["id"], "FGDN4CH/A")
     assert state["notified"] == 1
+    assert not db.list_pending_deliveries()
+    assert len([item for item in db.list_events() if item.get("type") == "appeared"]) == 1
     db.close()
 
 

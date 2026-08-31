@@ -386,8 +386,12 @@ def test_listen_toggle_form_and_api(tmp_path) -> None:
         assert "从官网同步筛选词条" in settings_page.text
         assert "监听分类" in settings_page.text
         assert "这些分类会抓取，在售只展示它们" in settings_page.text
-        assert "关闭桌面窗口后继续后台扫描" in settings_page.text
+        assert "关闭窗口到托盘" in settings_page.text
         assert "close_window_keeps_daemon" in settings_page.text
+        assert "desktop-this-computer" in settings_page.text
+        assert "开机自启" in settings_page.text
+        assert "server-autostart" in settings_page.text
+        assert "开机后自动运行服务" in settings_page.text
         form_html = settings_page.text.split('id="settings-form"', 1)[1].split("保存设置", 1)[0]
         assert 'value="mac"' in form_html
         assert 'value="ipad"' in form_html
@@ -729,7 +733,7 @@ def test_unhandled_page_error_shows_reason(tmp_path, monkeypatch) -> None:
         raise RuntimeError("frozen-home-crash")
 
     monkeypatch.setattr(render_mod, "load_status", boom)
-    monkeypatch.setattr(routes_api, "load_status", boom)
+    monkeypatch.setattr(routes_api, "public_status", boom)
     with TestClient(app, raise_server_exceptions=False) as client:
         home = client.get("/")
         assert home.status_code == 500
@@ -762,5 +766,70 @@ def test_api_sync_catalog(tmp_path, monkeypatch) -> None:
         bad = client.post("/api/filter-catalog/sync")
         assert bad.status_code == 502
         assert "offline" in bad.json()["detail"]
+
+
+def test_autostart_api(tmp_path, monkeypatch) -> None:
+    state = {"on": False, "desktop": "unset"}
+
+    def fake_status(*, desktop=None):
+        return {
+            "installed": state["on"],
+            "kind": "tray" if desktop else "serve",
+            "command": ["serve"],
+        }
+
+    def fake_set(enabled, *, desktop=None):
+        state["on"] = bool(enabled)
+        state["desktop"] = desktop
+        info = fake_status(desktop=desktop)
+        info["ok"] = True
+        info["message"] = "ok"
+        return info
+
+    monkeypatch.setattr("apple_refurb_watch.service.autostart_status", fake_status)
+    monkeypatch.setattr("apple_refurb_watch.service.set_autostart", fake_set)
+    db = Database(tmp_path / "app.db")
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        got = client.get("/api/autostart").json()
+        assert got["kind"] == "serve"
+        assert got["installed"] is False
+        posted = client.post("/api/autostart", json={"enabled": True}).json()
+        assert posted["ok"] is True
+        assert posted["installed"] is True
+        assert posted["kind"] == "serve"
+        assert state["desktop"] is False
+        gone = client.post("/api/autostart", json={"enabled": False}).json()
+        assert gone["installed"] is False
+
+
+def test_health_capabilities(tmp_path) -> None:
+    from apple_refurb_watch import __version__
+    from apple_refurb_watch.usecases import API_REVISION, CAPABILITIES
+
+    db = Database(tmp_path / "app.db")
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        data = client.get("/api/health").json()
+        assert data["ok"] is True
+        assert data["server_version"] == __version__
+        assert data["api_revision"] == API_REVISION
+        assert data["capabilities"] == list(CAPABILITIES)
+
+
+def test_events_after_id_and_type(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    first = db.add_event(type="scan_ok", message="扫描")
+    appeared = db.add_event(type="appeared", title="翻新 MacBook Pro", message="上新")
+    later = db.add_event(type="appeared", title="翻新 iPad", message="又上新")
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        all_rows = client.get("/api/events").json()
+        assert [row["id"] for row in all_rows] == [later, appeared, first]
+        typed = client.get("/api/events", params={"type": "appeared"}).json()
+        assert [row["type"] for row in typed] == ["appeared", "appeared"]
+        after = client.get("/api/events", params={"type": "appeared", "after_id": appeared}).json()
+        assert [row["id"] for row in after] == [later]
+
 
 

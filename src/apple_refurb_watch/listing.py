@@ -5,7 +5,8 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from apple_refurb_watch.categories import listen_listing_keys
 from apple_refurb_watch.filters import restrict_dims, selected_dims
-from apple_refurb_watch.match import listing_matches, matches_watch
+from apple_refurb_watch.match import listing_matches
+from apple_refurb_watch.query import ProductQuery
 
 PAGE_SIZE = 24
 
@@ -63,18 +64,19 @@ def filter_products(
     min_storage_gb: int | None = None,
     dim_filters: dict | None = None,
 ) -> list[dict]:
-    fake_watch = {
-        "mode": "condition",
-        "listing_key": listing_key or None,
-        "all_of": [q] if q else [],
-        "none_of": [],
-        "colors": [color] if color else [],
-        "max_price": max_price,
-        "min_ram_gb": min_ram_gb,
-        "min_storage_gb": min_storage_gb,
-        "dim_filters": dim_filters or {},
-    }
-    return [item for item in items if matches_watch(item, fake_watch)]
+    query = ProductQuery.from_mapping(
+        {
+            "mode": "condition",
+            "listing_key": listing_key or None,
+            "q": q,
+            "color": color,
+            "max_price": max_price,
+            "min_ram_gb": min_ram_gb,
+            "min_storage_gb": min_storage_gb,
+            "dims": dim_filters or {},
+        }
+    )
+    return [item for item in items if query.matches(item)]
 
 
 def products_in_listen_scope(items: list[dict], listings: list[str] | None) -> list[dict]:

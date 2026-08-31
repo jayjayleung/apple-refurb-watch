@@ -77,7 +77,20 @@ CREATE TABLE IF NOT EXISTS spec_cache (
     storage_gb INTEGER,
     fetched_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    channel TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_retry_at TEXT,
+    last_error TEXT,
+    UNIQUE(event_id, channel)
+);
 """
+
+SCHEMA_VERSION = 2
+EVENT_KEEP = 500
 
 DEFAULT_NOTIFY = {
     "bark": {"enabled": False, "url": ""},
@@ -111,8 +124,6 @@ DEFAULT_SETTINGS = {
     "baseline_done": False,
 }
 
-EVENT_KEEP = 500
-
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -128,19 +139,95 @@ class Database:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.execute("PRAGMA foreign_keys=ON")
-        self.migrate()
+        try:
+            self.migrate()
+        except Exception:
+            try:
+                self.conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+            raise
 
     def migrate(self) -> None:
         with self._lock:
-            self.conn.executescript(SCHEMA)
-            cols = [row[1] for row in self.conn.execute("PRAGMA table_info(watches)").fetchall()]
-            if "dim_filters" not in cols:
-                self.conn.execute("ALTER TABLE watches ADD COLUMN dim_filters TEXT NOT NULL DEFAULT '{}'")
+            current = self._schema_version()
+            backup_path: Path | None = None
+            if 0 < current < SCHEMA_VERSION:
+                backup_path = self._backup_db(current)
+            try:
+                self._apply_schema()
+            except Exception as exc:
+                restored = False
+                restore_err: BaseException | None = None
+                if backup_path is not None:
+                    try:
+                        self._restore_db(backup_path)
+                        restored = True
+                    except Exception as rex:  # noqa: BLE001
+                        restore_err = rex
+                if restored:
+                    raise RuntimeError(
+                        f"数据库升级失败，已从备份还原。备份仍在 {backup_path}；"
+                        f"若仍异常可将该文件复制回 {self.path} 后重试。"
+                    ) from exc
+                extra = f" 还原也失败（{restore_err}）。" if restore_err else ""
+                hint = f" 备份：{backup_path}，可复制回 {self.path}。" if backup_path else ""
+                raise RuntimeError(f"数据库升级失败。{extra}{hint}".strip()) from exc
+
+    def _apply_schema(self) -> None:
+        self.conn.executescript(SCHEMA)
+        cols = [row[1] for row in self.conn.execute("PRAGMA table_info(watches)").fetchall()]
+        if "dim_filters" not in cols:
+            self.conn.execute("ALTER TABLE watches ADD COLUMN dim_filters TEXT NOT NULL DEFAULT '{}'")
+        self.conn.commit()
+        for key, value in DEFAULT_SETTINGS.items():
+            existing = self.conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+            if existing is None:
+                self.set_setting(key, value)
+        self.set_setting("schema_version", SCHEMA_VERSION)
+
+    def _schema_version(self) -> int:
+        try:
+            row = self.conn.execute("SELECT value FROM meta WHERE key=?", ("schema_version",)).fetchone()
+        except sqlite3.OperationalError:
+            return 0
+        if row is not None:
+            raw = row["value"]
+            try:
+                return int(json.loads(raw))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                try:
+                    return int(raw)
+                except (TypeError, ValueError):
+                    return 1
+        try:
+            has_meta = self.conn.execute("SELECT 1 FROM meta LIMIT 1").fetchone()
+        except sqlite3.OperationalError:
+            return 0
+        return 1 if has_meta else 0
+
+    def _backup_db(self, from_version: int) -> Path:
+        dest = self.path.with_name(f"{self.path.name}.bak-v{from_version}")
+        try:
+            dest.unlink(missing_ok=True)
+        except TypeError:
+            if dest.exists():
+                dest.unlink()
+        backup = sqlite3.connect(str(dest))
+        try:
+            self.conn.backup(backup)
+            backup.commit()
+        finally:
+            backup.close()
+        return dest
+
+    def _restore_db(self, backup_path: Path) -> None:
+        src = sqlite3.connect(str(backup_path))
+        try:
+            src.backup(self.conn)
             self.conn.commit()
-            for key, value in DEFAULT_SETTINGS.items():
-                existing = self.conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
-                if existing is None:
-                    self.set_setting(key, value)
+        finally:
+            src.close()
 
     def close(self) -> None:
         self.conn.close()
@@ -436,9 +523,9 @@ class Database:
             if row["sku"] not in present:
                 self.set_watch_sku(watch_id, row["sku"], in_stock=False, notified=False)
 
-    def add_event(self, **kwargs: Any) -> None:
+    def add_event(self, **kwargs: Any) -> int:
         with self._lock:
-            self.conn.execute(
+            cur = self.conn.execute(
                 """
                 INSERT INTO events(type, sku, watch_id, title, price, url, message, created_at)
                 VALUES(?,?,?,?,?,?,?,?)
@@ -454,22 +541,84 @@ class Database:
                     utcnow(),
                 ),
             )
+            event_id = int(cur.lastrowid or 0)
             self.conn.execute(
                 "DELETE FROM events WHERE id IN (SELECT id FROM events ORDER BY id DESC LIMIT -1 OFFSET ?)",
                 (EVENT_KEEP,),
             )
+            self.conn.execute(
+                "DELETE FROM notification_deliveries WHERE event_id NOT IN (SELECT id FROM events)"
+            )
             self.conn.commit()
+            return event_id
 
-    def list_events(self, limit: int = 100) -> list[dict]:
+    def get_event(self, event_id: int) -> dict | None:
         with self._lock:
-            rows = self.conn.execute("SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+            row = self.conn.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
+        return dict(row) if row else None
+
+    def list_events(
+        self,
+        limit: int = 100,
+        *,
+        after_id: int | None = None,
+        type: str | None = None,
+    ) -> list[dict]:
+        sql = "SELECT * FROM events WHERE 1=1"
+        args: list[Any] = []
+        if after_id is not None:
+            sql += " AND id > ?"
+            args.append(int(after_id))
+        if type:
+            sql += " AND type = ?"
+            args.append(str(type))
+        if after_id is not None:
+            sql += " ORDER BY id ASC LIMIT ?"
+        else:
+            sql += " ORDER BY id DESC LIMIT ?"
+        args.append(limit)
+        with self._lock:
+            rows = self.conn.execute(sql, args).fetchall()
         return [dict(row) for row in rows]
 
     def clear_events(self) -> int:
         with self._lock:
+            self.conn.execute("DELETE FROM notification_deliveries")
             cur = self.conn.execute("DELETE FROM events")
             self.conn.commit()
             return int(cur.rowcount or 0)
+
+    def enqueue_delivery(self, event_id: int, channel: str) -> None:
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO notification_deliveries(event_id, channel, status, attempts)
+                VALUES(?,?, 'pending', 0)
+                ON CONFLICT(event_id, channel) DO NOTHING
+                """,
+                (event_id, channel),
+            )
+            self.conn.commit()
+
+    def list_pending_deliveries(self) -> list[dict]:
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT * FROM notification_deliveries WHERE status != 'ok' ORDER BY id"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_delivery(self, event_id: int, channel: str, *, ok: bool, last_error: str | None = None) -> None:
+        status = "ok" if ok else "pending"
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE notification_deliveries
+                SET status=?, attempts=attempts+1, last_error=?, next_retry_at=?
+                WHERE event_id=? AND channel=?
+                """,
+                (status, last_error, None if ok else utcnow(), event_id, channel),
+            )
+            self.conn.commit()
 
     def count_products(self, *, in_stock: bool | None = True) -> int:
         sql = "SELECT COUNT(*) AS n FROM products"
@@ -505,6 +654,9 @@ class Database:
         if not isinstance(data["dim_filters"], dict):
             data["dim_filters"] = {}
         data["enabled"] = bool(data["enabled"])
+        from apple_refurb_watch.query import ProductQuery
+
+        data["query"] = ProductQuery.from_watch(data).to_dict()
         return data
 
     @staticmethod
@@ -516,6 +668,15 @@ class Database:
                 parts = [p.strip() for p in value.replace("\n", ",").split(",")]
                 return [p for p in parts if p]
             return [str(v).strip() for v in value if str(v).strip()]
+
+        nested = data.get("query")
+        if isinstance(nested, dict) and nested:
+            from apple_refurb_watch.query import ProductQuery
+
+            folded = ProductQuery.from_mapping(nested).to_watch_fields()
+            merged = dict(folded)
+            merged.update({key: value for key, value in data.items() if key != "query" and value is not None})
+            data = merged
 
         return {
             "name": (data.get("name") or "未命名规则").strip(),

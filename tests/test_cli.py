@@ -251,3 +251,56 @@ def test_watch_ls_events_settings_and_dim(monkeypatch) -> None:
 
     empty = runner.invoke(app, ["settings", "set"])
     assert empty.exit_code == 1
+
+
+def test_list_local_refuses_remote() -> None:
+    from apple_refurb_watch.connection import save_connection
+
+    save_connection("http://127.0.0.1:9999", "x")
+    result = runner.invoke(app, ["list", "--local"])
+    assert result.exit_code == 2
+    assert "--local" in result.stderr
+
+
+def test_connect_and_disconnect(monkeypatch) -> None:
+    monkeypatch.delenv("APPLE_REFURB_WATCH_URL", raising=False)
+    monkeypatch.delenv("APPLE_REFURB_WATCH_TOKEN", raising=False)
+    connected = runner.invoke(app, ["connect", "http://10.0.0.5:8765", "--token", "abc"])
+    assert connected.exit_code == 0
+    assert "10.0.0.5" in connected.stdout
+    from apple_refurb_watch.connection import load_connection
+
+    assert load_connection().token == "abc"
+    gone = runner.invoke(app, ["disconnect"])
+    assert gone.exit_code == 0
+    assert load_connection().mode == "local"
+
+
+def test_desktop_help() -> None:
+    result = runner.invoke(app, ["desktop", "--help"])
+    assert result.exit_code == 0
+    assert "--hidden" in result.stdout
+    assert "--probe" in result.stdout
+
+
+def test_service_install_help() -> None:
+    result = runner.invoke(app, ["service", "install", "--help"])
+    assert result.exit_code == 0
+    assert "--serve" in result.stdout
+    assert "--tray" in result.stdout
+
+
+def test_service_start_help() -> None:
+    result = runner.invoke(app, ["service", "start", "--help"])
+    assert result.exit_code == 0
+    result = runner.invoke(app, ["service", "--help"])
+    assert "start" in result.stdout
+    assert "stop" in result.stdout
+    assert "restart" in result.stdout
+
+
+def test_service_start_without_install(monkeypatch) -> None:
+    monkeypatch.setattr("apple_refurb_watch.service.is_service_installed", lambda: False)
+    result = runner.invoke(app, ["service", "start"])
+    assert result.exit_code == 1
+    assert "service install" in result.stderr

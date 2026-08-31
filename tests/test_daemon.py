@@ -47,7 +47,7 @@ def test_uvicorn_uses_h11_on_windows(monkeypatch) -> None:
     monkeypatch.setattr(appmod.sys, "platform", "win32")
     assert appmod.uvicorn_options() == {"http": "h11"}
     monkeypatch.setattr(appmod.sys, "platform", "linux")
-    assert appmod.uvicorn_options() == {}
+    assert appmod.uvicorn_options() == {"http": "h11"}
 
 
 def test_package_root_uses_meipass(tmp_path, monkeypatch) -> None:

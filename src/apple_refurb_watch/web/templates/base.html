@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#161617" media="(prefers-color-scheme: dark)">
   <title>{% block title %}官翻监听{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css?v=shop-facet-disabled">
+  <link rel="stylesheet" href="/static/style.css?v=desktop-connect-0">
   <script src="/static/htmx.min.js" defer></script>
   <script>
     if (window.pywebview) document.documentElement.classList.add("desktop");
@@ -52,7 +52,308 @@
     </div>
   </header>
   <main id="main" class="{% block main_class %}{% endblock %}">
+    <p id="compat-banner" class="flash warn" hidden role="status"></p>
     {% block body %}{% endblock %}
   </main>
+  <script>
+    (function () {
+      var KEY = "arw_computer_notify";
+      var CURSOR = "arw_appeared_cursor";
+      var CLIENT_API_REVISION = 2;
+      var wired = false;
+      var usingDesktopNotify = false;
+      var canAfterId = true;
+      var desktopApi = null;
+      var desktopRuntimeMode = null;
+      var bootTimer = null;
+      function $(id) { return document.getElementById(id); }
+      function enabled() { return localStorage.getItem(KEY) === "1"; }
+      function setStatus(text) {
+        var node = $("computer-notify-status");
+        if (node) node.textContent = text;
+      }
+      function showBanner(text) {
+        var el = $("compat-banner");
+        if (!el || !text) return;
+        el.hidden = false;
+        el.textContent = text;
+      }
+      function getDesktopApi() {
+        return (window.pywebview && window.pywebview.api) ? window.pywebview.api : null;
+      }
+      function seedCursor() {
+        if (!canAfterId) return Promise.resolve();
+        return fetch("/api/events?type=appeared&limit=1")
+          .then(function (r) { return r.json(); })
+          .then(function (rows) {
+            if (localStorage.getItem(CURSOR) == null) {
+              var id = rows && rows[0] ? rows[0].id : 0;
+              localStorage.setItem(CURSOR, String(id || 0));
+            }
+          })
+          .catch(function () {});
+      }
+      function poll() {
+        if (usingDesktopNotify || !canAfterId) return;
+        if (!enabled() || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+        var after = localStorage.getItem(CURSOR) || "0";
+        fetch("/api/events?type=appeared&after_id=" + encodeURIComponent(after) + "&limit=50")
+          .then(function (r) { return r.json(); })
+          .then(function (rows) {
+            (rows || []).forEach(function (ev) {
+              var id = Number(ev.id || 0);
+              var cursor = Number(localStorage.getItem(CURSOR) || 0);
+              if (id <= cursor) return;
+              try {
+                new Notification(ev.title || "官翻上线", { body: (ev.message || "").slice(0, 180), tag: "arw-" + id });
+              } catch (err) {}
+              if (id > cursor) localStorage.setItem(CURSOR, String(id));
+            });
+          })
+          .catch(function () {});
+      }
+      function applyToggle(on) {
+        if (!canAfterId) {
+          setStatus("当前服务器不支持电脑通知轮询，请升级服务器。");
+          var box = $("computer-notify-enabled");
+          if (box) box.checked = false;
+          return;
+        }
+        localStorage.setItem(KEY, on ? "1" : "0");
+        if (!on) {
+          setStatus("已关闭。Bark 等通道不受影响。");
+          return;
+        }
+        if (typeof Notification === "undefined") {
+          setStatus("当前浏览器不支持网页通知。可用桌面包或 Bark。");
+          return;
+        }
+        function ready() {
+          setStatus("已开启。本页开着时会上新弹窗。");
+          seedCursor();
+        }
+        if (Notification.permission === "granted") {
+          ready();
+          return;
+        }
+        Notification.requestPermission().then(function (perm) {
+          if (perm === "granted") ready();
+          else {
+            localStorage.setItem(KEY, "0");
+            var denied = $("computer-notify-enabled");
+            if (denied) denied.checked = false;
+            setStatus("未授予通知权限。");
+          }
+        });
+      }
+      function applyHealth(h) {
+        var caps = h && h.capabilities;
+        if (Array.isArray(caps) && caps.length) {
+          canAfterId = caps.indexOf("events.after_id") >= 0;
+        } else if (h && h.ok) {
+          canAfterId = false;
+        }
+        if (h && h.api_revision != null && Number(h.api_revision) > CLIENT_API_REVISION) {
+          showBanner("服务器 API 新于本页面，请升级客户端。");
+        } else if (!canAfterId) {
+          showBanner("服务器版本较旧，电脑通知不可用。可继续使用核心功能，或升级服务器。");
+        }
+      }
+      function fillDesktopPanel(s) {
+        desktopRuntimeMode = s.mode || null;
+        var panel = $("desktop-this-computer");
+        if (panel) panel.hidden = false;
+        document.documentElement.classList.add("desktop");
+        var url = $("desktop-url");
+        if (url && s.url) url.value = s.url;
+        var insecure = $("desktop-insecure");
+        if (insecure) insecure.checked = !!s.allow_insecure;
+        var auto = $("desktop-autostart");
+        if (auto) auto.checked = !!s.autostart;
+        var hint = $("desktop-autostart-hint");
+        if (hint) {
+          hint.textContent = s.autostart_kind === "tray"
+            ? "登录后拉起托盘，窗口可隐藏。"
+            : "登录后拉起后台网页服务（无窗口）。";
+        }
+        var st = $("desktop-conn-status");
+        if (st) {
+          if (s.env_locked) st.textContent = "当前由环境变量 APPLE_REFURB_WATCH_URL 指定，界面无法改连接。";
+          else if (s.error) st.textContent = s.error;
+          else if (s.mode === "remote") st.textContent = "已连接 " + (s.url || "") + "。本机不扫描。";
+          else st.textContent = "本机运行服务。";
+        }
+        var token = $("desktop-token");
+        if (token && s.has_token) token.placeholder = "已保存，留空不改";
+        if (s.env_locked) {
+          var connBtn = $("desktop-connect");
+          var discBtn = $("desktop-disconnect");
+          if (connBtn) connBtn.disabled = true;
+          if (discBtn) discBtn.disabled = true;
+        }
+        if (s.notice) showBanner(s.notice);
+        if (s.error) showBanner(s.error);
+        if (s.can_notify === false) canAfterId = false;
+      }
+      function wireDesktopButtons(api) {
+        var connectBtn = $("desktop-connect");
+        if (connectBtn) connectBtn.addEventListener("click", function () {
+          var urlEl = $("desktop-url");
+          var tokenEl = $("desktop-token");
+          var insecureEl = $("desktop-insecure");
+          var st = $("desktop-conn-status");
+          api.connect((urlEl && urlEl.value) || "", (tokenEl && tokenEl.value) || "", !!(insecureEl && insecureEl.checked)).then(function (r) {
+            if (!r || !r.ok) {
+              if (st) st.textContent = (r && r.error) || "连接失败";
+              return;
+            }
+            if (st) st.textContent = "正在重启窗口…";
+          });
+        });
+        var discBtn = $("desktop-disconnect");
+        if (discBtn) discBtn.addEventListener("click", function () {
+          var st = $("desktop-conn-status");
+          api.disconnect().then(function (r) {
+            if (!r || !r.ok) {
+              if (st) st.textContent = (r && r.error) || "无法改回本机";
+              return;
+            }
+            if (st) st.textContent = "正在重启窗口…";
+          });
+        });
+        var auto = $("desktop-autostart");
+        if (auto) auto.addEventListener("change", function () {
+          var hint = $("desktop-autostart-hint");
+          api.set_autostart(auto.checked).then(function (r) {
+            if (!r || !r.ok) {
+              auto.checked = !auto.checked;
+              if (hint) hint.textContent = (r && r.error) || "无法更改开机自启";
+              return;
+            }
+            auto.checked = !!r.autostart;
+          });
+        });
+      }
+      function wireNotify(box) {
+        if (!box) {
+          if (!usingDesktopNotify && canAfterId && enabled()) seedCursor();
+          return;
+        }
+        if (usingDesktopNotify) {
+          if (!canAfterId) {
+            box.disabled = true;
+            box.checked = false;
+            setStatus("当前服务器不支持电脑通知轮询，请升级服务器。");
+            return;
+          }
+          box.addEventListener("change", function () {
+            desktopApi.set_computer_notify(box.checked).then(function (r) {
+              if (r && !r.ok) {
+                box.checked = false;
+                setStatus(r.error || "无法保存");
+                return;
+              }
+              setStatus(box.checked ? "已开启。由桌面在托盘弹出系统通知，不必开着本页。" : "已关闭。Bark 等通道不受影响。");
+            });
+          });
+          setStatus(box.checked
+            ? "已开启。由桌面在托盘弹出系统通知，不必开着本页。"
+            : "关闭后本机不弹系统通知。Bark 等不受影响。");
+          return;
+        }
+        if (!canAfterId) {
+          box.disabled = true;
+          box.checked = false;
+          setStatus("当前服务器不支持电脑通知轮询，请升级服务器。");
+          return;
+        }
+        box.checked = enabled();
+        if (enabled()) applyToggle(true);
+        box.addEventListener("change", function () { applyToggle(box.checked); });
+      }
+      function wireServerAutostart(hide) {
+        var panel = $("server-autostart");
+        var box = $("server-autostart-enabled");
+        var status = $("server-autostart-status");
+        if (!panel || !box) return;
+        if (hide) {
+          panel.hidden = true;
+          return;
+        }
+        panel.hidden = false;
+        fetch("/api/autostart")
+          .then(function (r) { return r.json(); })
+          .then(function (s) {
+            box.checked = !!s.installed;
+            if (status) {
+              status.textContent = s.installed
+                ? "已开启：登录后拉起本机网页服务。"
+                : "未开启。Docker 请用 compose 的 restart，不要勾这里。";
+            }
+          })
+          .catch(function () {
+            if (status) status.textContent = "无法读取开机自启状态。";
+          });
+        box.addEventListener("change", function () {
+          fetch("/api/autostart", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify({ enabled: box.checked })
+          })
+            .then(function (r) { return r.json().then(function (data) { return { okHttp: r.ok, data: data }; }); })
+            .then(function (res) {
+              var s = res.data || {};
+              if (!res.okHttp || !s.ok) {
+                box.checked = !box.checked;
+                if (status) status.textContent = s.message || s.detail || "无法更改开机自启。";
+                return;
+              }
+              box.checked = !!s.installed;
+              if (status) status.textContent = s.message || (s.installed ? "已开启。" : "已关闭。");
+            })
+            .catch(function () {
+              box.checked = !box.checked;
+              if (status) status.textContent = "无法更改开机自启。";
+            });
+        });
+      }
+      function boot() {
+        if (wired) return;
+        wired = true;
+        desktopApi = getDesktopApi();
+        var ready = Promise.resolve();
+        if (desktopApi && desktopApi.state) {
+          usingDesktopNotify = true;
+          ready = desktopApi.state().then(fillDesktopPanel).catch(function () {
+            usingDesktopNotify = false;
+          });
+        }
+        var healthP = fetch("/api/health").then(function (r) { return r.json(); }).then(applyHealth).catch(function () {});
+        Promise.all([ready, healthP]).then(function () {
+          wireNotify($("computer-notify-enabled"));
+          if (desktopApi) wireDesktopButtons(desktopApi);
+          wireServerAutostart(desktopRuntimeMode === "local");
+        });
+      }
+      function bootSoon() {
+        if (getDesktopApi()) {
+          if (bootTimer) clearTimeout(bootTimer);
+          boot();
+          return;
+        }
+        if (!bootTimer) bootTimer = setTimeout(boot, 120);
+      }
+      window.addEventListener("pywebviewready", function () {
+        if (bootTimer) clearTimeout(bootTimer);
+        boot();
+      });
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", bootSoon);
+      } else {
+        bootSoon();
+      }
+      setInterval(poll, 12000);
+    })();
+  </script>
 </body>
 </html>

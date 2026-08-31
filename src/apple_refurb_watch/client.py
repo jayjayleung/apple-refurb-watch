@@ -20,6 +20,14 @@ def default_base() -> str:
     env = os.environ.get("APPLE_REFURB_WATCH_URL")
     if env:
         return env.rstrip("/")
+    try:
+        from apple_refurb_watch.connection import load_connection
+
+        conn = load_connection()
+        if conn.url:
+            return conn.url
+    except Exception:  # noqa: BLE001
+        pass
     runtime = read_runtime()
     if runtime and runtime.get("url"):
         return str(runtime["url"]).rstrip("/")
@@ -33,7 +41,15 @@ def default_base() -> str:
 class ApiClient:
     def __init__(self, base: str | None = None, token: str | None = None) -> None:
         self.base = (base or default_base()).rstrip("/")
-        self.token = token or os.environ.get("APPLE_REFURB_WATCH_TOKEN") or ""
+        resolved = token if token is not None else os.environ.get("APPLE_REFURB_WATCH_TOKEN")
+        if not resolved:
+            try:
+                from apple_refurb_watch.connection import load_connection
+
+                resolved = load_connection().token or ""
+            except Exception:  # noqa: BLE001
+                resolved = ""
+        self.token = resolved or ""
 
     def _headers(self) -> dict[str, str]:
         headers = {"Accept": "application/json"}
@@ -85,8 +101,13 @@ class ApiClient:
     def scan(self) -> dict:
         return self.request("POST", "/api/scan")
 
-    def events(self, limit: int = 50) -> list:
-        return self.request("GET", "/api/events", params={"limit": limit})
+    def events(self, limit: int = 50, *, after_id: int | None = None, type: str | None = None) -> list:
+        params: dict[str, Any] = {"limit": limit}
+        if after_id is not None:
+            params["after_id"] = after_id
+        if type:
+            params["type"] = type
+        return self.request("GET", "/api/events", params=params)
 
     def clear_events(self) -> dict:
         return self.request("DELETE", "/api/events")
