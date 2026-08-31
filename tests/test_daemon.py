@@ -22,7 +22,6 @@ def test_acquire_lock_on_empty_file():
     handle = acquire_lock()
     try:
         assert lock_path().exists()
-        assert lock_path().read_text(encoding="utf-8").strip().isdigit()
         try:
             acquire_lock()
         except RuntimeError as exc:
@@ -31,6 +30,7 @@ def test_acquire_lock_on_empty_file():
             raise AssertionError("second lock should fail")
     finally:
         handle.close()
+    assert lock_path().read_text(encoding="utf-8").strip().isdigit()
 
 
 def test_windows_flags_break_away_from_job():
