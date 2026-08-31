@@ -20,14 +20,16 @@ jobs:
       - name: Test
         env:
           PYTHONUTF8: "1"
-        run: python -m pytest --tb=short -q
+        shell: bash
+        run: |
+          python -m pytest --tb=short -q >pytest-out.txt 2>&1
+          status=$?
+          cat pytest-out.txt
+          exit $status
       - name: Publish pytest failures
         if: failure()
         shell: bash
         run: |
-          if [[ -f pytest-failures.txt ]]; then
-            cat pytest-failures.txt
-            python -c "from pathlib import Path; t=Path('pytest-failures.txt').read_text(encoding='utf-8')[:1500].replace('%','%25').replace('\r','').replace('\n','%0A'); print('::error::'+t)"
-          else
-            echo '::error::pytest failed without pytest-failures.txt'
-          fi
+          echo '==== pytest-out.txt ===='
+          cat pytest-out.txt || echo 'missing pytest-out.txt'
+          python -c "from pathlib import Path; p=Path('pytest-out.txt'); t=(p.read_text(encoding='utf-8', errors='replace') if p.exists() else 'missing pytest-out.txt')[:2000].replace('%','%25').replace('\r','').replace('\n','%0A'); print('::error::'+t)"
