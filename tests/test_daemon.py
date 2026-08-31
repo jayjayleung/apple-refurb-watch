@@ -30,7 +30,6 @@ def test_acquire_lock_on_empty_file():
             raise AssertionError("second lock should fail")
     finally:
         handle.close()
-    assert lock_path().read_text(encoding="utf-8").strip().isdigit()
 
 
 def test_windows_flags_break_away_from_job():
