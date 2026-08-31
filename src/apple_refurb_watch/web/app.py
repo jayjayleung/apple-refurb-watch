@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import html
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, HTTPException, Request
@@ -19,6 +21,13 @@ from apple_refurb_watch.web.routes_pages import router as pages_router
 from apple_refurb_watch.web.routes_settings import router as settings_router
 from apple_refurb_watch.web.routes_watches import router as watches_router
 from apple_refurb_watch.settings import public_url
+
+
+def uvicorn_options() -> dict[str, Any]:
+    # Windows 默认 ProactorEventLoop 不支持 httptools 的 add_reader。
+    if sys.platform == "win32":
+        return {"http": "h11"}
+    return {}
 
 
 def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> FastAPI:

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import sys
 import threading
 import time
 
@@ -11,6 +9,7 @@ from apple_refurb_watch.api import create_app
 from apple_refurb_watch.client import ApiClient, wait_health
 from apple_refurb_watch.daemon import acquire_lock_retry
 from apple_refurb_watch.db import Database
+from apple_refurb_watch.web.app import uvicorn_options
 
 
 class EmbeddedServer:
@@ -20,6 +19,7 @@ class EmbeddedServer:
         self._lock = None
         self._server: uvicorn.Server | None = None
         self._thread: threading.Thread | None = None
+        self._run_error: BaseException | None = None
         self.host = "127.0.0.1"
         self.port = 8765
 
@@ -42,15 +42,18 @@ class EmbeddedServer:
             port=bind_port,
             log_level="warning",
             access_log=False,
+            **uvicorn_options(),
         )
         server = uvicorn.Server(config)
-        server.install_signal_handlers = lambda: None
         self._server = server
+        self._run_error = None
 
         def _run() -> None:
-            if sys.platform == "win32":
-                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-            server.run()
+            try:
+                server.run()
+            except BaseException as exc:  # noqa: BLE001
+                self._run_error = exc
+                raise
 
         thread = threading.Thread(target=_run, name="arw-uvicorn", daemon=True)
         self._thread = thread
@@ -60,6 +63,8 @@ class EmbeddedServer:
             return wait_health(timeout, base=base)
         except Exception:
             self.stop()
+            if self._run_error is not None:
+                raise RuntimeError(f"网页服务启动失败: {self._run_error}") from self._run_error
             raise
 
     def stop(self, join_timeout: float = 8.0) -> None:

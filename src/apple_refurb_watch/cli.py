@@ -9,6 +9,7 @@ import uvicorn
 
 from apple_refurb_watch import __version__
 from apple_refurb_watch.api import create_app
+from apple_refurb_watch.web.app import uvicorn_options
 from apple_refurb_watch.argv import with_frozen_default_command
 from apple_refurb_watch.categories import listing_name
 from apple_refurb_watch.client import ApiClient, ApiError
@@ -91,7 +92,7 @@ def serve(
     fastapi_app = create_app(db, with_scheduler=True)
     typer.echo(f"网页: http://{'127.0.0.1' if bind_host in {'0.0.0.0', '::'} else bind_host}:{bind_port}")
     try:
-        uvicorn.run(fastapi_app, host=bind_host, port=bind_port, log_level="info")
+        uvicorn.run(fastapi_app, host=bind_host, port=bind_port, log_level="info", **uvicorn_options())
     finally:
         lock.close()
 

@@ -42,6 +42,15 @@ def test_windows_flags_break_away_from_job():
     assert not (flags[1] & CREATE_BREAKAWAY_FROM_JOB)
 
 
+def test_uvicorn_uses_h11_on_windows(monkeypatch) -> None:
+    import apple_refurb_watch.web.app as appmod
+
+    monkeypatch.setattr(appmod.sys, "platform", "win32")
+    assert appmod.uvicorn_options() == {"http": "h11"}
+    monkeypatch.setattr(appmod.sys, "platform", "linux")
+    assert appmod.uvicorn_options() == {}
+
+
 def test_embedded_server_starts_and_stops():
     import socket
 
