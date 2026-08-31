@@ -235,10 +235,11 @@ JSON API 是网页 / 桌面 / CLI / TUI 的共同入口，先看 `GET /api/healt
 
 ## 打包与发布
 
-GitHub Actions 两套流水线：
+GitHub Actions 只留一套 `ci`：
 
-- `ci`：PR 和 `main` 只跑 Linux / Windows / macOS pytest，不打安装包、不推镜像。
-- `release`：`v*` 标签才打包。先测试，再打三端 onedir zip、烟测前台 `serve` 的 `GET /` 200，以及 `desktop --probe`。标签会发 GitHub Release，并推 GHCR `latest` 与 semver；手动运行只留 artifacts。
+- PR 和 `main`：Linux / Windows / macOS pytest，不打包。
+- `v*` 标签：同一套测试通过后打三端 onedir zip、烟测 `serve` 的 `GET /` 200 和 `desktop --probe`，发 GitHub Release，并推 GHCR `latest` 与 semver。
+- 手动运行只留 artifacts，不发 Release、不推镜像。
 
 Windows / macOS 托盘依赖系统通知区域。Linux 开发机只能验证 `--probe` 与导入，不能代替真机关窗留守。`desktop --probe` 是打包烟测用的，日常打开窗口请直接双击或 `desktop`。
 

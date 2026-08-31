@@ -3,10 +3,12 @@ name: ci
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -33,3 +35,147 @@ jobs:
         # pwsh 会把 pytest 写到 stderr 的 warnings 当成步骤失败。
         shell: bash
         run: python -m pytest --tb=short -q
+
+  build:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    name: ${{ matrix.asset }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: apple-refurb-watch-linux-x86_64
+            pip_pkg: "."
+          - os: windows-latest
+            asset: apple-refurb-watch-windows-x86_64
+            pip_pkg: ".[desktop]"
+          - os: macos-latest
+            asset: apple-refurb-watch-macos-arm64
+            pip_pkg: ".[desktop]"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "${{ matrix.pip_pkg }}" pyinstaller
+      - name: Build
+        run: python -m PyInstaller --noconfirm --clean packaging/apple-refurb-watch.spec
+      - name: Smoke
+        env:
+          APPLE_REFURB_WATCH_HOME: ${{ runner.temp }}/arw-smoke
+          APPLE_REFURB_WATCH_LOG: ${{ runner.temp }}/arw-smoke-log
+          PYTHONUTF8: "1"
+        run: |
+          dir="dist/apple-refurb-watch"
+          if [ -f "$dir/apple-refurb-watch.exe" ]; then
+            bin="$dir/apple-refurb-watch.exe"
+          else
+            bin="$dir/apple-refurb-watch"
+          fi
+          chmod +x "$bin" || true
+          "$bin" version
+          set +e
+          "$bin" serve &
+          serve_pid=$!
+          set -e
+          wait_ok=
+          for _ in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:8765/api/health"; then
+              wait_ok=1
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$wait_ok" ]; then
+            echo "health check failed"
+            ls -la "$dir" || true
+            ls -la "${APPLE_REFURB_WATCH_HOME}" || true
+            ls -la "${APPLE_REFURB_WATCH_LOG}" || true
+            cat "${APPLE_REFURB_WATCH_LOG}/daemon.log" || true
+            kill "$serve_pid" 2>/dev/null || true
+            exit 1
+          fi
+          code=$(curl -sS -o "${RUNNER_TEMP}/arw-home.html" -w "%{http_code}" "http://127.0.0.1:8765/")
+          "$bin" stop || true
+          kill "$serve_pid" 2>/dev/null || true
+          wait "$serve_pid" 2>/dev/null || true
+          echo "home HTTP ${code}"
+          if [ "$code" != "200" ]; then
+            cat "${RUNNER_TEMP}/arw-home.html" || true
+            cat "${APPLE_REFURB_WATCH_LOG}/daemon.log" || true
+            exit 1
+          fi
+          grep -q "官翻监听" "${RUNNER_TEMP}/arw-home.html"
+          "$bin" desktop --probe
+      - name: Zip
+        run: |
+          mkdir -p dist/out
+          python -c "import shutil; shutil.make_archive('dist/out/${{ matrix.asset }}', 'zip', 'dist', 'apple-refurb-watch')"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/out/${{ matrix.asset }}.zip
+          if-no-files-found: error
+
+  docker:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
