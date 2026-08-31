@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#161617" media="(prefers-color-scheme: dark)">
   <title>{% block title %}官翻监听{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css?v=desktop-connect-0">
+  <link rel="stylesheet" href="/static/style.css?v=notify-perm-1">
   <script src="/static/htmx.min.js" defer></script>
   <script>
     if (window.pywebview) document.documentElement.classList.add("desktop");
@@ -68,9 +68,42 @@
       var bootTimer = null;
       function $(id) { return document.getElementById(id); }
       function enabled() { return localStorage.getItem(KEY) === "1"; }
-      function setStatus(text) {
+      var HINT_DEFAULT = "还差浏览器授权。勾选开关或点「试一下」，在弹出框里选允许。";
+      var HINT_DENIED = "浏览器已禁止本站通知，不会再弹出授权框。点地址栏左侧的锁或 ⓘ，把「通知」改为允许，然后刷新本页。";
+      function setStatus(text, warn) {
         var node = $("computer-notify-status");
-        if (node) node.textContent = text;
+        if (!node) return;
+        node.textContent = text || "";
+        if (warn) node.classList.add("is-warn");
+        else node.classList.remove("is-warn");
+      }
+      function permissionState() {
+        if (typeof Notification === "undefined") return "unsupported";
+        return Notification.permission;
+      }
+      function askPermission(onGranted) {
+        var state = permissionState();
+        if (state === "unsupported") {
+          setStatus("当前浏览器不支持网页通知。可用桌面包或 Bark。", true);
+          return;
+        }
+        if (state === "granted") {
+          if (onGranted) onGranted();
+          return;
+        }
+        if (state === "denied") {
+          setStatus(HINT_DENIED, true);
+          return;
+        }
+        Notification.requestPermission().then(function (perm) {
+          if (perm === "granted") {
+            if (onGranted) onGranted();
+            return;
+          }
+          setStatus(perm === "denied" ? HINT_DENIED : HINT_DEFAULT, true);
+        }).catch(function () {
+          setStatus(HINT_DENIED, true);
+        });
       }
       function showBanner(text) {
         var el = $("compat-banner");
@@ -124,26 +157,9 @@
           setStatus("已关闭。Bark 等通道不受影响。");
           return;
         }
-        if (typeof Notification === "undefined") {
-          setStatus("当前浏览器不支持网页通知。可用桌面包或 Bark。");
-          return;
-        }
-        function ready() {
+        askPermission(function () {
           setStatus("已开启。本页开着时会上新弹窗。");
           seedCursor();
-        }
-        if (Notification.permission === "granted") {
-          ready();
-          return;
-        }
-        Notification.requestPermission().then(function (perm) {
-          if (perm === "granted") ready();
-          else {
-            localStorage.setItem(KEY, "0");
-            var denied = $("computer-notify-enabled");
-            if (denied) denied.checked = false;
-            setStatus("未授予通知权限。");
-          }
         });
       }
       function applyHealth(h) {
@@ -234,12 +250,34 @@
           });
         });
       }
+      function wireNotifyTest() {
+        var btn = $("computer-notify-test");
+        if (!btn) return;
+        btn.addEventListener("click", function () {
+          if (desktopApi && desktopApi.test_computer_notify) {
+            desktopApi.test_computer_notify().then(function (r) {
+              setStatus((r && r.ok) ? "已弹出本机通知。" : ((r && r.error) || "无法弹出"), !(r && r.ok));
+            }).catch(function () { setStatus("无法弹出", true); });
+            return;
+          }
+          askPermission(function () {
+            try {
+              new Notification("官翻监听测试", { body: "电脑通知已接通。" });
+              setStatus("已弹出本机通知。");
+            } catch (err) {
+              setStatus("无法弹出通知。", true);
+            }
+          });
+        });
+      }
       function wireNotify(box) {
         if (!box) {
           if (!usingDesktopNotify && canAfterId && enabled()) seedCursor();
           return;
         }
         if (usingDesktopNotify) {
+          var webHint = $("computer-notify-web-hint");
+          if (webHint) webHint.hidden = true;
           if (!canAfterId) {
             box.disabled = true;
             box.checked = false;
@@ -268,7 +306,22 @@
           return;
         }
         box.checked = enabled();
-        if (enabled()) applyToggle(true);
+        if (enabled()) {
+          if (permissionState() === "granted") {
+            var webHint = $("computer-notify-web-hint");
+            if (webHint) webHint.hidden = true;
+            setStatus("已开启。本页开着时会上新弹窗。");
+            seedCursor();
+          } else if (permissionState() === "denied") {
+            setStatus(HINT_DENIED, true);
+          } else if (permissionState() === "unsupported") {
+            setStatus("当前浏览器不支持网页通知。可用桌面包或 Bark。", true);
+          } else {
+            setStatus(HINT_DEFAULT, true);
+          }
+        } else if (permissionState() === "denied") {
+          setStatus(HINT_DENIED, true);
+        }
         box.addEventListener("change", function () { applyToggle(box.checked); });
       }
       function wireServerAutostart(hide) {
@@ -331,6 +384,7 @@
         var healthP = fetch("/api/health").then(function (r) { return r.json(); }).then(applyHealth).catch(function () {});
         Promise.all([ready, healthP]).then(function () {
           wireNotify($("computer-notify-enabled"));
+          wireNotifyTest();
           if (desktopApi) wireDesktopButtons(desktopApi);
           wireServerAutostart(desktopRuntimeMode === "local");
         });
@@ -355,5 +409,6 @@
       setInterval(poll, 12000);
     })();
   </script>
+  {% block extra_js %}{% endblock %}
 </body>
 </html>

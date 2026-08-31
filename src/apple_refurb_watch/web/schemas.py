@@ -43,6 +43,10 @@ class AutostartPatch(BaseModel):
     enabled: bool
 
 
+class NotifyTestIn(BaseModel):
+    channel: str | None = None
+
+
 class SettingsPatch(BaseModel):
     interval_seconds: int | None = None
     bind_host: str | None = None

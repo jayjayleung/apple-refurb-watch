@@ -2,11 +2,69 @@ from __future__ import annotations
 
 import secrets
 from typing import Any
-from urllib.parse import urlparse
 
-from apple_refurb_watch.categories import compact_listings, listing_url
+from apple_refurb_watch.categories import compact_listings, listing_url, shop_family_key
 
 _SECRET_NOTIFY_KEYS = ("password", "bot_token", "sendkey", "token", "secret", "webhook", "url")
+
+NOTIFY_CHANNEL_UI: tuple[dict[str, Any], ...] = (
+    {
+        "name": "bark",
+        "label": "Bark",
+        "secrets": (("url", "URL"),),
+        "optional_secrets": (),
+        "fields": (),
+    },
+    {
+        "name": "serverchan",
+        "label": "Server酱",
+        "secrets": (("sendkey", "SendKey"),),
+        "optional_secrets": (),
+        "fields": (),
+    },
+    {
+        "name": "pushplus",
+        "label": "PushPlus",
+        "secrets": (("token", "Token"),),
+        "optional_secrets": (),
+        "fields": (),
+    },
+    {
+        "name": "feishu",
+        "label": "飞书",
+        "secrets": (("webhook", "Webhook"),),
+        "optional_secrets": (("secret", "Secret"),),
+        "fields": (),
+    },
+    {
+        "name": "dingtalk",
+        "label": "钉钉",
+        "secrets": (("webhook", "Webhook"),),
+        "optional_secrets": (("secret", "Secret"),),
+        "fields": (),
+    },
+    {
+        "name": "telegram",
+        "label": "Telegram",
+        "secrets": (("bot_token", "Bot token"),),
+        "optional_secrets": (),
+        "fields": (("chat_id", "Chat ID", "text"),),
+    },
+    {
+        "name": "email",
+        "label": "邮件",
+        "secrets": (("password", "密码"),),
+        "optional_secrets": (),
+        "fields": (
+            ("smtp_host", "SMTP", "text"),
+            ("smtp_port", "端口", "number"),
+            ("username", "用户名", "text"),
+            ("to", "收件人", "text"),
+        ),
+    },
+)
+
+_CHANNEL_UI_BY_NAME = {item["name"]: item for item in NOTIFY_CHANNEL_UI}
 
 
 def public_url(settings: dict) -> str:
@@ -43,6 +101,51 @@ def public_settings(settings: dict) -> dict:
     data["access_token"] = ""
     data["access_token_set"] = bool(settings.get("access_token"))
     return data
+
+
+def _secret_present(conf: dict[str, Any], key: str) -> bool:
+    return bool(conf.get(key) or conf.get(f"{key}_set"))
+
+
+def notify_channel_spec(name: str) -> dict[str, Any] | None:
+    return _CHANNEL_UI_BY_NAME.get(name)
+
+
+def notify_channel_ready(conf: dict[str, Any] | None, name: str) -> bool:
+    spec = notify_channel_spec(name)
+    if spec is None:
+        return False
+    data = conf or {}
+    for key, _label in spec["secrets"]:
+        if not _secret_present(data, key):
+            return False
+    for field in spec["fields"]:
+        key = field[0]
+        if key == "smtp_port":
+            continue
+        if not str(data.get(key) or "").strip():
+            return False
+    return True
+
+
+def notify_channel_status(conf: dict[str, Any] | None, name: str) -> str:
+    data = conf or {}
+    ready = notify_channel_ready(data, name)
+    enabled = bool(data.get("enabled"))
+    if enabled and ready:
+        return "已启用"
+    if enabled and not ready:
+        return "已启用，缺密钥"
+    if ready:
+        return "已保存，未启用"
+    return "未配置"
+
+
+def listing_family_checked(key: str, listings: list | None) -> bool:
+    selected = [str(item) for item in (listings or [])]
+    if key in selected or shop_family_key(key) in selected:
+        return True
+    return key == "mac" and ("macbook-pro" in selected or "macbook-air" in selected)
 
 
 def safe_listings(keys: list[str]) -> list[str]:

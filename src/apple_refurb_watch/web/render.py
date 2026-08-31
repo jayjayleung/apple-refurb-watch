@@ -12,7 +12,13 @@ from apple_refurb_watch.db import Database
 from apple_refurb_watch.filters import label_for, live_catalog_path, summarize_dims, user_catalog_path
 from apple_refurb_watch.listing import format_cny, format_gb, thumb_url
 from apple_refurb_watch.paths import package_root
-from apple_refurb_watch.settings import public_settings
+from apple_refurb_watch.settings import (
+    listing_family_checked,
+    notify_channel_ready,
+    notify_channel_status,
+    public_settings,
+    NOTIFY_CHANNEL_UI,
+)
 from apple_refurb_watch.status_view import format_localtime, load_status
 
 
@@ -36,6 +42,10 @@ def templates() -> Environment:
     env.globals["listing_groups"] = LISTING_GROUPS
     env.globals["shop_families"] = SHOP_FAMILIES
     env.globals["shop_family_key"] = shop_family_key
+    env.globals["listing_family_checked"] = listing_family_checked
+    env.globals["notify_channel_ui"] = NOTIFY_CHANNEL_UI
+    env.globals["notify_channel_status"] = notify_channel_status
+    env.globals["notify_channel_ready"] = notify_channel_ready
     env.globals["dim_summary"] = summarize_dims
     env.globals["label_for"] = label_for
     env.filters["cny"] = format_cny

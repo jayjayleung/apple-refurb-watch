@@ -1,32 +1,55 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from apple_refurb_watch.fetch import fetch_html
 from apple_refurb_watch.filters import sync_filter_catalog
-from apple_refurb_watch.notify import NotifyError, send_test
+from apple_refurb_watch.notify import CHANNELS, NotifyError, send_test
 from apple_refurb_watch.scanner import run_scan
 from apple_refurb_watch.web.settings_public import form_settings, safe_next
 
 router = APIRouter()
 
 
+def _safe_channel(raw: str | None) -> str | None:
+    name = str(raw or "").strip()
+    return name if name in CHANNELS else None
+
+
 @router.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request, flash: str | None = None) -> HTMLResponse:
-    return request.app.state.render("settings.html", request, flash=flash)
+def settings_page(request: Request, flash: str | None = None, channel: str | None = None) -> HTMLResponse:
+    return request.app.state.render(
+        "settings.html",
+        request,
+        flash=flash,
+        channel=_safe_channel(channel),
+        revealed_token=None,
+    )
 
 
-@router.post("/settings")
-async def settings_save(request: Request) -> RedirectResponse:
+@router.post("/settings", response_model=None)
+async def settings_save(request: Request) -> Response:
     form = await request.form()
     payload = {key: form.get(key) for key in form.keys()}
-    payload["listings"] = form.getlist("listings")
     database = request.app.state.db
-    patch = form_settings(payload, database.settings())
-    database.update_settings(patch)
+    before = database.settings()
+    patch = form_settings(payload, before)
+    updated = database.update_settings(patch)
     if "interval_seconds" in patch or "listen_enabled" in patch:
         request.app.state.reschedule()
+    generated = ""
+    typed = str(payload.get("access_token") or "").strip()
+    if patch.get("lan_enabled") and not before.get("access_token") and updated.get("access_token") and not typed:
+        generated = str(updated.get("access_token") or "")
+    if generated:
+        return request.app.state.render(
+            "settings.html",
+            request,
+            flash="lan-token",
+            channel=None,
+            revealed_token=generated,
+        )
     return RedirectResponse("/settings?flash=saved", status_code=303)
 
 
@@ -55,9 +78,12 @@ def settings_scan(request: Request) -> RedirectResponse:
 
 
 @router.post("/settings/notify-test")
-def settings_notify_test(request: Request) -> RedirectResponse:
+async def settings_notify_test(request: Request) -> RedirectResponse:
+    form = await request.form()
+    channel = _safe_channel(str(form.get("channel") or ""))
+    suffix = f"&channel={channel}" if channel else ""
     try:
-        send_test(request.app.state.db.settings())
-        return RedirectResponse("/settings?flash=notify-ok", status_code=303)
+        send_test(request.app.state.db.settings(), channel=channel)
+        return RedirectResponse(f"/settings?flash=notify-ok{suffix}", status_code=303)
     except NotifyError:
-        return RedirectResponse("/settings?flash=notify-fail", status_code=303)
+        return RedirectResponse(f"/settings?flash=notify-fail{suffix}", status_code=303)

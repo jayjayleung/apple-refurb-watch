@@ -37,8 +37,15 @@ TEST_BODY = "通知通道已接通。"
 TEST_URL = "https://www.apple.com.cn/shop/refurbished"
 
 
-def send_test(settings: dict[str, Any]) -> list[str]:
-    return send_all(settings, TEST_TITLE, TEST_BODY, TEST_URL)
+def send_test(settings: dict[str, Any], channel: str | None = None) -> list[str]:
+    name = str(channel or "").strip()
+    if not name:
+        return send_all(settings, TEST_TITLE, TEST_BODY, TEST_URL)
+    if name not in CHANNELS:
+        raise NotifyError(f"未知通道 {name}")
+    conf = ((settings.get("notify") or {}).get(name) or {})
+    send_channel(name, conf, TEST_TITLE, TEST_BODY, TEST_URL)
+    return []
 
 
 def send_channel(name: str, conf: dict, title: str, body: str, url: str | None) -> None:

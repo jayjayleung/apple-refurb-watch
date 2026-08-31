@@ -28,3 +28,12 @@ def test_gui_import_status_reports_keys() -> None:
     assert set(notes) == {"webview", "tray"}
     for value in notes.values():
         assert value
+
+
+def test_desktop_api_can_send_computer_notify(monkeypatch) -> None:
+    from apple_refurb_watch.desktop import DesktopApi
+
+    calls = []
+    monkeypatch.setattr("apple_refurb_watch.desktop.notify_os", lambda *args, **kwargs: calls.append(args))
+    assert DesktopApi(None).test_computer_notify() == {"ok": True}
+    assert calls

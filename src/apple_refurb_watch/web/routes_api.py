@@ -9,7 +9,7 @@ from apple_refurb_watch.notify import NotifyError, send_test
 from apple_refurb_watch.scanner import run_scan
 from apple_refurb_watch.settings import public_settings
 from apple_refurb_watch.usecases import health_payload, list_shop, patch_settings, public_settings_view, public_status
-from apple_refurb_watch.web.schemas import AutostartPatch, SettingsPatch, WatchIn, WatchPatch
+from apple_refurb_watch.web.schemas import AutostartPatch, NotifyTestIn, SettingsPatch, WatchIn, WatchPatch
 
 router = APIRouter()
 
@@ -131,9 +131,22 @@ def api_autostart_set(payload: AutostartPatch) -> dict:
 
 
 @router.post("/api/notify/test")
-def api_notify_test(request: Request) -> dict:
+async def api_notify_test(request: Request) -> dict:
+    channel = None
+    content_type = (request.headers.get("content-type") or "").lower()
+    if content_type.startswith("application/json"):
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = None
+        if isinstance(body, dict):
+            channel = body.get("channel")
+        elif body is not None:
+            payload = NotifyTestIn.model_validate(body)
+            channel = payload.channel
+    channel = channel or request.query_params.get("channel")
     try:
-        errors = send_test(request.app.state.db.settings())
+        errors = send_test(request.app.state.db.settings(), channel=channel)
     except NotifyError as exc:
         raise HTTPException(400, str(exc)) from exc
     if errors:

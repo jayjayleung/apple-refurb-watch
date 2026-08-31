@@ -449,6 +449,12 @@ class DesktopApi:
     def set_autostart(self, enabled: bool) -> dict:
         return self._session.set_autostart(bool(enabled))
 
+    def test_computer_notify(self) -> dict:
+        from apple_refurb_watch.notify import TEST_BODY, TEST_TITLE
+
+        notify_os(TEST_TITLE, TEST_BODY, None)
+        return {"ok": True}
+
 
 def _start_tray(session: DesktopSession):
     try:

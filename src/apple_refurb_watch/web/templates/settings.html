@@ -2,134 +2,240 @@
 {% block title %}设置 · 官翻监听{% endblock %}
 {% block main_class %}page-settings{% endblock %}
 {% block body %}
+{% set flash_channel = channel or '' %}
 <header class="page-head">
   <div>
     <h1>设置</h1>
-    <p class="lede">扫描间隔、远程访问、开机自启和通知通道。桌面包还可在本页改连远端。</p>
+    <p class="lede">监听分类即时生效。间隔、远程访问和通知密钥点保存。</p>
   </div>
 </header>
 
 {% if flash == 'saved' %}<p class="flash ok">已保存。若改了端口或绑定地址，需要重启 serve。</p>{% endif %}
-{% if flash == 'notify-ok' %}<p class="flash ok">测试通知已发出。</p>{% endif %}
-{% if flash == 'notify-fail' %}<p class="flash bad">没有可用通道，或发送失败。检查密钥后再试。</p>{% endif %}
+{% if flash == 'lan-token' and revealed_token %}
+<p class="flash ok">访问口令已生成，请立即复制。刷新后不再显示。</p>
+<p class="token-reveal"><code>{{ revealed_token }}</code></p>
+{% endif %}
 {% if flash == 'catalog-ok' %}<p class="flash ok">已从官网同步筛选词条。刷新在售/监听页即可看到新选项。</p>{% endif %}
 {% if flash == 'catalog-fail' %}<p class="flash bad">同步筛选词条失败。检查网络后再试，或等下次扫描自动对齐。</p>{% endif %}
+{% if flash == 'notify-ok' and not flash_channel %}<p class="flash ok">测试通知已发出。</p>{% endif %}
+{% if flash == 'notify-fail' and not flash_channel %}<p class="flash bad">没有可用通道，或发送失败。检查密钥后再试。</p>{% endif %}
 
-<form class="settings-form" method="post" action="/settings" id="settings-form">
-  <section class="panel">
-    <h2>扫描</h2>
-    <div class="form-grid">
-      <label>间隔（秒）<input type="number" name="interval_seconds" min="60" value="{{ settings.interval_seconds }}"></label>
-      <label>端口 <input type="number" name="bind_port" min="1" value="{{ settings.bind_port }}"></label>
-    </div>
-    <label class="check"><input type="checkbox" name="listen_enabled" {% if settings.listen_enabled %}checked{% endif %}> 定时监听官网（关闭后网页仍可用，只停自动扫描）</label>
-    <fieldset>
-      <legend>监听分类</legend>
-      <p class="hint">这些分类会抓取，在售只展示它们；没勾的不会出现在顶栏。Pro / Air 在 Mac 机型里选，不必单独勾。</p>
+<section class="panel" id="settings-listen-section">
+  <h2>监听</h2>
+  <form method="post" action="/settings/listen" id="listen-form">
+    <input type="hidden" name="next" value="/settings">
+    <input type="hidden" name="enabled" id="listen-enabled-value" value="{{ '1' if settings.listen_enabled else '0' }}">
+    <label class="check">
+      <input type="checkbox" id="settings-listen" {% if settings.listen_enabled %}checked{% endif %}>
+      定时监听官网（关闭后网页仍可用，只停自动扫描）
+      <span class="instant-mark">即时生效</span>
+    </label>
+  </form>
+  <label>间隔（秒）<input type="number" form="settings-form" name="interval_seconds" min="60" value="{{ settings.interval_seconds }}"></label>
+  <p class="hint">改间隔后点下方保存。分类勾选立即生效。</p>
+  <fieldset>
+    <legend>监听分类 <span class="instant-mark">即时生效</span></legend>
+    <p class="hint">这些分类会抓取，在售只展示它们；没勾的不会出现在顶栏。Pro / Air 在 Mac 机型里选，不必单独勾。</p>
+    <div class="pills" id="listings-pills" role="group" aria-label="监听分类">
       {% for item in shop_families %}
-      <label class="check"><input type="checkbox" name="listings" value="{{ item.key }}" {% if shop_family_key(item.key) in settings.listings or (item.key == 'mac' and ('macbook-pro' in settings.listings or 'macbook-air' in settings.listings)) %}checked{% endif %}> {{ item.name }}</label>
+      <label class="pill">
+        <input type="checkbox" name="listings" value="{{ item.key }}" {% if listing_family_checked(item.key, settings.listings) %}checked{% endif %}>
+        <span>{{ item.name }}</span>
+      </label>
       {% endfor %}
-    </fieldset>
-    <label class="check"><input type="checkbox" name="close_window_keeps_daemon" {% if settings.close_window_keeps_daemon %}checked{% endif %}> 关闭窗口到托盘（退出请用托盘菜单）</label>
-  </section>
-
-  <section class="panel">
-    <h2>远程访问</h2>
-    <label class="check"><input type="checkbox" name="lan_enabled" {% if settings.lan_enabled %}checked{% endif %}> 允许远程访问（绑定 0.0.0.0，非本机需口令）</label>
-    <label>访问口令 <input type="text" name="access_token" placeholder="{% if settings.access_token_set %}已保存，留空不改{% endif %}"></label>
-    <p class="hint">当前绑定 {{ settings.bind_host }}:{{ settings.bind_port }}。改绑定后请重启进程。公网请用 Caddy/nginx 做 HTTPS，应用本身继续 HTTP + 口令。</p>
-  </section>
-
-  <section class="panel desktop-only" id="desktop-this-computer" hidden>
-    <h2>这台电脑</h2>
-    <p class="hint" id="desktop-conn-status">桌面包可在此改连 NAS / VPS 上的服务，不必先用命令行 connect。</p>
-    <label>服务器地址 <input id="desktop-url" type="url" placeholder="http://192.168.1.8:8765" autocomplete="off"></label>
-    <label>访问口令 <input id="desktop-token" type="password" placeholder="远端口令，已保存可留空"></label>
-    <label class="check"><input type="checkbox" id="desktop-insecure"> 允许公网 HTTP（不推荐）</label>
-    <div class="row">
-      <button class="btn" type="button" id="desktop-connect">连接服务器</button>
-      <button class="btn" type="button" id="desktop-disconnect">改回本机</button>
     </div>
-    <label class="check"><input type="checkbox" id="desktop-autostart"> 开机自启（这台电脑的托盘）</label>
-    <p class="hint" id="desktop-autostart-hint">登录后拉起这台电脑的窗口/托盘。跑扫描的 NAS 请用下面的「本机服务开机自启」。</p>
-  </section>
-
-  <section class="panel" id="server-autostart">
-    <h2>本机服务开机自启</h2>
-    <p class="hint">登录后拉起网页服务（<code>serve</code>）。这是扫描和数据库所在的那台机器，例如 NAS / VPS。同一系统只装一份开机任务：要么托盘，要么服务。</p>
-    <label class="check"><input type="checkbox" id="server-autostart-enabled"> 开机后自动运行服务</label>
-    <p class="hint" id="server-autostart-status"></p>
-  </section>
-
-  <section class="panel" id="computer-notify">
-    <h2>电脑通知</h2>
-    <p class="hint">在这台电脑或已打开的浏览器页弹出系统通知，与 Bark / 飞书等通道互不影响。关掉本页后网页不会再弹；锁屏仍靠 Bark 等，或让桌面窗口留在托盘。</p>
-    <label class="check"><input type="checkbox" id="computer-notify-enabled"> 启用电脑通知</label>
-    <p class="hint" id="computer-notify-status"></p>
-  </section>
-
-  <section class="panel">
-    <h2>筛选文案</h2>
+    <p class="hint" id="listings-status"></p>
+  </fieldset>
+  <div class="row settings-tools">
+    {% include "_scan.html" %}
+    <form method="post" action="/settings/sync-catalog"><button class="btn" type="submit">从官网同步筛选词条</button></form>
+  </div>
+  <details class="more-conditions">
+    <summary>筛选词条路径</summary>
     <p class="hint">缺货配置（如 128GB）只出现在监听里。词条写入 <code>{{ live_catalog_path }}</code>。也可把安装包里的 <code>filter_catalog.json</code> 复制到 <code>{{ user_catalog_path }}</code> 做覆盖，mtime 热加载不必重启。</p>
     <p class="hint">当前生效配置：<a href="/api/filter-catalog">/api/filter-catalog</a></p>
-  </section>
+  </details>
+</section>
 
-  <section class="panel">
-    <h2>通知通道</h2>
-    <p class="hint">打开开关并填密钥。留空的密钥字段不会覆盖已保存的值。</p>
-
-    <details class="notify-channel"{% if settings.notify.bark.enabled %} open{% endif %}>
-      <summary>Bark</summary>
-      <label class="check"><input type="checkbox" name="notify_bark_enabled" {% if settings.notify.bark.enabled %}checked{% endif %}> 启用</label>
-      <label>URL <input name="notify_bark_url" placeholder="{% if settings.notify.bark.url_set %}已保存，留空不改{% endif %}"></label>
-    </details>
-    <details class="notify-channel"{% if settings.notify.serverchan.enabled %} open{% endif %}>
-      <summary>Server酱</summary>
-      <label class="check"><input type="checkbox" name="notify_serverchan_enabled" {% if settings.notify.serverchan.enabled %}checked{% endif %}> 启用</label>
-      <label>SendKey <input name="notify_serverchan_sendkey" placeholder="{% if settings.notify.serverchan.sendkey_set %}已保存，留空不改{% endif %}"></label>
-    </details>
-    <details class="notify-channel"{% if settings.notify.pushplus.enabled %} open{% endif %}>
-      <summary>PushPlus</summary>
-      <label class="check"><input type="checkbox" name="notify_pushplus_enabled" {% if settings.notify.pushplus.enabled %}checked{% endif %}> 启用</label>
-      <label>Token <input name="notify_pushplus_token" placeholder="{% if settings.notify.pushplus.token_set %}已保存，留空不改{% endif %}"></label>
-    </details>
-    <details class="notify-channel"{% if settings.notify.feishu.enabled %} open{% endif %}>
-      <summary>飞书</summary>
-      <label class="check"><input type="checkbox" name="notify_feishu_enabled" {% if settings.notify.feishu.enabled %}checked{% endif %}> 启用</label>
-      <label>Webhook <input name="notify_feishu_webhook" placeholder="{% if settings.notify.feishu.webhook_set %}已保存，留空不改{% endif %}"></label>
-      <label>Secret <input name="notify_feishu_secret" placeholder="{% if settings.notify.feishu.secret_set %}已保存，留空不改{% endif %}"></label>
-    </details>
-    <details class="notify-channel"{% if settings.notify.dingtalk.enabled %} open{% endif %}>
-      <summary>钉钉</summary>
-      <label class="check"><input type="checkbox" name="notify_dingtalk_enabled" {% if settings.notify.dingtalk.enabled %}checked{% endif %}> 启用</label>
-      <label>Webhook <input name="notify_dingtalk_webhook" placeholder="{% if settings.notify.dingtalk.webhook_set %}已保存，留空不改{% endif %}"></label>
-      <label>Secret <input name="notify_dingtalk_secret" placeholder="{% if settings.notify.dingtalk.secret_set %}已保存，留空不改{% endif %}"></label>
-    </details>
-    <details class="notify-channel"{% if settings.notify.telegram.enabled %} open{% endif %}>
-      <summary>Telegram</summary>
-      <label class="check"><input type="checkbox" name="notify_telegram_enabled" {% if settings.notify.telegram.enabled %}checked{% endif %}> 启用</label>
-      <label>Bot token <input name="notify_telegram_bot_token" placeholder="{% if settings.notify.telegram.bot_token_set %}已保存，留空不改{% endif %}"></label>
-      <label>Chat ID <input name="notify_telegram_chat_id" value="{{ settings.notify.telegram.chat_id }}"></label>
-    </details>
-    <details class="notify-channel"{% if settings.notify.email.enabled %} open{% endif %}>
-      <summary>邮件</summary>
-      <label class="check"><input type="checkbox" name="notify_email_enabled" {% if settings.notify.email.enabled %}checked{% endif %}> 启用</label>
-      <label>SMTP <input name="notify_email_smtp_host" value="{{ settings.notify.email.smtp_host }}"></label>
-      <label>端口 <input type="number" name="notify_email_smtp_port" value="{{ settings.notify.email.smtp_port }}"></label>
-      <label>用户名 <input name="notify_email_username" value="{{ settings.notify.email.username }}"></label>
-      <label>密码 <input type="password" name="notify_email_password" placeholder="{% if settings.notify.email.password_set %}已保存，留空不改{% endif %}"></label>
-      <label>收件人 <input name="notify_email_to" value="{{ settings.notify.email.to }}"></label>
-    </details>
-  </section>
-
-  <div class="row settings-save">
-    <button class="btn primary" type="submit">保存设置</button>
+<section class="panel" id="computer-notify">
+  <h2>通知</h2>
+  <p class="hint">电脑通知打在这台机器上，与 Bark / 飞书等互不影响。关掉本页后网页不会再弹；锁屏仍靠通道或让桌面留在托盘。</p>
+  <p class="hint" id="computer-notify-web-hint">勾选「启用电脑通知」时，浏览器会弹出授权框。若没有弹出框或曾点过拒绝，点地址栏左侧的锁或 ⓘ，把「通知」改为允许，然后刷新。</p>
+  <label class="check">
+    <input type="checkbox" id="computer-notify-enabled">
+    启用电脑通知
+    <span class="instant-mark">即时生效</span>
+  </label>
+  <div class="row">
+    <button class="btn" type="button" id="computer-notify-test">试一下</button>
   </div>
-</form>
+  <p class="hint" id="computer-notify-status" role="status"></p>
 
-<div class="row settings-tools">
-  <form method="post" action="/settings/notify-test"><button class="btn" type="submit">发送测试通知</button></form>
-  {% include "_scan.html" %}
-  <form method="post" action="/settings/sync-catalog"><button class="btn" type="submit">从官网同步筛选词条</button></form>
-</div>
+  <h3>通知通道</h3>
+  <p class="hint">密钥旁标「已保存」表示库里有值。要改就填新的再保存，留空不改。发送测试用已保存的密钥，不要求先启用。</p>
+
+  {% for spec in notify_channel_ui %}
+  {% set conf = settings.notify[spec.name] %}
+  {% set ready = notify_channel_ready(conf, spec.name) %}
+  <details class="notify-channel"{% if conf.enabled or flash_channel == spec.name %} open{% endif %}>
+    <summary>
+      <span>{{ spec.label }}</span>
+      <span class="notify-status">{{ notify_channel_status(conf, spec.name) }}</span>
+    </summary>
+    {% if flash == 'notify-ok' and flash_channel == spec.name %}<p class="flash ok">测试通知已发出。</p>{% endif %}
+    {% if flash == 'notify-fail' and flash_channel == spec.name %}<p class="flash bad">发送失败。检查已保存的密钥后再试。</p>{% endif %}
+    <label class="check">
+      <input type="checkbox" form="settings-form" name="notify_{{ spec.name }}_enabled" {% if conf.enabled %}checked{% endif %}>
+      启用
+    </label>
+    {% if conf.enabled and not ready %}<p class="hint warn-hint">还没保存密钥，启用也不会发出。</p>{% endif %}
+    {% for key, label in spec.secrets %}
+    <div class="secret-row">
+      <div class="field-head">
+        <span>{{ label }}{% if conf[key + '_set'] %}<span class="saved-mark">已保存</span>{% endif %}</span>
+        {% if conf[key + '_set'] %}
+        <button class="link-btn" type="submit" form="settings-form" name="notify_{{ spec.name }}_{{ key }}_clear" value="1">清除</button>
+        {% endif %}
+      </div>
+      <input form="settings-form" name="notify_{{ spec.name }}_{{ key }}" {% if key in ('password', 'bot_token', 'sendkey', 'token', 'secret') %}type="password"{% endif %} autocomplete="off" placeholder="要改就填新的再保存，留空不改">
+    </div>
+    {% endfor %}
+    {% for key, label in spec.optional_secrets %}
+    <div class="secret-row">
+      <div class="field-head">
+        <span>{{ label }}{% if conf[key + '_set'] %}<span class="saved-mark">已保存</span>{% endif %}</span>
+        {% if conf[key + '_set'] %}
+        <button class="link-btn" type="submit" form="settings-form" name="notify_{{ spec.name }}_{{ key }}_clear" value="1">清除</button>
+        {% endif %}
+      </div>
+      <input form="settings-form" name="notify_{{ spec.name }}_{{ key }}" type="password" autocomplete="off" placeholder="要改就填新的再保存，留空不改">
+    </div>
+    {% endfor %}
+    {% for field in spec.fields %}
+    <label>{{ field[1] }} <input form="settings-form" name="notify_{{ spec.name }}_{{ field[0] }}" {% if field[2] == 'number' %}type="number"{% endif %} value="{{ conf[field[0]] or '' }}"></label>
+    {% endfor %}
+    <form method="post" action="/settings/notify-test" class="notify-test-form">
+      <input type="hidden" name="channel" value="{{ spec.name }}">
+      <button class="btn" type="submit" {% if not ready %}disabled{% endif %}>发送测试</button>
+      {% if not ready %}<span class="hint">先保存密钥</span>{% else %}<span class="hint">用已保存的密钥测这一路</span>{% endif %}
+    </form>
+  </details>
+  {% endfor %}
+</section>
+
+<section class="panel desktop-only" id="desktop-this-computer" hidden>
+  <h2>这台电脑</h2>
+  <p class="hint" id="desktop-conn-status">桌面包可在此改连 NAS / VPS 上的服务，不必先用命令行 connect。</p>
+  <label>服务器地址 <input id="desktop-url" type="url" placeholder="http://192.168.1.8:8765" autocomplete="off"></label>
+  <label>用来登录远端的口令 <input id="desktop-token" type="password" placeholder="已保存可留空" autocomplete="off"></label>
+  <label class="check"><input type="checkbox" id="desktop-insecure"> 允许公网 HTTP（不推荐）</label>
+  <div class="row">
+    <button class="btn" type="button" id="desktop-connect">连接服务器</button>
+    <button class="btn" type="button" id="desktop-disconnect">改回本机</button>
+  </div>
+  <label class="check">
+    <input type="checkbox" id="close_window_keeps_daemon" name="close_window_keeps_daemon" {% if settings.close_window_keeps_daemon %}checked{% endif %}>
+    关闭窗口到托盘（退出请用托盘菜单）
+    <span class="instant-mark">即时生效</span>
+  </label>
+  <p class="hint" id="tray-status"></p>
+  <label class="check"><input type="checkbox" id="desktop-autostart"> 开机自启（这台电脑的托盘）<span class="instant-mark">即时生效</span></label>
+  <p class="hint" id="desktop-autostart-hint">登录后拉起这台电脑的窗口/托盘。跑扫描的 NAS 请用下面的「本机服务开机自启」。</p>
+</section>
+
+<section class="panel" id="settings-server">
+  <h2>服务</h2>
+  <label class="check">
+    <input type="checkbox" form="settings-form" name="lan_enabled" {% if settings.lan_enabled %}checked{% endif %}>
+    允许远程访问（绑定 0.0.0.0，非本机需口令）
+  </label>
+  <div class="secret-row">
+    <div class="field-head">
+      <span>这台服务的访问口令{% if settings.access_token_set %}<span class="saved-mark">已保存</span>{% endif %}</span>
+      {% if settings.access_token_set %}
+      <button class="link-btn" type="submit" form="settings-form" name="access_token_clear" value="1">清除</button>
+      {% endif %}
+    </div>
+    <input form="settings-form" type="password" name="access_token" autocomplete="off" placeholder="要改就填新的再保存，留空不改">
+  </div>
+  <label>端口 <input type="number" form="settings-form" name="bind_port" min="1" value="{{ settings.bind_port }}"></label>
+  <p class="hint">当前绑定 {{ settings.bind_host }}:{{ settings.bind_port }}。改绑定后请重启进程。公网请用 Caddy/nginx 做 HTTPS，应用本身继续 HTTP + 口令。</p>
+  <div id="server-autostart">
+    <p class="hint">登录后拉起网页服务（<code>serve</code>）。这是扫描和数据库所在的那台机器，例如 NAS / VPS。同一系统只装一份开机任务：要么托盘，要么服务。</p>
+    <label class="check"><input type="checkbox" id="server-autostart-enabled"> 开机后自动运行服务<span class="instant-mark">即时生效</span></label>
+    <p class="hint" id="server-autostart-status"></p>
+  </div>
+</section>
+
+<form class="settings-save" method="post" action="/settings" id="settings-form">
+  <input type="hidden" name="save_access" value="1">
+  <input type="hidden" name="save_notify" value="1">
+  <p class="hint">保存间隔、远程访问和通知通道</p>
+  <button class="btn primary" type="submit">保存设置</button>
+</form>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function () {
+  var listenBox = document.getElementById("settings-listen");
+  var listenVal = document.getElementById("listen-enabled-value");
+  var listenForm = document.getElementById("listen-form");
+  if (listenBox && listenVal && listenForm) {
+    listenBox.addEventListener("change", function (ev) {
+      if (ev.target !== listenBox) return;
+      listenVal.value = listenBox.checked ? "1" : "0";
+      listenForm.submit();
+    });
+  }
+  var pills = document.getElementById("listings-pills");
+  var listingStatus = document.getElementById("listings-status");
+  function setListingStatus(text) {
+    if (listingStatus) listingStatus.textContent = text || "";
+  }
+  if (pills) {
+    pills.addEventListener("change", function () {
+      var keys = Array.prototype.map.call(
+        pills.querySelectorAll("input[name=listings]:checked"),
+        function (el) { return el.value; }
+      );
+      fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ listings: keys })
+      }).then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+        .then(function (res) {
+          if (!res.ok) {
+            setListingStatus((res.data && res.data.detail) || "无法保存分类");
+            return;
+          }
+          setListingStatus("已更新分类");
+        })
+        .catch(function () { setListingStatus("无法保存分类"); });
+    });
+  }
+  var tray = document.getElementById("close_window_keeps_daemon");
+  var trayStatus = document.getElementById("tray-status");
+  if (tray) {
+    tray.addEventListener("change", function () {
+      fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ close_window_keeps_daemon: tray.checked })
+      }).then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+        .then(function (res) {
+          if (!res.ok) {
+            tray.checked = !tray.checked;
+            if (trayStatus) trayStatus.textContent = (res.data && res.data.detail) || "无法保存";
+            return;
+          }
+          if (trayStatus) trayStatus.textContent = tray.checked ? "关窗会藏到托盘。" : "关窗将退出。";
+        })
+        .catch(function () {
+          tray.checked = !tray.checked;
+          if (trayStatus) trayStatus.textContent = "无法保存";
+        });
+    });
+  }
+})();
+</script>
 {% endblock %}

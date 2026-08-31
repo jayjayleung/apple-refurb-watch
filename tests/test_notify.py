@@ -7,7 +7,15 @@ from urllib.parse import quote
 import httpx
 import respx
 
-from apple_refurb_watch.notify import TEST_BODY, TEST_TITLE, TEST_URL, feishu_sign, send_all, send_test
+from apple_refurb_watch.notify import (
+    NotifyError,
+    TEST_BODY,
+    TEST_TITLE,
+    TEST_URL,
+    feishu_sign,
+    send_all,
+    send_test,
+)
 
 
 def test_feishu_sign_matches_official() -> None:
@@ -136,6 +144,31 @@ def test_send_test_uses_fixed_copy() -> None:
     assert quote(TEST_BODY) in url
     params = dict(route.calls[0].request.url.params)
     assert params["url"] == TEST_URL
+
+
+@respx.mock
+def test_send_test_one_channel_ignores_enabled() -> None:
+    bark = respx.get(url__regex=r"https://api\.day\.app/.*").mock(return_value=httpx.Response(200))
+    feishu = respx.post("https://open.feishu.cn/hook").mock(return_value=httpx.Response(200))
+    settings = {
+        "notify": {
+            "bark": {"enabled": False, "url": "https://api.day.app/key"},
+            "feishu": {"enabled": True, "webhook": "https://open.feishu.cn/hook"},
+        }
+    }
+    errors = send_test(settings, channel="bark")
+    assert errors == []
+    assert bark.called
+    assert not feishu.called
+
+
+def test_send_test_unknown_channel() -> None:
+    try:
+        send_test({"notify": {}}, channel="nope")
+    except NotifyError as exc:
+        assert "未知通道" in str(exc)
+    else:
+        raise AssertionError("expected NotifyError")
 
 
 

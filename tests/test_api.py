@@ -1,3 +1,5 @@
+import httpx
+import respx
 from fastapi.testclient import TestClient
 
 from apple_refurb_watch.api import create_app
@@ -72,6 +74,9 @@ def test_settings_redact_secrets(tmp_path) -> None:
         page = client.get("/settings")
         assert "123:ABC" not in page.text
         assert "super-secret-token" not in page.text
+        assert "已保存" in page.text
+        assert "已启用" in page.text
+        assert "更换" not in page.text
 
 
 def test_empty_access_token_does_not_clear(tmp_path) -> None:
@@ -392,25 +397,38 @@ def test_listen_toggle_form_and_api(tmp_path) -> None:
         assert "开机自启" in settings_page.text
         assert "server-autostart" in settings_page.text
         assert "开机后自动运行服务" in settings_page.text
-        form_html = settings_page.text.split('id="settings-form"', 1)[1].split("保存设置", 1)[0]
-        assert 'value="mac"' in form_html
-        assert 'value="ipad"' in form_html
-        assert 'value="homepod"' in form_html
-        assert 'value="macbook-pro"' not in form_html
-        assert 'value="macbook-air"' not in form_html
+        assert "发送测试" in settings_page.text
+        assert "发送测试通知" not in settings_page.text
+        assert "更换" not in settings_page.text
+        assert "未配置" in settings_page.text
+        assert "试一下" in settings_page.text
+        assert "computer-notify-allow" not in settings_page.text
+        assert "地址栏" in settings_page.text
+        assert "未授予通知权限。" not in settings_page.text
+        assert 'name="channel" value="bark"' in settings_page.text
+        assert 'name="channel" value="feishu"' in settings_page.text
+        pills = settings_page.text.split('id="listings-pills"', 1)[1].split("</div>", 1)[0]
+        assert 'value="mac"' in pills
+        assert 'value="ipad"' in pills
+        assert 'value="homepod"' in pills
+        assert 'value="macbook-pro"' not in pills
+        assert 'value="macbook-air"' not in pills
         assert "只要 MacBook Pro" not in settings_page.text
+        form_html = settings_page.text.split('id="settings-form"', 1)[1].split("保存设置", 1)[0]
+        assert 'name="listings"' not in form_html
         assert "<form" not in form_html
         saved = client.post(
             "/settings",
             data={
                 "interval_seconds": "300",
                 "bind_port": "8765",
-                "listings": ["mac"],
+                "save_access": "1",
+                "save_notify": "1",
             },
             follow_redirects=False,
         )
         assert saved.status_code == 303
-        assert db.settings()["listen_enabled"] is False
+        assert db.settings()["listen_enabled"] is True
 
 
 def test_thumb_url_rewrites_apple_cdn() -> None:
@@ -623,25 +641,28 @@ def test_settings_page_uses_shop_families(tmp_path) -> None:
     app = create_app(db, with_scheduler=False)
     with TestClient(app) as client:
         page = client.get("/settings")
-        form_html = page.text.split('id="settings-form"', 1)[1].split("保存设置", 1)[0]
-        assert 'value="macbook-pro"' not in form_html
-        assert 'value="macbook-air"' not in form_html
-        mac_tag = next(tag for tag in form_html.split("<input") if 'name="listings"' in tag and 'value="mac"' in tag)
-        ipad_tag = next(tag for tag in form_html.split("<input") if 'name="listings"' in tag and 'value="ipad"' in tag)
+        pills = page.text.split('id="listings-pills"', 1)[1].split("</div>", 1)[0]
+        assert 'value="macbook-pro"' not in pills
+        assert 'value="macbook-air"' not in pills
+        mac_tag = next(tag for tag in pills.split("<input") if 'name="listings"' in tag and 'value="mac"' in tag)
+        ipad_tag = next(tag for tag in pills.split("<input") if 'name="listings"' in tag and 'value="ipad"' in tag)
         assert "checked" in mac_tag.split(">")[0]
         assert "checked" in ipad_tag.split(">")[0]
+        patched = client.patch("/api/settings", json={"listings": ["mac", "ipad"]}).json()
+        assert patched["listings"] == ["mac", "ipad"]
         saved = client.post(
             "/settings",
             data={
                 "interval_seconds": "300",
                 "bind_port": "8765",
-                "listings": ["mac", "ipad"],
-                "listen_enabled": "on",
+                "save_access": "1",
+                "save_notify": "1",
             },
             follow_redirects=False,
         )
         assert saved.status_code == 303
         assert db.settings()["listings"] == ["mac", "ipad"]
+        assert db.settings()["listen_enabled"] is True
 
 
 def _shop_product(sku: str, title: str, listing_key: str, price: int, extra: dict | None = None) -> dict:
@@ -830,6 +851,131 @@ def test_events_after_id_and_type(tmp_path) -> None:
         assert [row["type"] for row in typed] == ["appeared", "appeared"]
         after = client.get("/api/events", params={"type": "appeared", "after_id": appeared}).json()
         assert [row["id"] for row in after] == [later]
+
+
+def test_settings_save_does_not_clobber_listings(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    db.update_settings({"listings": ["mac", "watch"], "listen_enabled": True})
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        saved = client.post(
+            "/settings",
+            data={
+                "interval_seconds": "180",
+                "bind_port": "8765",
+                "save_access": "1",
+                "save_notify": "1",
+            },
+            follow_redirects=False,
+        )
+        assert saved.status_code == 303
+        assert db.settings()["interval_seconds"] == 180
+        assert db.settings()["listings"] == ["mac", "watch"]
+        assert db.settings()["listen_enabled"] is True
+
+
+def test_clear_notify_secret_and_access_token(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    db.update_settings(
+        {
+            "access_token": "keep-me",
+            "lan_enabled": True,
+            "notify": {"bark": {"enabled": True, "url": "https://api.day.app/key"}},
+        }
+    )
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        client.post(
+            "/settings",
+            data={
+                "interval_seconds": "300",
+                "bind_port": "8765",
+                "save_access": "1",
+                "lan_enabled": "on",
+                "save_notify": "1",
+                "notify_bark_enabled": "on",
+                "notify_bark_url_clear": "1",
+            },
+            follow_redirects=False,
+        )
+        assert db.settings()["notify"]["bark"]["url"] == ""
+        assert db.settings()["notify"]["bark"]["enabled"] is True
+        client.post(
+            "/settings",
+            data={
+                "interval_seconds": "300",
+                "bind_port": "8765",
+                "save_access": "1",
+                "lan_enabled": "on",
+                "access_token_clear": "1",
+                "save_notify": "1",
+                "notify_bark_enabled": "on",
+            },
+            headers={"X-Token": "keep-me"},
+            follow_redirects=False,
+        )
+        assert db.settings()["access_token"] == ""
+
+
+def test_lan_enable_reveals_generated_token_once(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        page = client.post(
+            "/settings",
+            data={
+                "interval_seconds": "300",
+                "bind_port": "8765",
+                "save_access": "1",
+                "lan_enabled": "on",
+                "save_notify": "1",
+            },
+        )
+        token = db.settings()["access_token"]
+        assert token
+        assert page.status_code == 200
+        assert token in page.text
+        assert "访问口令已生成" in page.text
+        again = client.get("/settings", headers={"X-Token": token})
+        assert token not in again.text
+        assert "访问口令已生成" not in again.text
+
+
+@respx.mock
+def test_notify_test_one_channel(tmp_path) -> None:
+    bark = respx.get(url__regex=r"https://api\.day\.app/.*").mock(return_value=httpx.Response(200))
+    feishu = respx.post("https://open.feishu.cn/hook").mock(return_value=httpx.Response(200))
+    db = Database(tmp_path / "app.db")
+    db.update_settings(
+        {
+            "notify": {
+                "bark": {"enabled": False, "url": "https://api.day.app/key"},
+                "feishu": {"enabled": True, "webhook": "https://open.feishu.cn/hook"},
+            }
+        }
+    )
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        posted = client.post("/settings/notify-test", data={"channel": "bark"}, follow_redirects=False)
+        assert posted.status_code == 303
+        assert "channel=bark" in posted.headers["location"]
+        assert "notify-ok" in posted.headers["location"]
+        assert bark.called
+        assert not feishu.called
+        page = client.get("/settings?flash=notify-ok&channel=bark")
+        assert "测试通知已发出" in page.text
+        api_all = client.post("/api/notify/test")
+        assert api_all.status_code == 200
+        assert feishu.called
+        feishu.calls.clear()
+        bark.calls.clear()
+        one = client.post("/api/notify/test", json={"channel": "bark"})
+        assert one.status_code == 200
+        assert bark.called
+        assert not feishu.called
+        db.update_settings({"notify": {"bark": {"enabled": False, "url": ""}}})
+        empty = client.post("/api/notify/test", json={"channel": "bark"})
+        assert empty.status_code == 400
 
 
 
