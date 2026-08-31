@@ -84,9 +84,12 @@ jobs:
           fi
           chmod +x "$bin" || true
           "$bin" version
+          # 先 probe：自起、自停，避免后面 serve 的锁在 Windows 上没释放。
+          "$bin" desktop --probe
+          serve_pid=
           set +e
-          "$bin" serve &
-          serve_pid=$!
+          "$bin" serve --detach
+          echo "detach_exit=$?"
           set -e
           wait_ok=
           for _ in $(seq 1 60); do
@@ -97,18 +100,37 @@ jobs:
             sleep 1
           done
           if [ -z "$wait_ok" ]; then
+            echo "detach 未就绪，改以前台 serve 再等"
+            set +e
+            "$bin" serve &
+            serve_pid=$!
+            set -e
+            for _ in $(seq 1 60); do
+              if curl -fsS "http://127.0.0.1:8765/api/health"; then
+                wait_ok=1
+                break
+              fi
+              sleep 1
+            done
+          fi
+          if [ -z "$wait_ok" ]; then
             echo "health check failed"
             ls -la "$dir" || true
             ls -la "${APPLE_REFURB_WATCH_HOME}" || true
             ls -la "${APPLE_REFURB_WATCH_LOG}" || true
             cat "${APPLE_REFURB_WATCH_LOG}/daemon.log" || true
-            kill "$serve_pid" 2>/dev/null || true
+            "$bin" stop || true
+            if [ -n "$serve_pid" ]; then
+              kill "$serve_pid" 2>/dev/null || true
+            fi
             exit 1
           fi
           code=$(curl -sS -o "${RUNNER_TEMP}/arw-home.html" -w "%{http_code}" "http://127.0.0.1:8765/")
           "$bin" stop || true
-          kill "$serve_pid" 2>/dev/null || true
-          wait "$serve_pid" 2>/dev/null || true
+          if [ -n "$serve_pid" ]; then
+            kill "$serve_pid" 2>/dev/null || true
+            wait "$serve_pid" 2>/dev/null || true
+          fi
           echo "home HTTP ${code}"
           if [ "$code" != "200" ]; then
             cat "${RUNNER_TEMP}/arw-home.html" || true
@@ -116,8 +138,8 @@ jobs:
             exit 1
           fi
           grep -q "官翻监听" "${RUNNER_TEMP}/arw-home.html"
-          "$bin" desktop --probe
       - name: Zip
+        if: always()
         run: |
           mkdir -p dist/out
           python -c "import shutil; shutil.make_archive('dist/out/${{ matrix.asset }}', 'zip', 'dist', 'apple-refurb-watch')"
@@ -135,6 +157,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -146,4 +169,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
+          body_path: packaging/RELEASE_NOTES.md
           generate_release_notes: true
