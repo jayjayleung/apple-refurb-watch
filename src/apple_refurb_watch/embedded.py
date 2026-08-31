@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import sys
 import threading
 import time
 
@@ -44,7 +46,13 @@ class EmbeddedServer:
         server = uvicorn.Server(config)
         server.install_signal_handlers = lambda: None
         self._server = server
-        thread = threading.Thread(target=server.run, name="arw-uvicorn", daemon=True)
+
+        def _run() -> None:
+            if sys.platform == "win32":
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+            server.run()
+
+        thread = threading.Thread(target=_run, name="arw-uvicorn", daemon=True)
         self._thread = thread
         thread.start()
         base = f"http://{self.host}:{self.port}"

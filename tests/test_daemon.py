@@ -14,6 +14,25 @@ def test_current_pid_is_alive():
     assert pid_is_alive(-1) is False
 
 
+def test_acquire_lock_on_empty_file():
+    from apple_refurb_watch.daemon import acquire_lock
+    from apple_refurb_watch.paths import lock_path
+
+    assert not lock_path().exists() or lock_path().stat().st_size == 0
+    handle = acquire_lock()
+    try:
+        assert lock_path().exists()
+        assert lock_path().read_text(encoding="utf-8").strip().isdigit()
+        try:
+            acquire_lock()
+        except RuntimeError as exc:
+            assert "已在运行" in str(exc)
+        else:
+            raise AssertionError("second lock should fail")
+    finally:
+        handle.close()
+
+
 def test_windows_flags_break_away_from_job():
     flags = windows_creationflags()
     assert flags[0] & CREATE_BREAKAWAY_FROM_JOB

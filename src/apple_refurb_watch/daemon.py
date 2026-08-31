@@ -23,6 +23,10 @@ def acquire_lock():
         if os.name == "nt":
             import msvcrt
 
+            # msvcrt.locking 不能锁空文件里还不存在的字节。
+            if path.stat().st_size < 1:
+                handle.write("0")
+                handle.flush()
             handle.seek(0)
             msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
         else:
