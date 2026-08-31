@@ -145,7 +145,10 @@ def ping_daemon(base: str | None = None, *, stable: bool = False) -> ApiClient |
     return client
 
 
-def ensure_daemon(timeout: float = 15.0, host: str | None = None, port: int | None = None) -> ApiClient:
+def ensure_daemon(timeout: float | None = None, host: str | None = None, port: int | None = None) -> ApiClient:
+    # 冻结 onefile 子进程还要再解压一遍，Windows 上经常超过 15 秒。
+    if timeout is None:
+        timeout = 60.0 if is_frozen() else 15.0
     base = _wait_base(host, port)
     ready = ping_daemon(base, stable=True)
     if ready:

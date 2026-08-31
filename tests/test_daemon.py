@@ -72,6 +72,46 @@ def test_spawn_env_resets_pyinstaller_when_frozen(monkeypatch) -> None:
     assert env.get("PYINSTALLER_RESET_ENVIRONMENT") != "1"
 
 
+def test_ensure_daemon_frozen_waits_longer(monkeypatch) -> None:
+    from apple_refurb_watch import daemon
+
+    monkeypatch.setattr(daemon, "is_frozen", lambda: True)
+    monkeypatch.setattr(daemon, "ping_daemon", lambda *a, **k: None)
+    monkeypatch.setattr(daemon, "spawn_detached", lambda *a, **k: None)
+    captured: dict = {}
+
+    def fake_wait(timeout, base=None):
+        captured["timeout"] = timeout
+        raise daemon.ApiError("skip")
+
+    monkeypatch.setattr(daemon, "wait_health", fake_wait)
+    try:
+        daemon.ensure_daemon()
+    except daemon.ApiError:
+        pass
+    assert captured["timeout"] == 60.0
+
+
+def test_ensure_daemon_unfrozen_default_timeout(monkeypatch) -> None:
+    from apple_refurb_watch import daemon
+
+    monkeypatch.setattr(daemon, "is_frozen", lambda: False)
+    monkeypatch.setattr(daemon, "ping_daemon", lambda *a, **k: None)
+    monkeypatch.setattr(daemon, "spawn_detached", lambda *a, **k: None)
+    captured: dict = {}
+
+    def fake_wait(timeout, base=None):
+        captured["timeout"] = timeout
+        raise daemon.ApiError("skip")
+
+    monkeypatch.setattr(daemon, "wait_health", fake_wait)
+    try:
+        daemon.ensure_daemon()
+    except daemon.ApiError:
+        pass
+    assert captured["timeout"] == 15.0
+
+
 def test_embedded_server_starts_and_stops():
     import socket
 

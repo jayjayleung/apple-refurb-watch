@@ -69,17 +69,34 @@ jobs:
         run: |
           bin="./dist/out/${{ matrix.asset }}"
           "$bin" version
+          set +e
           "$bin" serve --detach
-          ok=
-          for _ in $(seq 1 25); do
+          echo "detach_exit=$?"
+          set -e
+          wait_ok=
+          for _ in $(seq 1 60); do
             if curl -fsS "http://127.0.0.1:8765/api/health"; then
-              ok=1
+              wait_ok=1
               break
             fi
             sleep 1
           done
-          if [ -z "$ok" ]; then
+          if [ -z "$wait_ok" ]; then
+            echo "detach 未就绪，改以前台 serve 再等"
+            set +e
+            "$bin" serve &
+            set -e
+            for _ in $(seq 1 60); do
+              if curl -fsS "http://127.0.0.1:8765/api/health"; then
+                wait_ok=1
+                break
+              fi
+              sleep 1
+            done
+          fi
+          if [ -z "$wait_ok" ]; then
             echo "health check failed"
+            ls -la "${APPLE_REFURB_WATCH_HOME}" || true
             ls -la "${APPLE_REFURB_WATCH_LOG}" || true
             cat "${APPLE_REFURB_WATCH_LOG}/daemon.log" || true
             "$bin" stop || true
@@ -95,6 +112,7 @@ jobs:
           fi
           grep -q "官翻监听" "${RUNNER_TEMP}/arw-home.html"
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: ${{ matrix.asset }}
           path: dist/out/${{ matrix.asset }}
