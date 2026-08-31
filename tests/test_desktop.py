@@ -1,4 +1,5 @@
-from apple_refurb_watch.desktop import desktop_setup_uri, gui_import_status, tray_menu_labels
+from apple_refurb_watch import __version__
+from apple_refurb_watch.desktop import desktop_setup_uri, gui_import_status, local_health_is_current, tray_menu_labels, version_key
 from apple_refurb_watch.paths import package_root
 
 
@@ -37,3 +38,16 @@ def test_desktop_api_can_send_computer_notify(monkeypatch) -> None:
     monkeypatch.setattr("apple_refurb_watch.desktop.notify_os", lambda *args, **kwargs: calls.append(args))
     assert DesktopApi(None).test_computer_notify() == {"ok": True}
     assert calls
+
+
+def test_version_key_orders_semver() -> None:
+    assert version_key(None) < version_key("0.2.3")
+    assert version_key("0.1.3") < version_key("0.2.3")
+    assert version_key("0.2.0") < version_key(__version__)
+
+
+def test_local_health_rejects_old_server() -> None:
+    assert not local_health_is_current(None)
+    assert not local_health_is_current({"ok": True})
+    assert not local_health_is_current({"ok": True, "server_version": "0.1.3"})
+    assert local_health_is_current({"ok": True, "server_version": __version__})

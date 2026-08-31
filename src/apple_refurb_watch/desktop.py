@@ -8,6 +8,7 @@ import threading
 import time
 import webbrowser
 
+from apple_refurb_watch import __version__
 from apple_refurb_watch.argv import invoke_argv, is_frozen
 from apple_refurb_watch.client import ApiClient, ApiError
 from apple_refurb_watch.connection import (
@@ -21,7 +22,7 @@ from apple_refurb_watch.connection import (
     save_computer_notify,
     save_connection,
 )
-from apple_refurb_watch.daemon import acquire_lock, ping_daemon, spawn_env, windows_creationflags
+from apple_refurb_watch.daemon import acquire_lock, ping_daemon, spawn_env, stop_daemon, windows_creationflags
 from apple_refurb_watch.desktop_notify import notify_os
 from apple_refurb_watch.embedded import EmbeddedServer
 from apple_refurb_watch.paths import desktop_lock_path, desktop_signal_path, package_root
@@ -37,6 +38,89 @@ def hide_to_tray_enabled(settings: dict | None) -> bool:
     if not settings:
         return True
     return bool(settings.get("close_window_keeps_daemon", True))
+
+
+def version_key(ver: str | None) -> tuple[int, ...]:
+    if not ver:
+        return (0,)
+    nums: list[int] = []
+    for part in str(ver).replace("-", ".").split("."):
+        digits = "".join(ch for ch in part if ch.isdigit())
+        if digits:
+            nums.append(int(digits))
+    return tuple(nums) or (0,)
+
+
+def local_health_is_current(health: dict | None) -> bool:
+    if not isinstance(health, dict) or not health.get("ok"):
+        return False
+    return version_key(str(health.get("server_version") or "")) >= version_key(__version__)
+
+
+def read_desktop_lock_meta() -> tuple[int | None, str | None]:
+    try:
+        text = desktop_lock_path().read_text(encoding="utf-8").strip()
+    except OSError:
+        return None, None
+    parts = text.split()
+    pid = int(parts[0]) if parts and parts[0].isdigit() else None
+    ver = parts[1] if len(parts) > 1 else None
+    return pid, ver
+
+
+def stamp_desktop_lock(handle) -> None:
+    handle.seek(0)
+    handle.truncate()
+    handle.write(f"{os.getpid()} {__version__}")
+    handle.flush()
+
+
+def alert_quit_old_desktop(running_ver: str | None) -> None:
+    extra = f"托盘里是 {running_ver}，这一包是 {__version__}。" if running_ver else f"这一包是 {__version__}。"
+    message = "已经有旧版官翻监听在运行。请右键托盘图标点「退出」，再打开这个新安装包。" + extra
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.user32.MessageBoxW(None, message, "官翻监听", 0x30)
+            return
+        except Exception:  # noqa: BLE001
+            pass
+    print(message, file=sys.stderr)
+
+
+def stop_pid(pid: int) -> None:
+    try:
+        os.kill(pid, 15)
+    except OSError:
+        pass
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+
+
+def take_desktop_lock():
+    try:
+        handle = acquire_lock(desktop_lock_path(), label="桌面窗口")
+    except RuntimeError:
+        pid, running_ver = read_desktop_lock_meta()
+        if version_key(running_ver) < version_key(__version__) and pid:
+            stop_pid(pid)
+            time.sleep(0.8)
+            try:
+                handle = acquire_lock(desktop_lock_path(), label="桌面窗口")
+            except RuntimeError:
+                alert_quit_old_desktop(running_ver)
+                return None
+        else:
+            signal_existing_window()
+            return None
+    stamp_desktop_lock(handle)
+    return handle
 
 
 def signal_existing_window() -> None:
@@ -245,12 +329,24 @@ class DesktopSession:
             self.notice = compat_notice(health)
             return
         client = ping_daemon(stable=True)
+        health = None
+        if client is not None:
+            try:
+                health = client.health()
+            except ApiError:
+                health = None
+            if not local_health_is_current(health):
+                stop_daemon()
+                time.sleep(0.6)
+                client = None
+                health = None
         if client is None:
             self.embedded = EmbeddedServer()
             client = self.embedded.start()
             self.owned = True
         try:
-            health = client.health()
+            if health is None:
+                health = client.health()
         except ApiError as exc:
             self.client = client
             self.error = str(exc)
@@ -511,10 +607,8 @@ def _start_tray(session: DesktopSession):
 
 
 def run_desktop(*, hidden: bool = False) -> None:
-    try:
-        desk_lock = acquire_lock(desktop_lock_path(), label="桌面窗口")
-    except RuntimeError:
-        signal_existing_window()
+    desk_lock = take_desktop_lock()
+    if desk_lock is None:
         return
 
     session = DesktopSession(hidden=hidden)

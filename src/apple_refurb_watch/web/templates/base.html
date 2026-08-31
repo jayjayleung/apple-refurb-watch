@@ -171,7 +171,7 @@
         }
         if (h && h.api_revision != null && Number(h.api_revision) > CLIENT_API_REVISION) {
           showBanner("服务器 API 新于本页面，请升级客户端。");
-        } else if (!canAfterId) {
+        } else if (h && !canAfterId) {
           showBanner("服务器版本较旧，电脑通知不可用。可继续使用核心功能，或升级服务器。");
         }
       }
