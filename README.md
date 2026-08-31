@@ -14,7 +14,7 @@
 | [Packages](https://github.com/jayjayleung/apple-refurb-watch/pkgs/container/apple-refurb-watch) | **Docker 镜像**（GHCR） | 用容器部署时 `docker pull`，不是 exe |
 | Actions → package | 每次推 `main` 打的安装包 artifact | 还没打版本标签时，可从这里下预览包 |
 
-当前稳定版：[v0.1.2](https://github.com/jayjayleung/apple-refurb-watch/releases/tag/v0.1.2)
+当前稳定版：[v0.1.3](https://github.com/jayjayleung/apple-refurb-watch/releases/tag/v0.1.3)
 
 ## 方式一：下载安装包
 
@@ -138,7 +138,7 @@ ARW_PORT=8765
 
 ```text
 ghcr.io/jayjayleung/apple-refurb-watch:latest
-ghcr.io/jayjayleung/apple-refurb-watch:0.1.2
+ghcr.io/jayjayleung/apple-refurb-watch:0.1.3
 ```
 
 ```bash
@@ -247,8 +247,8 @@ pytest
 打 `v*` 标签会同时发 GitHub Release（可执行文件），镜像打上对应 semver 标签：
 
 ```bash
-git tag v0.1.2
-git push origin v0.1.2
+git tag v0.1.3
+git push origin v0.1.3
 ```
 
 本地打当前系统一份时，Windows / macOS 若要带桌面窗口：
