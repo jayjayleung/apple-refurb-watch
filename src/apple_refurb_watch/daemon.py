@@ -7,7 +7,7 @@ import sys
 import time
 from pathlib import Path
 
-from apple_refurb_watch.argv import invoke_argv
+from apple_refurb_watch.argv import invoke_argv, is_frozen
 from apple_refurb_watch.client import ApiClient, ApiError, wait_health
 from apple_refurb_watch.paths import lock_path, log_path, runtime_path
 
@@ -87,7 +87,16 @@ def windows_creationflags() -> list[int]:
     ]
 
 
+def spawn_env() -> dict[str, str]:
+    env = os.environ.copy()
+    if is_frozen():
+        # onefile 子进程要独立解压，否则父进程退出会清掉 _MEIPASS，后台 daemon 立刻死。
+        env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
 def spawn_detached(cmd: list[str], log_stream):
+    env = spawn_env()
     if os.name == "nt":
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -100,6 +109,7 @@ def spawn_detached(cmd: list[str], log_stream):
                     stdout=log_stream,
                     stderr=log_stream,
                     cwd=None,
+                    env=env,
                     creationflags=flags,
                     startupinfo=startupinfo,
                     close_fds=False,
@@ -114,6 +124,7 @@ def spawn_detached(cmd: list[str], log_stream):
         stdout=log_stream,
         stderr=log_stream,
         cwd=None,
+        env=env,
         start_new_session=True,
     )
 

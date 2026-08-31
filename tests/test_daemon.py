@@ -61,6 +61,17 @@ def test_package_root_uses_meipass(tmp_path, monkeypatch) -> None:
     assert package_root() == mei / "apple_refurb_watch"
 
 
+def test_spawn_env_resets_pyinstaller_when_frozen(monkeypatch) -> None:
+    from apple_refurb_watch import daemon
+
+    monkeypatch.setattr(daemon.sys, "frozen", True, raising=False)
+    env = daemon.spawn_env()
+    assert env["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+    monkeypatch.setattr(daemon.sys, "frozen", False, raising=False)
+    env = daemon.spawn_env()
+    assert env.get("PYINSTALLER_RESET_ENVIRONMENT") != "1"
+
+
 def test_embedded_server_starts_and_stops():
     import socket
 

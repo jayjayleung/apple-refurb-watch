@@ -65,6 +65,7 @@ jobs:
         env:
           APPLE_REFURB_WATCH_HOME: ${{ runner.temp }}/arw-smoke
           APPLE_REFURB_WATCH_LOG: ${{ runner.temp }}/arw-smoke-log
+          PYTHONUTF8: "1"
         run: |
           bin="./dist/out/${{ matrix.asset }}"
           "$bin" version
