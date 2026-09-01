@@ -5,7 +5,7 @@
 <header class="page-head">
   <div>
     <h1>动态</h1>
-    <p class="lede">{% if event_digest %}扫描按天收成一条，上新排在下面。{% else %}按时间从新到旧。{% endif %}时间按上海时区显示。</p>
+    <p class="lede">{% if event_digest %}按日期汇总。{% else %}按时间排列。{% endif %}时间以中国标准时间为准。</p>
   </div>
   {% with scan_class='primary' %}{% include "_scan.html" %}{% endwith %}
 </header>
@@ -21,26 +21,68 @@
 {% include "_event_feed.html" %}
 {% endblock %}
 {% block extra_js %}
-{% if scan_run_id %}
 <script>
 (function () {
-  var node = document.getElementById("scan-run-status");
-  if (!node) return;
-  var runId = node.getAttribute("data-scan-id");
-  if (!runId) return;
+  var lastScan = null;
+  var primed = false;
   var labels = {
     succeeded: "扫描完成。",
     partial: "扫描完成，但有部分分类失败。",
-    failed: "扫描失败，请展开动态查看原因。"
+    failed: "扫描失败。"
   };
+  function feed() { return document.getElementById("event-feed"); }
+  function visible() { return document.visibilityState !== "hidden"; }
+  function refreshFeed() {
+    var node = feed();
+    if (!node) return;
+    function run() {
+      if (!window.htmx) {
+        window.setTimeout(run, 50);
+        return;
+      }
+      window.htmx.ajax("GET", window.location.pathname + window.location.search, {
+        source: node,
+        target: "#event-feed",
+        swap: "outerHTML"
+      });
+    }
+    run();
+  }
+  function tick() {
+    if (!visible()) return;
+    fetch("/api/status", {headers: {"Accept": "application/json"}})
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var stamp = (data && (data.last_scan_at || data.last_success_at)) || "";
+        if (!primed) {
+          lastScan = stamp;
+          primed = true;
+          return;
+        }
+        if (stamp && stamp !== lastScan) {
+          lastScan = stamp;
+          refreshFeed();
+        }
+      })
+      .catch(function () {});
+  }
+  window.setInterval(tick, 4000);
+  document.addEventListener("visibilitychange", function () {
+    if (visible()) tick();
+  });
+  tick();
+  var node = document.getElementById("scan-run-status");
+  var runId = node && node.getAttribute("data-scan-id");
+  if (!runId) return;
   var tries = 0;
-  function poll() {
+  function pollRun() {
     fetch("/api/scans/" + encodeURIComponent(runId), {headers: {"Accept": "application/json"}})
       .then(function (response) { return response.json().then(function (data) {
         return {ok: response.ok, data: data};
       }); })
       .then(function (result) {
         var data = result.data || {};
+        if (!node) return;
         if (!result.ok) {
           node.textContent = "无法读取扫描状态。";
           node.classList.add("bad");
@@ -50,17 +92,17 @@
         if (labels[status]) {
           node.textContent = labels[status];
           if (status === "failed") node.classList.add("bad");
+          refreshFeed();
           return;
         }
         node.textContent = "扫描进行中…";
-        if (tries++ < 600) window.setTimeout(poll, 1000);
+        if (tries++ < 600) window.setTimeout(pollRun, 1000);
       })
       .catch(function () {
-        if (tries++ < 600) window.setTimeout(poll, 1500);
+        if (tries++ < 600) window.setTimeout(pollRun, 1500);
       });
   }
-  poll();
+  pollRun();
 })();
 </script>
-{% endif %}
 {% endblock %}

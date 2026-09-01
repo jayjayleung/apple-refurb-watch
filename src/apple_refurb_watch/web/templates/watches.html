@@ -5,77 +5,13 @@
 <header class="page-head">
   <div>
     <h1>监听</h1>
-    <p class="lede">选型号和配置，没货也可以先存。上新会通知。</p>
+    <p class="lede">符合条件的商品上新时发送通知。</p>
   </div>
 </header>
 
 <div class="watch-page">
-<form class="panel watch-form" method="post" action="/watches" id="watch-create"
-      hx-post="/watches/preview"
-      hx-trigger="change delay:200ms, cascade-done"
-      hx-target="#watch-preview"
-      hx-swap="innerHTML">
-  <div class="watch-toolbar">
-    <div>
-      <p class="field-label">分类</p>
-      {% with listing_key = 'mac', all_label = '不限' %}
-        {% include "_category_pills.html" %}
-      {% endwith %}
-    </div>
-    <div>
-      <p class="field-label">方式</p>
-      <div class="pills" role="radiogroup" aria-label="方式">
-        <label class="pill">
-          <input type="radio" name="mode" value="condition" checked>
-          <span>按配置</span>
-        </label>
-        <label class="pill">
-          <input type="radio" name="mode" value="sku">
-          <span>精确 SKU</span>
-        </label>
-      </div>
-    </div>
-  </div>
-
-  <div id="sku-fields" hidden>
-    <label>SKU <input name="sku" placeholder="FGDN4CH/A" autocomplete="off"></label>
-  </div>
-
-  <div id="condition-fields">
-    <p class="hint">先点型号，再点芯片和核心数。尺寸和年份会再收一档。内存缺货项（如 128GB）仍会留着。</p>
-    <div id="watch-dims" class="watch-facets"
-         hx-post="/watches/cascade"
-         hx-trigger="change from:#watch-create input[name='listing_key'], change from:#watch-create input[name='d_refurbClearModel'], change from:#watch-create input[name='d_chip']"
-         hx-include="#watch-create"
-         hx-target="this"
-         hx-swap="innerHTML"
-         hx-sync="this:replace"
-         hx-on::after-swap="htmx.trigger('#watch-create', 'cascade-done')">
-      {% with facets = watch_facets %}
-        {% include "_watch_facets.html" %}
-      {% endwith %}
-    </div>
-    <details class="more-conditions">
-      <summary>价格、排除等补充条件</summary>
-      <div class="form-grid">
-        <label class="wide">必须包含（逗号分隔）<input name="all_of" placeholder="纳米纹理以外的标题词"></label>
-        <label class="wide">排除 <input name="none_of" placeholder="纳米纹理"></label>
-        <label>最高价 <input type="number" name="max_price" min="0"></label>
-        <label>内存 ≥ GB <input type="number" name="min_ram_gb" min="0" placeholder="可选"></label>
-        <label>硬盘 ≥ GB <input type="number" name="min_storage_gb" min="0" placeholder="可选"></label>
-      </div>
-    </details>
-  </div>
-
-  <div class="watch-save">
-    <p id="watch-preview" class="watch-preview">点型号和选项。当前没货也可以先保存，上新会通知。</p>
-    <label class="watch-name">名称 <input name="name" placeholder="留空则按条件自动命名" autocomplete="off"></label>
-    <button class="btn primary" type="submit">保存规则</button>
-  </div>
-</form>
-
-<div class="watch-side">
 {% if watches %}
+<div class="watch-side">
 <p class="count">{{ watches|length }} 条规则</p>
 <div class="watch-list">
   {% for watch in watches %}
@@ -108,6 +44,7 @@
       {% endif %}
     </div>
     <div class="row">
+      <a class="btn" href="/watches/{{ watch.id }}">查看命中</a>
       <form method="post" action="/watches/{{ watch.id }}/toggle">
         <button class="btn" type="submit">{{ '暂停' if watch.enabled else '启用' }}</button>
       </form>
@@ -118,12 +55,75 @@
   </article>
   {% endfor %}
 </div>
-{% else %}
-<div class="empty">
-  <p>还没有规则。在上方选型号和配置，或去在售页点「按配置听」。</p>
 </div>
 {% endif %}
-</div>
+
+<details class="watch-create panel" id="watch-new"{% if not watches or open_create %} open{% endif %}>
+<summary>新建规则</summary>
+<form class="watch-form" method="post" action="/watches" id="watch-create"
+      hx-post="/watches/preview"
+      hx-trigger="change delay:200ms, cascade-done"
+      hx-target="#watch-preview"
+      hx-swap="innerHTML">
+  <div class="watch-toolbar">
+    <div>
+      <p class="field-label">分类</p>
+      {% with listing_key = 'mac', all_label = '不限' %}
+        {% include "_category_pills.html" %}
+      {% endwith %}
+    </div>
+    <div>
+      <p class="field-label">方式</p>
+      <div class="pills" role="radiogroup" aria-label="方式">
+        <label class="pill">
+          <input type="radio" name="mode" value="condition" checked>
+          <span>按配置</span>
+        </label>
+        <label class="pill">
+          <input type="radio" name="mode" value="sku">
+          <span>精确 SKU</span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div id="sku-fields" hidden>
+    <label>SKU <input name="sku" placeholder="FGDN4CH/A" autocomplete="off"></label>
+  </div>
+
+  <div id="condition-fields">
+    <p class="hint">缺货规格仍可选择。</p>
+    <div id="watch-dims" class="watch-facets"
+         hx-post="/watches/cascade"
+         hx-trigger="change from:#watch-create input[name='listing_key'], change from:#watch-create input[name='d_refurbClearModel'], change from:#watch-create input[name='d_chip']"
+         hx-include="#watch-create"
+         hx-target="this"
+         hx-swap="innerHTML"
+         hx-sync="this:replace"
+         hx-on::after-swap="htmx.trigger('#watch-create', 'cascade-done')">
+      {% with facets = watch_facets %}
+        {% include "_watch_facets.html" %}
+      {% endwith %}
+    </div>
+    <details class="more-conditions">
+      <summary>价格、排除等补充条件</summary>
+      <div class="form-grid">
+        <label class="wide">必须包含 <input name="all_of" autocomplete="off"></label>
+        <label class="wide">排除 <input name="none_of" autocomplete="off"></label>
+        <label>最高价 <input type="number" name="max_price" min="0"></label>
+        <label>内存 ≥ GB <input type="number" name="min_ram_gb" min="0"></label>
+        <label>硬盘 ≥ GB <input type="number" name="min_storage_gb" min="0"></label>
+      </div>
+    </details>
+  </div>
+
+  <div class="watch-save">
+    <p id="watch-preview" class="watch-preview">选择配置后可预览当前在售数量。</p>
+    <label class="watch-name">名称 <input name="name" placeholder="未填写时按条件命名" autocomplete="off"></label>
+    <button class="btn primary" type="submit">保存规则</button>
+  </div>
+</form>
+</details>
 </div>
 
 <script>

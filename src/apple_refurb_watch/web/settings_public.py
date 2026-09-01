@@ -11,7 +11,14 @@ from apple_refurb_watch.settings import (
     safe_listings,
 )
 
-__all__ = ["form_settings", "public_settings", "public_url", "safe_listings", "safe_next"]
+__all__ = [
+    "form_settings",
+    "overlay_notify_from_form",
+    "public_settings",
+    "public_url",
+    "safe_listings",
+    "safe_next",
+]
 
 _TRUTHY = {"1", "on", "true", "yes"}
 _NOTIFY_VALUE_FIELDS = (
@@ -107,3 +114,20 @@ def form_settings(form: dict, current: dict) -> dict:
             notify[name] = updated
         patch["notify"] = notify
     return patch
+
+
+def overlay_notify_from_form(form: dict, current: dict) -> dict:
+    """Merge typed notify fields onto current settings without persisting.
+
+    Blank secrets keep the saved values, matching save-settings behavior.
+    """
+    if not any(key == "save_notify" or str(key).startswith("notify_") for key in form):
+        return current
+    payload = dict(form)
+    payload["save_notify"] = "1"
+    notify = form_settings(payload, current).get("notify")
+    if not notify:
+        return current
+    merged = dict(current)
+    merged["notify"] = notify
+    return merged

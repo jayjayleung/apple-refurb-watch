@@ -90,6 +90,10 @@ elif sys.platform == "darwin":
         "webview.platforms.cocoa",
     ]
 
+console = sys.platform not in {"win32", "darwin"}
+icon_file = spec_dir / "app-icon.ico"
+exe_icon = str(icon_file) if sys.platform == "win32" and icon_file.is_file() else None
+
 a = Analysis(
     [str(repo_root / "src" / "apple_refurb_watch" / "__main__.py")],
     pathex=[str(repo_root / "src")],
@@ -117,7 +121,8 @@ if build_mode == "onefile":
         bootloader_ignore_signals=False,
         strip=False,
         upx=False,
-        console=True,
+        console=console,
+        icon=exe_icon,
     )
 else:
     exe = EXE(
@@ -130,7 +135,8 @@ else:
         bootloader_ignore_signals=False,
         strip=False,
         upx=False,
-        console=True,
+        console=console,
+        icon=exe_icon,
     )
     COLLECT(
         exe,

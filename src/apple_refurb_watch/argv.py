@@ -23,6 +23,40 @@ def with_frozen_default_command(
     return args
 
 
+def desktop_hides_console(argv: Sequence[str]) -> bool:
+    """Frozen GUI launches should not keep a console; probe/CLI still should."""
+
+    args = list(argv[1:])
+    if not args or args[0] != "desktop":
+        return False
+    return "--probe" not in args
+
+
+def apply_windows_console(
+    argv: Sequence[str],
+    *,
+    frozen: bool,
+    platform: str,
+) -> None:
+    """GUI-subsystem EXEs: hide console for the window, attach for CLI/probe."""
+
+    if platform != "win32" or not frozen:
+        return
+    try:
+        import ctypes
+        import io
+
+        kernel32 = ctypes.windll.kernel32
+        if desktop_hides_console(argv):
+            kernel32.FreeConsole()
+            return
+        if kernel32.AttachConsole(-1):
+            sys.stdout = io.TextIOWrapper(open("CONOUT$", "wb"), encoding="utf-8", errors="replace")
+            sys.stderr = io.TextIOWrapper(open("CONOUT$", "wb"), encoding="utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        return
+
+
 def invoke_argv(
     *args: str,
     frozen: bool | None = None,

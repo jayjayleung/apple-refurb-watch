@@ -11,6 +11,7 @@ from apple_refurb_watch.deliveries import enabled_channels, retry_pending_delive
 from apple_refurb_watch.listing_source import ListingSource
 from apple_refurb_watch.match import matches_watch, needs_ram, needs_storage
 from apple_refurb_watch.parse import Product
+from apple_refurb_watch.watches import appeared_message
 from apple_refurb_watch.storage.events import event_fingerprint
 
 _scan_lock = threading.Lock()
@@ -283,14 +284,14 @@ def _run_scan_locked(
                         db.set_watch_sku(watch["id"], product.sku, in_stock=True, notified=True)
                         continue
                     title = f"官翻上线：{watch['name']}"
-                    specs = []
-                    if product.ram_gb:
-                        specs.append(f"{product.ram_gb}GB 内存")
-                    if product.storage_gb:
-                        specs.append(_storage_label(product.storage_gb))
-                    if product.price is not None:
-                        specs.append(f"RMB {product.price:,.0f}")
-                    body = f"{product.title}\n" + " · ".join(specs) + f"\n{product.sku}"
+                    body = appeared_message(
+                        title=product.title,
+                        sku=product.sku,
+                        ram_gb=product.ram_gb,
+                        storage_gb=product.storage_gb,
+                        price=product.price,
+                        watch=watch,
+                    )
                     # Include the previous state marker so a later restock can
                     # produce a new event while retries of this transition are
                     # idempotent.
@@ -423,9 +424,3 @@ def _needs_detail(product: Product, watches: list[dict]) -> bool:
         if matches_watch(product, watch, ignore_ram=skip_ram, ignore_storage=skip_storage):
             return True
     return False
-
-
-def _storage_label(storage_gb: int) -> str:
-    if storage_gb >= 1024 and storage_gb % 1024 == 0:
-        return f"{storage_gb // 1024}TB 硬盘"
-    return f"{storage_gb}GB 硬盘"

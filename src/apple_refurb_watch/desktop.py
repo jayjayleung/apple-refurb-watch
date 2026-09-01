@@ -26,6 +26,7 @@ from apple_refurb_watch.daemon import acquire_lock, ping_daemon, spawn_env, stop
 from apple_refurb_watch.desktop_adapter import DesktopAdapter
 from apple_refurb_watch.desktop_notify import notify_os
 from apple_refurb_watch.embedded import EmbeddedServer
+from apple_refurb_watch.parse import product_page_url
 from apple_refurb_watch.paths import desktop_lock_path, desktop_signal_path, package_root
 from apple_refurb_watch.service import (
     desktop_autostart_preferred,
@@ -221,17 +222,18 @@ def probe_runtime(*, require_gui: bool | None = None) -> dict:
         embedded.stop()
 
 
-def _hide_console_if_frozen() -> None:
-    if sys.platform != "win32" or not is_frozen():
-        return
-    try:
-        import ctypes
+def tray_icon_path():
+    return package_root() / "web" / "static" / "icon-64.png"
 
-        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
-        if hwnd:
-            ctypes.windll.user32.ShowWindow(hwnd, 0)
-    except Exception:  # noqa: BLE001
-        return
+
+def load_tray_image(image_module):
+    path = tray_icon_path()
+    if path.is_file():
+        try:
+            return image_module.open(path).convert("RGBA")
+        except Exception:  # noqa: BLE001
+            pass
+    return image_module.new("RGBA", (64, 64), (0, 113, 227, 255))
 
 
 def _open_in_browser(url: str) -> None:
@@ -272,7 +274,13 @@ def _poll_appeared(client: ApiClient, enabled: threading.Event, stop: threading.
             event_id = int(event.get("id") or 0)
             if event_id <= cursor:
                 continue
-            notify_os(str(event.get("title") or "官翻上线"), str(event.get("message") or ""), event.get("url"))
+            name = str(event.get("watch_name") or "").strip()
+            title = f"官翻上线：{name}" if name else str(event.get("title") or "官翻上线")
+            notify_os(
+                title,
+                str(event.get("message") or ""),
+                product_page_url(event.get("sku"), event.get("url")),
+            )
             cursor = max(cursor, event_id)
 
 
@@ -575,7 +583,7 @@ def _start_tray(session: DesktopSession, *, adapter: DesktopAdapter | None = Non
     except RuntimeError:
         return None
 
-    image = image_module.new("RGBA", (64, 64), (0, 113, 227, 255))
+    image = load_tray_image(image_module)
     listen_state = {"on": bool(session.settings.get("listen_enabled", True))}
 
     def listen_label(item):  # noqa: ARG001
@@ -656,7 +664,6 @@ def run_desktop(*, hidden: bool = False) -> None:
     except Exception:  # noqa: BLE001
         pass
 
-    _hide_console_if_frozen()
     api = DesktopApi(session)
     window = webview.create_window(
         "官翻监听",

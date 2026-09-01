@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from apple_refurb_watch.db import Database
 from apple_refurb_watch.notify import CHANNELS, NotifyError, send_channel
+from apple_refurb_watch.parse import product_page_url
 
 HOOK_CHANNEL = "hook"
 HookFn = Callable[[dict, str, str, str | None], list[str]]
@@ -141,7 +142,7 @@ class OutboxWorker:
                 continue
             title = _notify_title(self.db, event)
             body = str(event.get("message") or event.get("title") or "")
-            url = event.get("url")
+            url = product_page_url(event.get("sku"), event.get("url"))
             conf: dict[str, Any] = {}
             if self.hook is None:
                 notify = settings.get("notify") or {}

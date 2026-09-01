@@ -1,6 +1,6 @@
 {% for item in items %}
 <article class="card">
-  <a class="card-hit" href="{{ item.url }}" target="_blank" rel="noreferrer">
+  <a class="card-hit" href="{{ item.url }}" target="_blank" rel="noopener noreferrer">
     {% if item.image_url %}
     <div class="card-media">
       <img src="{{ item.image_url|thumb }}" alt="{{ item.title }}" width="400" height="300" decoding="async" loading="{{ 'eager' if loop.index0 < 4 and not offset else 'lazy' }}" onerror="this.parentElement.classList.add('card-media-empty');this.remove()">

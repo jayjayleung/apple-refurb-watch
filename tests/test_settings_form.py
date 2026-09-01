@@ -1,6 +1,6 @@
 from apple_refurb_watch.db import DEFAULT_NOTIFY, DEFAULT_SETTINGS
 from apple_refurb_watch.settings import notify_channel_ready, notify_channel_status, public_settings
-from apple_refurb_watch.web.settings_public import form_settings
+from apple_refurb_watch.web.settings_public import form_settings, overlay_notify_from_form
 
 
 def _current(**overrides) -> dict:
@@ -55,6 +55,27 @@ def test_form_settings_blank_secret_keeps_value() -> None:
         current,
     )
     assert patch["notify"]["bark"]["url"] == "https://api.day.app/key"
+
+
+def test_overlay_notify_from_form_uses_typed_secret_without_saving_semantics() -> None:
+    current = _current()
+    current["notify"]["bark"] = {"enabled": False, "url": "https://api.day.app/saved"}
+    merged = overlay_notify_from_form(
+        {
+            "save_notify": "1",
+            "notify_bark_url": "https://api.day.app/draft",
+        },
+        current,
+    )
+    assert merged["notify"]["bark"]["url"] == "https://api.day.app/draft"
+    assert current["notify"]["bark"]["url"] == "https://api.day.app/saved"
+    blank = overlay_notify_from_form(
+        {"save_notify": "1", "notify_bark_url": ""},
+        current,
+    )
+    assert blank["notify"]["bark"]["url"] == "https://api.day.app/saved"
+    unchanged = overlay_notify_from_form({"channel": "bark"}, current)
+    assert unchanged["notify"]["bark"]["url"] == "https://api.day.app/saved"
 
 
 def test_notify_channel_status_labels() -> None:

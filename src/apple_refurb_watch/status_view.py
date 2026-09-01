@@ -5,6 +5,12 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from apple_refurb_watch.listing import products_in_listen_scope
+from apple_refurb_watch.parse import product_page_url
+from apple_refurb_watch.watches import (
+    appeared_spec_line,
+    spec_line_from_message,
+    watch_condition_chips,
+)
 
 
 def _display_tz():
@@ -164,18 +170,36 @@ def _event_kind(event_type: str) -> str:
     return "routine"
 
 
-def _present_event(event: dict[str, Any], watch_names: dict[int, str] | None = None) -> dict[str, Any]:
+def _watch_id(event: dict[str, Any]) -> int | None:
+    raw = event.get("watch_id")
+    if raw in (None, ""):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _present_event(
+    event: dict[str, Any],
+    watch_names: dict[int, str] | None = None,
+    watches: dict[int, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     event_type = str(event.get("type") or "")
     local = format_localtime(event.get("created_at"))
     label = EVENT_LABELS.get(event_type, event_type)
-    if event_type == "appeared":
-        watch_id = event.get("watch_id")
-        try:
-            name = (watch_names or {}).get(int(watch_id)) if watch_id is not None else None
-        except (TypeError, ValueError):
-            name = None
-        if name:
-            label = f"上新 · {name}"
+    watch_id = _watch_id(event)
+    watch = (watches or {}).get(watch_id) if watch_id is not None else None
+    name = None
+    if watch_id is not None:
+        if watch and watch.get("name"):
+            name = str(watch.get("name") or "")
+        elif watch_names:
+            name = watch_names.get(watch_id)
+    if event_type == "appeared" and name:
+        label = f"上新 · {name}"
+    spec_line = _event_spec_line(event)
+    chips = watch_condition_chips(watch) if event_type == "appeared" else []
     return {
         "created_at": event.get("created_at"),
         "type": event_type,
@@ -184,11 +208,34 @@ def _present_event(event: dict[str, Any], watch_names: dict[int, str] | None = N
         "when_local": local,
         "title": event.get("title"),
         "message": event.get("message"),
-        "url": event.get("url"),
+        "url": product_page_url(event.get("sku"), event.get("url")),
         "sku": event.get("sku"),
         "watch_id": event.get("watch_id"),
+        "price": event.get("price"),
+        "ram_gb": event.get("ram_gb"),
+        "storage_gb": event.get("storage_gb"),
+        "spec_line": spec_line,
+        "watch_chips": chips,
         "day": local[:10] if len(local) >= 10 else local,
     }
+
+
+def _has_capacity(text: str) -> bool:
+    return "内存" in text or "硬盘" in text
+
+
+def _event_spec_line(event: dict[str, Any]) -> str:
+    from_fields = appeared_spec_line(
+        ram_gb=event.get("ram_gb"),
+        storage_gb=event.get("storage_gb"),
+        price=event.get("price"),
+    )
+    from_message = spec_line_from_message(event.get("message"))
+    if _has_capacity(from_fields):
+        return from_fields
+    if _has_capacity(from_message):
+        return from_message
+    return from_fields or from_message
 
 
 def _routine_summary(routines: list[dict[str, Any]]) -> dict[str, Any]:
@@ -221,8 +268,9 @@ def present_event_days(
     *,
     collapse_scans: bool = False,
     watch_names: dict[int, str] | None = None,
+    watches: dict[int, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    presented = [_present_event(event, watch_names) for event in events]
+    presented = [_present_event(event, watch_names, watches) for event in events]
     presented.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
     days: list[dict[str, Any]] = []
     for item in presented:

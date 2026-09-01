@@ -154,6 +154,31 @@ class WatchRepository:
                 (watch_id, sku, int(in_stock), int(notified), utcnow()),
             )
 
+    def list_skus(self, watch_id: int) -> list[dict]:
+        with self.store.lock:
+            rows = self.store.conn.execute(
+                """
+                SELECT ws.sku, ws.in_stock, ws.updated_at,
+                       p.title, p.url, p.price, p.ram_gb, p.storage_gb, p.image_url
+                FROM watch_sku ws
+                LEFT JOIN products p ON p.sku = ws.sku
+                WHERE ws.watch_id=?
+                """,
+                (watch_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_sku(self, watch_id: int, sku: str) -> bool:
+        sku = str(sku or "").strip()
+        if not sku:
+            return False
+        with self.store.transaction() as conn:
+            cur = conn.execute(
+                "DELETE FROM watch_sku WHERE watch_id=? AND sku=? AND in_stock=0",
+                (watch_id, sku),
+            )
+        return cur.rowcount > 0
+
     def mark_skus_out(self, watch_id: int, present: set[str]) -> None:
         with self.store.lock:
             rows = self.store.conn.execute(

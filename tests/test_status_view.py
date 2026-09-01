@@ -6,6 +6,7 @@ from apple_refurb_watch.status_view import (
     present_event_days,
     present_status,
 )
+from apple_refurb_watch.watches import appeared_message, present_watch_hits, watch_condition_chips
 
 
 def test_status_view_idle_and_ok() -> None:
@@ -235,3 +236,128 @@ def test_display_tz_falls_back_without_iana(monkeypatch) -> None:
 
 def test_format_reltime_old_uses_shanghai() -> None:
     assert format_reltime("2026-08-27T06:45:00+00:00") == "08-27 14:45"
+
+
+def test_present_event_shows_specs_and_watch_chips() -> None:
+    watch = {
+        "id": 4,
+        "name": "14 寸 M5 Max",
+        "listing_key": "macbook-pro",
+        "dim_filters": {"chip": ["m5_max"], "dimensionScreensize": ["14inch"]},
+        "min_ram_gb": 64,
+    }
+    days = present_event_days(
+        [
+            {
+                "type": "appeared",
+                "watch_id": 4,
+                "title": "翻新 14 英寸 MacBook Pro",
+                "price": 45499,
+                "ram_gb": 128,
+                "storage_gb": 2048,
+                "sku": "G1MN4CH/A",
+                "message": appeared_message(
+                    title="翻新 14 英寸 MacBook Pro",
+                    sku="G1MN4CH/A",
+                    ram_gb=128,
+                    storage_gb=2048,
+                    price=45499,
+                    watch=watch,
+                ),
+                "created_at": "2026-09-01T06:16:12+00:00",
+            }
+        ],
+        watches={4: watch},
+    )
+    entry = days[0]["entries"][0]
+    assert entry["label"] == "上新 · 14 寸 M5 Max"
+    assert entry["spec_line"] == "128GB 内存 · 2TB 硬盘 · RMB 45,499"
+    assert "MacBook Pro" in entry["watch_chips"]
+    assert "M5 Max" in entry["watch_chips"]
+    assert any("64" in chip for chip in entry["watch_chips"])
+    assert "命中：" in (entry["message"] or "")
+
+
+def test_present_event_keeps_message_specs_when_fields_missing() -> None:
+    days = present_event_days(
+        [
+            {
+                "type": "appeared",
+                "title": "翻新 14 英寸 MacBook Pro Apple M5 Max 芯片 和纳米纹理显示屏 - 银色",
+                "price": 46399,
+                "sku": "G1MK5CH/A",
+                "message": (
+                    "翻新 14 英寸 MacBook Pro Apple M5 Max 芯片 和纳米纹理显示屏 - 银色\n"
+                    "128GB 内存 · 2TB 硬盘 · RMB 46,399\n"
+                    "G1MK5CH/A"
+                ),
+                "created_at": "2026-09-01T06:16:12+00:00",
+            }
+        ]
+    )
+    assert days[0]["entries"][0]["spec_line"] == "128GB 内存 · 2TB 硬盘 · RMB 46,399"
+
+
+def test_appeared_message_and_chips_match_watch_page() -> None:
+    watch = {
+        "listing_key": "macbook-pro",
+        "dim_filters": {"chip": ["m5_max"]},
+        "min_ram_gb": 64,
+    }
+    body = appeared_message(
+        title="翻新 MacBook Pro",
+        sku="G1MK7CH/A",
+        ram_gb=64,
+        storage_gb=1024,
+        price=18999,
+        watch=watch,
+    )
+    assert "命中：" in body
+    assert "RMB 18,999" in body
+    chips = watch_condition_chips(watch)
+    assert chips[0] == "MacBook Pro"
+    assert "M5 Max" in chips
+
+
+def test_present_watch_hits_puts_in_stock_first() -> None:
+    hits = present_watch_hits(
+        [
+            {
+                "sku": "G1MK5CH/A",
+                "in_stock": 0,
+                "title": "已下架",
+                "price": 100,
+                "url": "https://www.apple.com.cn/shop/product/g1mk5ch/a",
+            },
+            {
+                "sku": "G1MK7CH/A",
+                "in_stock": 1,
+                "title": "在售",
+                "price": 200,
+                "url": "https://www.apple.com.cn/shop/product/g1mk7ch/a",
+            },
+        ]
+    )
+    assert [item["sku"] for item in hits] == ["G1MK7CH/A", "G1MK5CH/A"]
+    assert hits[0]["in_stock"] is True
+    assert hits[1]["in_stock"] is False
+    assert hits[0]["url"].endswith("/G1MK7CH/A")
+
+
+def test_paginate_watch_hits_clamps_page() -> None:
+    from apple_refurb_watch.watches import paginate_watch_hits, watch_hits_url
+
+    rows = [{"sku": f"SKU{i:02d}", "in_stock": 0, "title": f"T{i:02d}"} for i in range(21)]
+    first = paginate_watch_hits(present_watch_hits(rows), 1, page_size=20)
+    second = paginate_watch_hits(present_watch_hits(rows), 99, page_size=20)
+    empty = paginate_watch_hits([], "nope")
+    assert first["hit_page"] == 1
+    assert first["hit_pages"] == 2
+    assert first["has_next"] is True
+    assert len(first["hits"]) == 20
+    assert second["hit_page"] == 2
+    assert len(second["hits"]) == 1
+    assert empty["hit_page"] == 1
+    assert empty["hit_total"] == 0
+    assert watch_hits_url(4, 1) == "/watches/4"
+    assert watch_hits_url(4, 2) == "/watches/4?page=2"

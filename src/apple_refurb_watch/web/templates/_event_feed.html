@@ -24,18 +24,22 @@
   <h2>{{ day.day }}</h2>
   <ol class="timeline">
     {% for event in day.entries %}
-    <li class="event-{{ event.kind }}">
+    <li class="event-{{ event.kind }}{% if event.sold %} is-sold{% endif %}">
       <time class="when" datetime="{{ event.created_at }}">{{ event.when_local }}</time>
       {% if event.image_url %}
       <img class="event-thumb" src="{{ event.image_url|thumb }}" alt="" width="42" height="42">
       {% endif %}
-      <strong>{{ event.label }}</strong>
+      <div class="event-head">
+        <strong>{{ event.label }}</strong>
+        {% if event.sold %}<span class="tag oos">已售出</span>{% endif %}
+      </div>
       {% if event.kind == 'appear' and event.title %}
       <p>{{ event.title }}</p>
+      {% if event.spec_line %}<p class="event-specs">{{ event.spec_line }}</p>{% endif %}
       {% else %}
       <p>{{ event.message or event.title }}</p>
       {% endif %}
-      {% if event.url %}<a href="{{ event.url }}" target="_blank" rel="noreferrer">打开商品</a>{% endif %}
+      {% if event.url %}<a href="{{ event.url }}" target="_blank" rel="noopener noreferrer">打开商品</a>{% endif %}
     </li>
     {% endfor %}
   </ol>
@@ -58,7 +62,7 @@
 {% endif %}
 {% else %}
 <div class="empty">
-  <p>还没有记录。首次扫描只建基线，不会把当前库存全部推过来。</p>
+  <p>暂无动态。首次扫描仅建立基线。</p>
   {% with scan_class='primary' %}{% include "_scan.html" %}{% endwith %}
 </div>
 {% endif %}

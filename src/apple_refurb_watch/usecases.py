@@ -7,8 +7,10 @@ from apple_refurb_watch.categories import shop_families_for
 from apple_refurb_watch.db import EVENT_KEEP, Database
 from apple_refurb_watch.filters import facet_groups
 from apple_refurb_watch.listing import PAGE_SIZE, filter_products, products_in_listen_scope, sort_products
+from apple_refurb_watch.parse import product_page_url
 from apple_refurb_watch.settings import normalize_settings_patch, public_settings
 from apple_refurb_watch.status_view import filter_event_days, load_status, paginate_event_days, present_event_days
+from apple_refurb_watch.watches import appeared_spec_line
 
 API_REVISION = 2
 CAPABILITIES = [
@@ -52,7 +54,10 @@ def list_shop(
         min_storage_gb=None,
         dim_filters={},
     )
-    items = sort_products(filter_products(stock, **filters), sort)
+    items = [
+        {**item, "url": product_page_url(item.get("sku"), item.get("url"))}
+        for item in sort_products(filter_products(stock, **filters), sort)
+    ]
     total_count = len(items)
     if page_size is None:
         page_items = items
@@ -94,21 +99,43 @@ def list_shop(
 
 def present_events(db: Database, *, digest: bool = True, kind: str = "all", page: int = 1) -> dict[str, Any]:
     thumbs = {
-        str(item.get("sku") or ""): item.get("image_url")
-        for item in db.list_products()
-        if item.get("sku") and item.get("image_url")
+        str(item.get("sku") or ""): item
+        for item in db.list_products(in_stock=None)
+        if item.get("sku")
     }
-    watch_names = {int(item["id"]): str(item.get("name") or "") for item in db.list_watches() if item.get("id")}
+    watches = {int(item["id"]): item for item in db.list_watches() if item.get("id")}
+    watch_names = {key: str(item.get("name") or "") for key, item in watches.items()}
     days = filter_event_days(
-        present_event_days(db.list_events(EVENT_KEEP), collapse_scans=digest, watch_names=watch_names),
+        present_event_days(
+            db.list_events(EVENT_KEEP),
+            collapse_scans=digest,
+            watch_names=watch_names,
+            watches=watches,
+        ),
         kind,
     )
     paged = paginate_event_days(days, page, by_day=digest)
     for day in paged["event_days"]:
         for event in day["entries"]:
             sku = str(event.get("sku") or "")
-            if sku and thumbs.get(sku):
-                event["image_url"] = thumbs[sku]
+            product = thumbs.get(sku) or {}
+            if product.get("image_url"):
+                event["image_url"] = product.get("image_url")
+            ram = event.get("ram_gb") or product.get("ram_gb")
+            storage = event.get("storage_gb") or product.get("storage_gb")
+            price = event.get("price") if event.get("price") is not None else product.get("price")
+            event["ram_gb"] = ram
+            event["storage_gb"] = storage
+            if price is not None:
+                event["price"] = price
+            spec = appeared_spec_line(ram_gb=ram, storage_gb=storage, price=price)
+            if ram or storage:
+                if spec:
+                    event["spec_line"] = spec
+            elif not event.get("spec_line") and spec:
+                event["spec_line"] = spec
+            if event.get("kind") == "appear" and sku in thumbs:
+                event["sold"] = int(product.get("in_stock") or 0) == 0
     return {
         **paged,
         "event_kind": kind,

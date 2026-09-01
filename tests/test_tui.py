@@ -1,7 +1,7 @@
 import asyncio
 
 from apple_refurb_watch.tui_app import create_tui
-from apple_refurb_watch.watches import watch_condition_label, watch_from_product
+from apple_refurb_watch.watches import watch_condition_chips, watch_condition_label, watch_from_product
 
 
 class FakeTuiClient:
@@ -117,6 +117,9 @@ def test_watch_from_product_modes() -> None:
     assert "cpu_cores" not in cored["dim_filters"]
     assert "gpu_cores" not in cored["dim_filters"]
     assert "Mac" in watch_condition_label({"listing_key": "macbook-pro", "dim_filters": {"chip": ["m5"]}})
+    chips = watch_condition_chips({"listing_key": "macbook-pro", "dim_filters": {"chip": ["m5"]}})
+    assert chips[0] == "MacBook Pro"
+    assert "M5" in chips
 
 
 def test_tui_four_panes_load() -> None:

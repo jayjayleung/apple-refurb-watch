@@ -71,6 +71,9 @@ def test_baseline_then_notify(tmp_path: Path, listing_html: str) -> None:
     )
     assert second["notified"] == 1
     assert notes
+    appeared = [item for item in db.list_events() if item.get("type") == "appeared"]
+    assert appeared
+    assert "命中：" in (appeared[0].get("message") or "")
 
     third = run_scan(
         db,

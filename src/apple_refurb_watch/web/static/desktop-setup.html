@@ -50,17 +50,17 @@
 <body>
   <main>
     <h1>连接服务器</h1>
-    <p class="lede">本机跑一份，或改连已经在 NAS / VPS 上的那一份。改连接后窗口会重启。</p>
+    <p class="lede">使用本机服务，或连接到远程服务器。更改后窗口将重新启动。</p>
     <p id="status" class="flash warn" hidden></p>
     <section class="panel">
       <label>服务器地址
         <input id="url" type="url" placeholder="http://192.168.1.8:8765" autocomplete="off">
       </label>
       <label>访问口令
-        <input id="token" type="password" placeholder="远端开启远程访问后的口令">
+        <input id="token" type="password" autocomplete="off">
       </label>
-      <label class="check"><input id="insecure" type="checkbox"> 允许公网 HTTP（不推荐）</label>
-      <p class="hint">公网请用 https://。内网 NAS 用 HTTP 即可。口令不要写在地址里。</p>
+      <label class="check"><input id="insecure" type="checkbox"> 允许通过 HTTP 连接（不推荐）</label>
+      <p class="hint">公网请使用 HTTPS。</p>
       <div class="row">
         <button class="btn primary" id="connect" type="button">连接服务器</button>
         <button class="btn" id="local" type="button">改回本机</button>
@@ -82,21 +82,21 @@
     function fill(s) {
       if (s.url) $("url").value = s.url;
       $("insecure").checked = !!s.allow_insecure;
-      if (s.has_token) $("token").placeholder = "已保存，留空不改";
+      if (s.has_token) $("token").placeholder = "已保存";
       if (s.env_locked) {
         $("connect").disabled = true;
         $("local").disabled = true;
-        setStatus("当前由环境变量 APPLE_REFURB_WATCH_URL 指定，界面无法改连接。", "warn");
+        setStatus("连接由环境变量指定，无法在此更改。", "warn");
         return;
       }
       if (s.error) setStatus(s.error, "bad");
       else if (s.notice) setStatus(s.notice, "warn");
-      else if (s.mode === "remote") setStatus("已连接 " + (s.url || "") + "。本机不扫描。", "ok");
+      else if (s.mode === "remote") setStatus("已连接 " + (s.url || "") + "。", "ok");
     }
     function boot() {
       var bridge = api();
       if (!bridge) {
-        setStatus("请从桌面包打开此页。", "bad");
+        setStatus("请从桌面应用打开此页。", "bad");
         return;
       }
       bridge.state().then(fill);
@@ -121,7 +121,7 @@
       });
       $("back").addEventListener("click", function () {
         bridge.open_app().then(function (r) {
-          if (!r || !r.ok) setStatus((r && r.error) || "还没有可用的服务", "bad");
+          if (!r || !r.ok) setStatus((r && r.error) || "没有可用的服务。", "bad");
         });
       });
     }

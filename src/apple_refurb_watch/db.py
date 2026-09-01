@@ -136,6 +136,12 @@ class Database:
     def mark_watch_skus_out(self, watch_id: int, present: set[str]) -> None:
         self.watches_repo.mark_skus_out(watch_id, present)
 
+    def list_watch_skus(self, watch_id: int) -> list[dict]:
+        return self.watches_repo.list_skus(watch_id)
+
+    def delete_watch_sku(self, watch_id: int, sku: str) -> bool:
+        return self.watches_repo.delete_sku(watch_id, sku)
+
     def add_event(self, **kwargs: Any) -> int:
         return self.events_repo.add(**kwargs)
 

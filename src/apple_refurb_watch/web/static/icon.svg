@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="官翻监听">
+  <defs>
+    <linearGradient id="bg" x1="32" y1="0" x2="32" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3f3f42"/>
+      <stop offset="1" stop-color="#1c1c1e"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="32" y1="0" x2="32" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14.5" fill="url(#bg)"/>
+  <rect width="64" height="64" rx="14.5" fill="url(#sheen)"/>
+  <g fill="#fff" transform="translate(11.2 14.8) scale(0.148)">
+    <path d="M223.3 169.59a8.07 8.07 0 0 0-2.8-3.4C203.53 154.53 200 134.64 200 120c0-17.67 13.47-33.06 21.5-40.67a8 8 0 0 0 0-11.62C208.82 55.74 187.82 48 168 48a72.23 72.23 0 0 0-40 12.13 71.56 71.56 0 0 0-90.71 9.09A74.63 74.63 0 0 0 16 123.4a127 127 0 0 0 40.14 89.73A39.8 39.8 0 0 0 83.59 224h87.68a39.84 39.84 0 0 0 29.12-12.57 125 125 0 0 0 17.82-24.6C225.23 174 224.33 172 223.3 169.59Z"/>
+  </g>
+  <ellipse cx="35.2" cy="17.4" rx="7.2" ry="3.15" fill="#fff" transform="rotate(-52 35.2 17.4)"/>
+  <g fill="none" stroke="#fff" stroke-width="3.3" stroke-linecap="round">
+    <path d="M47.21 26.42A14.6 14.6 0 0 1 47.21 43.58"/>
+    <path d="M52.55 22.54A21.2 21.2 0 0 1 52.55 47.46"/>
+  </g>
+</svg>

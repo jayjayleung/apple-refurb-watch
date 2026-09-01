@@ -34,12 +34,18 @@ def test_pages_and_watch_api(tmp_path) -> None:
         assert "kicker" not in home.text
         assert "status-bar" not in home.text
         assert 'id="filter-open"' in home.text
+        assert "/static/icon.svg" in home.text
+        assert "/static/favicon.ico" in home.text
         assert "filter-rail" in home.text
         assert "按此条件听" not in home.text
         assert "认证的翻新产品" not in home.text
         assert "浏览全部" not in home.text
         assert 'class="dock"' not in home.text
         assert 'class="top"' in home.text
+        assert "https://github.com/jayjayleung/apple-refurb-watch" in home.text
+        assert "github-link" in home.text
+        assert 'class="site-foot"' not in home.text
+        assert home.text.index("github-link") < home.text.index('id="main"')
         mac = client.get("/?listing_key=mac")
         assert "filter-rail" in mac.text
         assert 'class="shop-families"' in mac.text
@@ -77,6 +83,7 @@ def test_settings_redact_secrets(tmp_path) -> None:
         assert "已保存" in page.text
         assert "已启用" in page.text
         assert "更换" not in page.text
+        assert "https://github.com/jayjayleung/apple-refurb-watch" in page.text
 
 
 def test_empty_access_token_does_not_clear(tmp_path) -> None:
@@ -132,6 +139,9 @@ def test_login_page_has_no_app_chrome(tmp_path) -> None:
         assert "login-shell" in page.text
         assert 'href="/watches"' not in page.text
         assert "status-bar" not in page.text
+        assert "https://github.com/jayjayleung/apple-refurb-watch" in page.text
+        assert "/static/icon.svg" in page.text
+        assert 'class="brand-icon"' in page.text
 
 
 def test_status_and_dim_watch_api(tmp_path) -> None:
@@ -233,7 +243,7 @@ def test_status_and_dim_watch_api(tmp_path) -> None:
         assert "缺货" in watches_page.text
         assert 'class="facet-oos"' not in watches_page.text
         assert "在售 " in watches_page.text
-        assert "先点型号" in watches_page.text
+        assert "缺货规格仍可选择" in watches_page.text
         assert "M5 Pro" in watches_page.text
         assert "芯片" in watches_page.text
         assert 'name="d_cores"' in watches_page.text
@@ -243,6 +253,10 @@ def test_status_and_dim_watch_api(tmp_path) -> None:
         assert 'value="macbookpro"' in watches_page.text
         assert 'value="macbookair"' in watches_page.text
         assert "删除这条规则？" in watches_page.text
+        assert "新建规则" in watches_page.text
+        assert watches_page.text.index("表单规则") < watches_page.text.index("新建规则")
+        assert '<details class="watch-create panel" id="watch-new">' in watches_page.text
+        assert '<details class="watch-create panel" id="watch-new" open>' not in watches_page.text
         mac_page = client.get("/?listing_key=mac")
         assert "机型" in mac_page.text
         assert "MacBook Air" in mac_page.text
@@ -301,7 +315,7 @@ def test_status_and_dim_watch_api(tmp_path) -> None:
         assert oos.headers["location"] == "/?listing_key=mac"
         empty = client.get("/?listing_key=mac&d_tsMemorySize=128gb")
         assert empty.status_code == 200
-        assert "没有符合条件的商品" in empty.text
+        assert "没有符合筛选条件的商品" in empty.text
         assert 'value="128gb"' in empty.text
         cascade = client.post(
             "/watches/cascade",
@@ -387,10 +401,10 @@ def test_listen_toggle_form_and_api(tmp_path) -> None:
         assert patched["listen_enabled"] is True
         assert db.settings()["listen_enabled"] is True
         settings_page = client.get("/settings")
-        assert "定时监听官网" in settings_page.text
+        assert "定时扫描官网" in settings_page.text
         assert "从官网同步筛选词条" in settings_page.text
         assert "监听分类" in settings_page.text
-        assert "这些分类会抓取，在售只展示它们" in settings_page.text
+        assert "仅扫描所选分类" in settings_page.text
         assert "关闭窗口到托盘" in settings_page.text
         assert "close_window_keeps_daemon" in settings_page.text
         assert "desktop-this-computer" in settings_page.text
@@ -401,9 +415,15 @@ def test_listen_toggle_form_and_api(tmp_path) -> None:
         assert "发送测试通知" not in settings_page.text
         assert "更换" not in settings_page.text
         assert "未配置" in settings_page.text
+        assert "先保存密钥" not in settings_page.text
+        assert "用当前填写的内容测这一路" not in settings_page.text
+        assert "密钥旁标" not in settings_page.text
+        assert "要改就填新的再保存" not in settings_page.text
+        assert 'formaction="/settings/notify-test"' in settings_page.text
+        assert "requestSubmit" in settings_page.text
         assert "试一下" in settings_page.text
         assert "computer-notify-allow" not in settings_page.text
-        assert "地址栏" in settings_page.text
+        assert "computer-notify-web-hint" not in settings_page.text
         assert "未授予通知权限。" not in settings_page.text
         assert 'name="channel" value="bark"' in settings_page.text
         assert 'name="channel" value="feishu"' in settings_page.text
@@ -509,9 +529,9 @@ def test_events_page_shows_shanghai_time(tmp_path) -> None:
         assert page.text.index("2 次扫描") < page.text.index("翻新 MacBook Pro")
         assert "N 次扫描" not in page.text
         assert "<strong>scan</strong>" not in page.text
-        assert "上新排在下面" in page.text
+        assert "按日期汇总" in page.text
         assert "上新按天排在前面" not in page.text
-        assert "时间按上海时区显示" in page.text
+        assert "时间以中国标准时间为准" in page.text
         assert "kind-seg" not in page.text
         assert "timeline" in page.text
         full = client.get("/events?all=1")
@@ -519,14 +539,15 @@ def test_events_page_shows_shanghai_time(tmp_path) -> None:
         assert "2026-08-29 14:45" in full.text
         assert "2026-08-29 15:00" in full.text
         assert "2026-08-29 16:10" in full.text
-        assert full.text.count("扫描完成") == 2
+        assert full.text.count("<strong>扫描完成</strong>") == 2
+        assert "/api/status" in full.text
         assert "第一次扫描" in full.text
         assert "第二次扫描" in full.text
         assert "翻新 MacBook Pro" in full.text
         assert "2 次扫描" not in full.text
         assert full.text.index("2026-08-29 16:10") < full.text.index("2026-08-29 15:00") < full.text.index("2026-08-29 14:45")
-        assert "按时间从新到旧" in full.text
-        assert "上新排在下面" not in full.text
+        assert "按时间排列" in full.text
+        assert "按日期汇总" not in full.text
         digest = client.get("/events?digest=1")
         assert digest.status_code == 200
         assert "2 次扫描" in digest.text
@@ -539,6 +560,259 @@ def test_events_page_shows_shanghai_time(tmp_path) -> None:
         api = client.get("/api/events").json()
         assert len(api) == 3
         assert api[0]["created_at"] == "2026-08-29T08:10:00+00:00"
+
+
+def test_events_page_shows_hit_details_and_live_fragment(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    watch = db.create_watch(
+        {
+            "name": "14 寸 M5 Max",
+            "listing_key": "macbook-pro",
+            "dim_filters": {"chip": ["m5_max"], "dimensionScreensize": ["14inch"]},
+            "min_ram_gb": 64,
+        }
+    )
+    db.conn.execute(
+        """
+        INSERT INTO events(type, sku, watch_id, title, price, url, message, created_at)
+        VALUES(?,?,?,?,?,?,?,?)
+        """,
+        (
+            "appeared",
+            "G1MK7CH/A",
+            watch["id"],
+            "翻新 14 英寸 MacBook Pro",
+            52799,
+            "https://www.apple.com.cn/shop/product/g1mk7ch/a",
+            "翻新 14 英寸 MacBook Pro\n128GB 内存 · 2TB 硬盘 · RMB 52,799\nG1MK7CH/A",
+            "2026-09-01T06:16:12+00:00",
+        ),
+    )
+    db.conn.commit()
+    db.upsert_products(
+        [
+            {
+                "sku": "G1MK7CH/A",
+                "listing_key": "macbook-pro",
+                "title": "翻新 14 英寸 MacBook Pro",
+                "price": 52799,
+                "ram_gb": 128,
+                "storage_gb": 2048,
+                "url": "https://www.apple.com.cn/shop/product/g1mk7ch/a",
+            }
+        ]
+    )
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        page = client.get("/events")
+        assert page.status_code == 200
+        assert "上新 · 14 寸 M5 Max" in page.text
+        assert "RMB 52,799" in page.text
+        assert "128GB 内存" in page.text
+        assert "event-specs" in page.text
+        assert "M5 Max" in page.text
+        assert "内存 ≥ 64GB" not in page.text
+        assert "event-conds" not in page.text
+        assert "已售出" not in page.text
+        assert "shop/product/G1MK7CH/A" in page.text
+        assert "/api/status" in page.text
+        assert "event-feed" in page.text
+        fragment = client.get(
+            "/events",
+            headers={"HX-Request": "true", "HX-Target": "event-feed"},
+        )
+        assert fragment.status_code == 200
+        assert 'id="event-feed"' in fragment.text
+        assert "<html" not in fragment.text.lower()
+        assert "上新 · 14 寸 M5 Max" in fragment.text
+        assert "RMB 52,799" in fragment.text
+        assert "/api/status" not in fragment.text
+        listed = client.get("/api/events").json()
+        assert listed[0]["watch_name"] == "14 寸 M5 Max"
+
+
+def test_events_page_shows_specs_for_sold_out_hit(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    watch = db.create_watch(
+        {
+            "name": "14 寸 M5 Max",
+            "listing_key": "macbook-pro",
+            "dim_filters": {"chip": ["m5_max"], "dimensionScreensize": ["14inch"]},
+            "min_ram_gb": 64,
+        }
+    )
+    db.conn.execute(
+        """
+        INSERT INTO events(type, sku, watch_id, title, price, url, message, created_at)
+        VALUES(?,?,?,?,?,?,?,?)
+        """,
+        (
+            "appeared",
+            "G1MK5CH/A",
+            watch["id"],
+            "翻新 14 英寸 MacBook Pro",
+            46399,
+            "https://www.apple.com.cn/shop/product/g1mk5ch/a",
+            "翻新 14 英寸 MacBook Pro\n128GB 内存 · 2TB 硬盘 · RMB 46,399\nG1MK5CH/A",
+            "2026-09-01T06:16:12+00:00",
+        ),
+    )
+    db.conn.commit()
+    db.upsert_products(
+        [
+            {
+                "sku": "G1MK5CH/A",
+                "listing_key": "macbook-pro",
+                "title": "翻新 14 英寸 MacBook Pro",
+                "price": 46399,
+                "ram_gb": 128,
+                "storage_gb": 2048,
+                "url": "https://www.apple.com.cn/shop/product/g1mk5ch/a",
+            }
+        ]
+    )
+    db.mark_listing_stock(["macbook-pro"], set())
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        page = client.get("/events")
+        assert page.status_code == 200
+        assert "128GB 内存" in page.text
+        assert "2TB 硬盘" in page.text
+        assert "RMB 46,399" in page.text
+        assert page.text.index("128GB 内存") < page.text.index("RMB 46,399")
+        assert "已售出" in page.text
+        assert "is-sold" in page.text
+        assert "内存 ≥ 64GB" not in page.text
+        assert "event-conds" not in page.text
+
+
+def test_watches_page_opens_create_only_when_empty_or_requested(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        empty = client.get("/watches")
+        assert empty.status_code == 200
+        assert "新建规则" in empty.text
+        assert '<details class="watch-create panel" id="watch-new" open>' in empty.text
+        assert "还没有规则" not in empty.text
+        assert "watch-list" not in empty.text
+        created = client.post("/api/watches", json={"name": "已有规则"})
+        assert created.status_code == 200
+        listed = client.get("/watches")
+        assert listed.status_code == 200
+        assert listed.text.index("已有规则") < listed.text.index("新建规则")
+        assert '<details class="watch-create panel" id="watch-new">' in listed.text
+        assert '<details class="watch-create panel" id="watch-new" open>' not in listed.text
+        forced = client.get("/watches?new=1")
+        assert '<details class="watch-create panel" id="watch-new" open>' in forced.text
+
+
+def test_watch_hits_page_lists_and_deletes_sold(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    watch = db.create_watch(
+        {
+            "name": "14 寸 M5 Max",
+            "listing_key": "macbook-pro",
+            "dim_filters": {"chip": ["m5_max"], "dimensionScreensize": ["14inch"]},
+            "min_ram_gb": 64,
+        }
+    )
+    db.upsert_products(
+        [
+            {
+                "sku": "G1MK7CH/A",
+                "listing_key": "macbook-pro",
+                "title": "翻新 14 英寸 MacBook Pro 在售",
+                "price": 52799,
+                "ram_gb": 128,
+                "storage_gb": 2048,
+                "url": "https://www.apple.com.cn/shop/product/g1mk7ch/a",
+            },
+            {
+                "sku": "G1MK5CH/A",
+                "listing_key": "macbook-pro",
+                "title": "翻新 14 英寸 MacBook Pro 已下架",
+                "price": 46399,
+                "ram_gb": 128,
+                "storage_gb": 2048,
+                "url": "https://www.apple.com.cn/shop/product/g1mk5ch/a",
+            },
+        ]
+    )
+    db.mark_listing_stock(["macbook-pro"], {"G1MK7CH/A"})
+    db.set_watch_sku(watch["id"], "G1MK7CH/A", in_stock=True, notified=True)
+    db.set_watch_sku(watch["id"], "G1MK5CH/A", in_stock=False, notified=False)
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        listed = client.get("/watches")
+        assert listed.status_code == 200
+        assert "查看命中" in listed.text
+        assert f'href="/watches/{watch["id"]}"' in listed.text
+        page = client.get(f"/watches/{watch['id']}")
+        assert page.status_code == 200
+        assert "在售 1 · 已售出 1" in page.text
+        assert "第 1 /" not in page.text
+        assert "翻新 14 英寸 MacBook Pro 在售" in page.text
+        assert "翻新 14 英寸 MacBook Pro 已下架" in page.text
+        assert page.text.index("翻新 14 英寸 MacBook Pro 在售") < page.text.index("翻新 14 英寸 MacBook Pro 已下架")
+        assert "shop/product/G1MK7CH/A" in page.text
+        assert "shop/product/G1MK5CH/A" in page.text
+        assert page.text.count('action="/watches/' + str(watch["id"]) + '/hits/delete"') == 1
+        blocked = client.post(
+            f"/watches/{watch['id']}/hits/delete",
+            data={"sku": "G1MK7CH/A"},
+        )
+        assert blocked.status_code == 400
+        assert "在售命中不能删除" in blocked.text
+        removed = client.post(
+            f"/watches/{watch['id']}/hits/delete",
+            data={"sku": "G1MK5CH/A"},
+            follow_redirects=False,
+        )
+        assert removed.status_code == 303
+        after = client.get(f"/watches/{watch['id']}")
+        assert "翻新 14 英寸 MacBook Pro 已下架" not in after.text
+        assert "翻新 14 英寸 MacBook Pro 在售" in after.text
+        assert "已售出 0" in after.text
+        assert "第 1 /" not in after.text
+
+
+def test_watch_hits_page_paginates(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    watch = db.create_watch({"name": "分页规则", "listing_key": "macbook-pro"})
+    db.set_watch_sku(watch["id"], "LIVE1CH/A", in_stock=True, notified=True)
+    for i in range(20):
+        db.set_watch_sku(watch["id"], f"SOLD{i:02d}CH/A", in_stock=False, notified=False)
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        first = client.get(f"/watches/{watch['id']}")
+        assert first.status_code == 200
+        assert "在售 1 · 已售出 20" in first.text
+        assert "21 条 · 第 1 / 2 页" in first.text
+        assert first.text.count("<li class=\"watch-hit") == 20
+        assert "LIVE1CH/A" in first.text
+        assert "SOLD19CH/A" not in first.text
+        assert 'href="/watches/' + str(watch["id"]) + '?page=2"' in first.text
+        second = client.get(f"/watches/{watch['id']}?page=2")
+        assert second.status_code == 200
+        assert "第 2 / 2 页" in second.text
+        assert "LIVE1CH/A" not in second.text
+        assert "SOLD19CH/A" in second.text
+        overflow = client.get(f"/watches/{watch['id']}?page=99")
+        assert "第 2 / 2 页" in overflow.text
+        removed = client.post(
+            f"/watches/{watch['id']}/hits/delete",
+            data={"sku": "SOLD19CH/A", "page": "2"},
+            follow_redirects=False,
+        )
+        assert removed.status_code == 303
+        assert removed.headers["location"] == f"/watches/{watch['id']}"
+        after = client.get(removed.headers["location"])
+        assert after.status_code == 200
+        assert "SOLD19CH/A" not in after.text
+        assert "LIVE1CH/A" in after.text
+        assert "第 1 / 2 页" not in after.text
+        assert "第 2 /" not in after.text
 
 
 def test_events_page_paginates(tmp_path) -> None:
@@ -631,7 +905,7 @@ def test_clear_events_api_and_page(tmp_path) -> None:
         assert page_clear.status_code == 303
         assert page_clear.headers["location"] == "/events"
         empty = client.get("/events")
-        assert "还没有记录" in empty.text
+        assert "暂无动态" in empty.text
         assert client.get("/api/events").json() == []
 
 
@@ -1018,4 +1292,47 @@ def test_notify_test_one_channel(tmp_path) -> None:
         db.update_settings({"notify": {"bark": {"enabled": False, "url": ""}}})
         empty = client.post("/api/notify/test", json={"channel": "bark"})
         assert empty.status_code == 400
+
+
+@respx.mock
+def test_notify_test_uses_unsaved_form_values(tmp_path) -> None:
+    bark = respx.get(url__regex=r"https://api\.day\.app/draft-key/.*").mock(return_value=httpx.Response(200))
+    saved = respx.get(url__regex=r"https://api\.day\.app/saved-key/.*").mock(return_value=httpx.Response(200))
+    db = Database(tmp_path / "app.db")
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        posted = client.post(
+            "/settings/notify-test",
+            data={
+                "channel": "bark",
+                "save_notify": "1",
+                "notify_bark_url": "https://api.day.app/draft-key",
+            },
+            follow_redirects=False,
+        )
+        assert posted.status_code == 303
+        assert "notify-ok" in posted.headers["location"]
+        assert "channel=bark" in posted.headers["location"]
+        assert bark.called
+        assert not saved.called
+        assert (db.settings().get("notify") or {}).get("bark", {}).get("url") == ""
+
+    db.update_settings({"notify": {"bark": {"enabled": False, "url": "https://api.day.app/saved-key"}}})
+    with TestClient(app) as client:
+        bark.calls.clear()
+        saved.calls.clear()
+        posted = client.post(
+            "/settings/notify-test",
+            data={
+                "channel": "bark",
+                "save_notify": "1",
+                "notify_bark_url": "https://api.day.app/draft-key",
+            },
+            follow_redirects=False,
+        )
+        assert posted.status_code == 303
+        assert "notify-ok" in posted.headers["location"]
+        assert bark.called
+        assert not saved.called
+        assert db.settings()["notify"]["bark"]["url"] == "https://api.day.app/saved-key"
 

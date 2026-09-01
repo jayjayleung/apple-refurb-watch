@@ -40,6 +40,29 @@ def test_desktop_api_can_send_computer_notify(monkeypatch) -> None:
     assert calls
 
 
+def test_tray_icon_loads_packaged_png() -> None:
+    from apple_refurb_watch.desktop import load_tray_image, tray_icon_path
+
+    path = tray_icon_path()
+    assert path.is_file()
+    assert path.stat().st_size > 200
+
+    class FakeImage:
+        @staticmethod
+        def open(opened):
+            class Handle:
+                def convert(self, mode):
+                    return ("opened", str(opened), mode)
+
+            return Handle()
+
+        @staticmethod
+        def new(mode, size, color):
+            return ("new", mode, size, color)
+
+    assert load_tray_image(FakeImage) == ("opened", str(path), "RGBA")
+
+
 def test_version_key_orders_semver() -> None:
     assert version_key(None) < version_key("0.2.3")
     assert version_key("0.1.3") < version_key("0.2.3")

@@ -161,7 +161,22 @@ def api_events(
     after_id: int | None = Query(None, ge=0),
     type: str | None = Query(None),
 ) -> list:
-    return request.app.state.db.list_events(limit, after_id=after_id, type=type)
+    rows = request.app.state.db.list_events(limit, after_id=after_id, type=type)
+    names = {
+        int(item["id"]): str(item.get("name") or "")
+        for item in request.app.state.db.list_watches()
+        if item.get("id")
+    }
+    decorated = []
+    for row in rows:
+        item = dict(row)
+        watch_id = item.get("watch_id")
+        try:
+            item["watch_name"] = names.get(int(watch_id)) if watch_id is not None else None
+        except (TypeError, ValueError):
+            item["watch_name"] = None
+        decorated.append(item)
+    return decorated
 
 
 @router.delete("/api/events")

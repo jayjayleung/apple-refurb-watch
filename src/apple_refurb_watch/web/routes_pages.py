@@ -120,6 +120,10 @@ def home(request: Request) -> HTMLResponse | RedirectResponse:
 @router.get("/events", response_class=HTMLResponse)
 def events_page(request: Request) -> HTMLResponse:
     ctx = _event_context(request)
+    hx_request = bool(request.headers.get("HX-Request"))
+    hx_target = (request.headers.get("HX-Target") or "").lstrip("#")
+    if hx_request and hx_target == "event-feed":
+        return request.app.state.render("_event_feed.html", request, **ctx)
     return request.app.state.render("events.html", request, **ctx)
 
 

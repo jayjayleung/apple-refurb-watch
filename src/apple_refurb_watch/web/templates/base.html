@@ -7,7 +7,10 @@
   <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#161617" media="(prefers-color-scheme: dark)">
   <title>{% block title %}官翻监听{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css?v=notify-perm-1">
+  <link rel="icon" href="/static/icon.svg?v=listen-1" type="image/svg+xml">
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="/static/icon-256.png">
+  <link rel="stylesheet" href="/static/style.css?v=notify-test-2">
   <script src="/static/htmx.min.js" defer></script>
   <script>
     if (window.pywebview) document.documentElement.classList.add("desktop");
@@ -16,7 +19,7 @@
 <body>
   <a class="skip" href="#main">跳到内容</a>
   <header class="top">
-    <a class="brand" href="/">官翻监听</a>
+    <a class="brand" href="/"><img src="/static/icon.svg?v=listen-1" width="28" height="28" alt="">官翻监听</a>
     <nav aria-label="主要">
       <a href="/" {% if request.url.path == '/' %}class="on" aria-current="page"{% endif %}>在售</a>
       <a href="/watches" {% if request.url.path.startswith('/watches') %}class="on" aria-current="page"{% endif %}>监听</a>
@@ -24,6 +27,7 @@
       <a href="/settings" {% if request.url.path.startswith('/settings') %}class="on" aria-current="page"{% endif %}>设置</a>
     </nav>
     <div class="top-actions">
+      {% include "_github.html" %}
       <details class="pulse" data-state="{{ status_view.state }}" title="{{ status_view.detail }}">
         <summary>
           <span class="dot {{ status_view.state }}"></span>
@@ -68,8 +72,8 @@
       var bootTimer = null;
       function $(id) { return document.getElementById(id); }
       function enabled() { return localStorage.getItem(KEY) === "1"; }
-      var HINT_DEFAULT = "还差浏览器授权。勾选开关或点「试一下」，在弹出框里选允许。";
-      var HINT_DENIED = "浏览器已禁止本站通知，不会再弹出授权框。点地址栏左侧的锁或 ⓘ，把「通知」改为允许，然后刷新本页。";
+      var HINT_DEFAULT = "需要浏览器通知权限。";
+      var HINT_DENIED = "浏览器已关闭此网站的通知。请在地址栏允许通知后刷新页面。";
       function setStatus(text, warn) {
         var node = $("computer-notify-status");
         if (!node) return;
@@ -147,18 +151,18 @@
       }
       function applyToggle(on) {
         if (!canAfterId) {
-          setStatus("当前服务器不支持电脑通知轮询，请升级服务器。");
+          setStatus("当前服务器不支持电脑通知。");
           var box = $("computer-notify-enabled");
           if (box) box.checked = false;
           return;
         }
         localStorage.setItem(KEY, on ? "1" : "0");
         if (!on) {
-          setStatus("已关闭。Bark 等通道不受影响。");
+          setStatus("已关闭。");
           return;
         }
         askPermission(function () {
-          setStatus("已开启。本页开着时会上新弹窗。");
+          setStatus("已开启。");
           seedCursor();
         });
       }
@@ -189,18 +193,18 @@
         var hint = $("desktop-autostart-hint");
         if (hint) {
           hint.textContent = s.autostart_kind === "tray"
-            ? "登录后拉起托盘，窗口可隐藏。"
-            : "登录后拉起后台网页服务（无窗口）。";
+            ? "系统登录后启动托盘应用。"
+            : "系统登录后启动后台服务。";
         }
         var st = $("desktop-conn-status");
         if (st) {
-          if (s.env_locked) st.textContent = "当前由环境变量 APPLE_REFURB_WATCH_URL 指定，界面无法改连接。";
+          if (s.env_locked) st.textContent = "连接由环境变量指定，无法在此更改。";
           else if (s.error) st.textContent = s.error;
-          else if (s.mode === "remote") st.textContent = "已连接 " + (s.url || "") + "。本机不扫描。";
-          else st.textContent = "本机运行服务。";
+          else if (s.mode === "remote") st.textContent = "已连接 " + (s.url || "") + "。";
+          else st.textContent = "正在使用本机服务。";
         }
         var token = $("desktop-token");
-        if (token && s.has_token) token.placeholder = "已保存，留空不改";
+        if (token && s.has_token) token.placeholder = "已保存";
         if (s.env_locked) {
           var connBtn = $("desktop-connect");
           var discBtn = $("desktop-disconnect");
@@ -276,12 +280,10 @@
           return;
         }
         if (usingDesktopNotify) {
-          var webHint = $("computer-notify-web-hint");
-          if (webHint) webHint.hidden = true;
           if (!canAfterId) {
             box.disabled = true;
             box.checked = false;
-            setStatus("当前服务器不支持电脑通知轮询，请升级服务器。");
+            setStatus("当前服务器不支持电脑通知。");
             return;
           }
           box.addEventListener("change", function () {
@@ -291,31 +293,29 @@
                 setStatus(r.error || "无法保存");
                 return;
               }
-              setStatus(box.checked ? "已开启。由桌面在托盘弹出系统通知，不必开着本页。" : "已关闭。Bark 等通道不受影响。");
+              setStatus(box.checked ? "已开启。" : "已关闭。");
             });
           });
           setStatus(box.checked
-            ? "已开启。由桌面在托盘弹出系统通知，不必开着本页。"
-            : "关闭后本机不弹系统通知。Bark 等不受影响。");
+            ? "已开启。"
+            : "已关闭。");
           return;
         }
         if (!canAfterId) {
           box.disabled = true;
           box.checked = false;
-          setStatus("当前服务器不支持电脑通知轮询，请升级服务器。");
+          setStatus("当前服务器不支持电脑通知。");
           return;
         }
         box.checked = enabled();
         if (enabled()) {
           if (permissionState() === "granted") {
-            var webHint = $("computer-notify-web-hint");
-            if (webHint) webHint.hidden = true;
-            setStatus("已开启。本页开着时会上新弹窗。");
+            setStatus("已开启。");
             seedCursor();
           } else if (permissionState() === "denied") {
             setStatus(HINT_DENIED, true);
           } else if (permissionState() === "unsupported") {
-            setStatus("当前浏览器不支持网页通知。可用桌面包或 Bark。", true);
+            setStatus("当前浏览器不支持网页通知。", true);
           } else {
             setStatus(HINT_DEFAULT, true);
           }
@@ -340,8 +340,8 @@
             box.checked = !!s.installed;
             if (status) {
               status.textContent = s.installed
-                ? "已开启：登录后拉起本机网页服务。"
-                : "未开启。Docker 请用 compose 的 restart，不要勾这里。";
+                ? "已开启。"
+                : "未开启。";
             }
           })
           .catch(function () {

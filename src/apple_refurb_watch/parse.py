@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -18,6 +18,7 @@ __all__ = [
     "parse_detail_specs",
     "parse_listing_html",
     "parse_size_gb",
+    "product_page_url",
     "sku_from_url",
     "first_srcset_url",
 ]
@@ -26,7 +27,7 @@ SIZE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(tb|gb|t|g)\s*$", re.I)
 RAM_DETAIL_RE = re.compile(r"(\d+)\s*GB\s*统一内存", re.I)
 SSD_TB_RE = re.compile(r"(\d+(?:\.\d+)?)\s*TB\s*固态硬盘", re.I)
 SSD_GB_RE = re.compile(r"(\d+)\s*GB\s*固态硬盘", re.I)
-SKU_RE = re.compile(r"/shop/product/([a-z0-9]+)(?:/a)?", re.I)
+SKU_RE = re.compile(r"/shop/product/([a-z0-9]+)(?:/([ab]))?", re.I)
 
 
 @dataclass
@@ -66,10 +67,10 @@ def normalize_sku(sku: str | None) -> str:
     if not sku:
         return ""
     text = sku.strip().upper().replace(" ", "")
-    if text.endswith("/A"):
+    if re.fullmatch(r"[A-Z0-9]+/[AB]", text):
         return text
     if re.fullmatch(r"[A-Z0-9]+", text):
-        return f"{text}/A" if not text.endswith("A") else text
+        return text if text.endswith("A") else f"{text}/A"
     return text
 
 
@@ -77,7 +78,30 @@ def sku_from_url(url: str) -> str:
     match = SKU_RE.search(url or "")
     if not match:
         return ""
-    return normalize_sku(match.group(1))
+    part = match.group(1)
+    suffix = match.group(2)
+    return normalize_sku(f"{part}/{suffix}" if suffix else part)
+
+
+def product_page_url(sku: str | None = None, raw: str | None = None) -> str:
+    """Stable Apple product URL that browsers can open.
+
+    Official grid links are lowercase and carry a short-lived ``fnode`` query.
+    Direct lowercase short links often stall; the uppercase SKU path redirects
+    reliably and does not depend on listing-session tokens.
+    """
+
+    code = normalize_sku(sku) or sku_from_url(raw or "")
+    if code:
+        return f"{BASE}/shop/product/{code}"
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    parsed = urlparse(urljoin(f"{BASE}/", text.split("?", 1)[0]))
+    if parsed.scheme in {"http", "https"} and host_ok(parsed.geturl()):
+        path = parsed.path or "/"
+        return urljoin(f"{BASE}/", path.lstrip("/"))
+    return ""
 
 
 def color_from_title(title: str) -> str | None:
@@ -128,7 +152,7 @@ def _tile_to_product(tile: dict, listing_key: str, listing_url: str) -> Product 
         sku = sku_from_url(rel)
     if not sku or not title:
         return None
-    url = urljoin(BASE + "/", rel.split("?", 1)[0].lstrip("/"))
+    url = product_page_url(sku, rel)
     price_info = (tile.get("price") or {}).get("currentPrice") or {}
     raw_amount = price_info.get("raw_amount")
     price = None
@@ -187,7 +211,7 @@ def _parse_listing_dom(html: str, listing_key: str, listing_url: str) -> list[Pr
             Product(
                 sku=sku,
                 title=title,
-                url=urljoin(listing_url, str(href).split("?", 1)[0]),
+                url=product_page_url(sku, str(href)),
                 price=price,
                 listing_key=listing_key,
                 color_label=color_from_title(title),

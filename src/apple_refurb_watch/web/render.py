@@ -21,6 +21,8 @@ from apple_refurb_watch.settings import (
 )
 from apple_refurb_watch.status_view import format_localtime, load_status
 
+GITHUB_URL = "https://github.com/jayjayleung/apple-refurb-watch"
+
 
 def web_dir() -> Path:
     return package_root() / "web"
@@ -52,6 +54,7 @@ def templates() -> Environment:
     env.filters["gb"] = format_gb
     env.filters["thumb"] = thumb_url
     env.filters["localtime"] = format_localtime
+    env.globals["github_url"] = GITHUB_URL
     return env
 
 

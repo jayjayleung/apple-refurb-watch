@@ -11,7 +11,7 @@ import uvicorn
 from apple_refurb_watch import __version__
 from apple_refurb_watch.api import create_app
 from apple_refurb_watch.web.app import apply_windows_loop_policy, uvicorn_options
-from apple_refurb_watch.argv import with_frozen_default_command
+from apple_refurb_watch.argv import apply_windows_console, is_frozen, with_frozen_default_command
 from apple_refurb_watch.categories import listing_family_name, listings_family_names
 from apple_refurb_watch.client import ApiClient, ApiError
 from apple_refurb_watch.connection import clear_connection, load_connection, resolve_client, save_connection
@@ -645,9 +645,10 @@ def disconnect() -> None:
 def main() -> None:
     sys.argv = with_frozen_default_command(
         sys.argv,
-        frozen=getattr(sys, "frozen", False),
+        frozen=is_frozen(),
         platform=sys.platform,
     )
+    apply_windows_console(sys.argv, frozen=is_frozen(), platform=sys.platform)
     try:
         app()
     except ApiError as exc:

@@ -3,7 +3,7 @@ import pytest
 
 from apple_refurb_watch.categories import listing_url
 from apple_refurb_watch.fetch import FetchError, fetch_html
-from apple_refurb_watch.parse import first_srcset_url, parse_detail_specs, parse_listing_html, parse_size_gb
+from apple_refurb_watch.parse import first_srcset_url, parse_detail_specs, parse_listing_html, parse_size_gb, product_page_url, sku_from_url
 
 
 def test_parse_size_gb() -> None:
@@ -18,6 +18,7 @@ def test_parse_listing_bootstrap(listing_html: str) -> None:
     products = parse_listing_html(listing_html, "mac", "https://www.apple.com.cn/shop/refurbished/mac")
     assert len(products) == 3
     pro = next(p for p in products if p.sku == "FGDN4CH/A")
+    assert pro.url == "https://www.apple.com.cn/shop/product/FGDN4CH/A"
     assert pro.price == 14999
     assert pro.ram_gb == 24
     assert pro.storage_gb == 1024
@@ -36,6 +37,17 @@ def test_first_srcset_url() -> None:
     assert first_srcset_url("https://store.example/a.jpg 1x, https://store.example/a@2x.jpg 2x") == "https://store.example/a.jpg"
     assert first_srcset_url("https://store.example/a.jpg") == "https://store.example/a.jpg"
     assert first_srcset_url("") is None
+
+
+def test_product_page_url_uses_uppercase_sku_and_drops_fnode() -> None:
+    assert sku_from_url("/shop/product/g1mk7ch/a?fnode=abc") == "G1MK7CH/A"
+    assert sku_from_url("https://www.apple.com.cn/shop/product/feh44ch/b") == "FEH44CH/B"
+    assert product_page_url("g1mk7ch/a", "/shop/product/g1mk7ch/a?fnode=deadbeef") == (
+        "https://www.apple.com.cn/shop/product/G1MK7CH/A"
+    )
+    assert product_page_url(None, "https://www.apple.com.cn/shop/product/fhfa4ch/a") == (
+        "https://www.apple.com.cn/shop/product/FHFA4CH/A"
+    )
 
 
 def test_listing_url_rejects_ssrf() -> None:

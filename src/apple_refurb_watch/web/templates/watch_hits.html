@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ watch.name }} · 命中 · 官翻监听{% endblock %}
+{% block main_class %}page-watch-hits{% endblock %}
+{% block body %}
+<header class="page-head">
+  <div>
+    <p class="lede"><a href="/watches">监听</a></p>
+    <h1>{{ watch.name }}</h1>
+    <p class="lede">在售 {{ in_stock_count }} · 已售出 {{ sold_count }}</p>
+  </div>
+</header>
+
+{% if hit_total %}
+{% if hit_pages > 1 %}
+<nav class="pager" aria-label="分页">
+  {% if has_prev %}
+  <a class="btn" href="{{ hits_url_prev }}">上一页</a>
+  {% else %}
+  <span class="btn" aria-disabled="true">上一页</span>
+  {% endif %}
+  <p class="count">{{ hit_total }} 条 · 第 {{ hit_page }} / {{ hit_pages }} 页</p>
+  {% if has_next %}
+  <a class="btn" href="{{ hits_url_next }}">下一页</a>
+  {% else %}
+  <span class="btn" aria-disabled="true">下一页</span>
+  {% endif %}
+</nav>
+{% endif %}
+<ul class="watch-hits">
+  {% for hit in hits %}
+  <li class="watch-hit{% if not hit.in_stock %} sold{% endif %}">
+    {% if hit.image_url %}
+    <img src="{{ hit.image_url|thumb }}" alt="" width="42" height="42">
+    {% else %}
+    <span class="watch-hit-media" aria-hidden="true"></span>
+    {% endif %}
+    <div>
+      <p class="watch-hit-title">{{ hit.title }}</p>
+      {% if hit.spec_line %}<p class="watch-hit-specs">{{ hit.spec_line }}</p>{% endif %}
+      {% if hit.url %}<a href="{{ hit.url }}" target="_blank" rel="noopener noreferrer">打开商品</a>{% endif %}
+    </div>
+    <div class="watch-hit-actions">
+      <span class="tag {% if hit.in_stock %}ok{% else %}oos{% endif %}">{{ '在售' if hit.in_stock else '已售出' }}</span>
+      {% if not hit.in_stock %}
+      <form method="post" action="/watches/{{ watch.id }}/hits/delete" onsubmit="return confirm('从这条规则里去掉？')">
+        <input type="hidden" name="sku" value="{{ hit.sku }}">
+        <input type="hidden" name="page" value="{{ hit_page }}">
+        <button class="btn quiet" type="submit">删除</button>
+      </form>
+      {% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% if hit_pages > 1 %}
+<nav class="pager" aria-label="分页">
+  {% if has_prev %}
+  <a class="btn" href="{{ hits_url_prev }}">上一页</a>
+  {% else %}
+  <span class="btn" aria-disabled="true">上一页</span>
+  {% endif %}
+  <p class="count">第 {{ hit_page }} / {{ hit_pages }} 页</p>
+  {% if has_next %}
+  <a class="btn" href="{{ hits_url_next }}">下一页</a>
+  {% else %}
+  <span class="btn" aria-disabled="true">下一页</span>
+  {% endif %}
+</nav>
+{% endif %}
+{% else %}
+<div class="empty">
+  <p>暂无命中商品。</p>
+</div>
+{% endif %}
+{% endblock %}

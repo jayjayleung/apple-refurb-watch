@@ -7,7 +7,7 @@ from starlette.concurrency import run_in_threadpool
 from apple_refurb_watch.fetch import fetch_html
 from apple_refurb_watch.filters import sync_filter_catalog
 from apple_refurb_watch.notify import CHANNELS, NotifyError, send_test
-from apple_refurb_watch.web.settings_public import form_settings, safe_next
+from apple_refurb_watch.web.settings_public import form_settings, overlay_notify_from_form, safe_next
 
 router = APIRouter()
 
@@ -107,10 +107,12 @@ async def settings_scan(request: Request) -> RedirectResponse:
 @router.post("/settings/notify-test")
 async def settings_notify_test(request: Request) -> RedirectResponse:
     form = await request.form()
-    channel = _safe_channel(str(form.get("channel") or ""))
+    payload = {key: form.get(key) for key in form.keys()}
+    channel = _safe_channel(str(payload.get("channel") or ""))
     suffix = f"&channel={channel}" if channel else ""
+    settings = overlay_notify_from_form(payload, request.app.state.db.settings())
     try:
-        send_test(request.app.state.db.settings(), channel=channel)
+        await run_in_threadpool(send_test, settings, channel)
         return RedirectResponse(f"/settings?flash=notify-ok{suffix}", status_code=303)
     except NotifyError:
         return RedirectResponse(f"/settings?flash=notify-fail{suffix}", status_code=303)
