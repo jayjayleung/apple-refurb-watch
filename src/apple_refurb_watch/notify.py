@@ -6,6 +6,7 @@ import hmac
 import smtplib
 import time
 from email.message import EmailMessage
+from html import escape
 from typing import Any
 from urllib.parse import quote
 
@@ -35,6 +36,42 @@ def send_all(settings: dict[str, Any], title: str, body: str, url: str | None = 
 TEST_TITLE = "官翻监听测试"
 TEST_BODY = "通知通道已接通。"
 TEST_URL = "https://www.apple.com.cn/shop/refurbished"
+LINK_TEXT = "打开商品"
+
+
+def _markdown_with_url(body: str, url: str | None) -> str:
+    if not url:
+        return body
+    return f"{body}\n\n[{LINK_TEXT}]({url})"
+
+
+def _html_with_url(body: str, url: str | None) -> str:
+    text = escape(body).replace("\n", "<br>\n")
+    if url:
+        text += f'<br>\n<a href="{escape(url, quote=True)}">{LINK_TEXT}</a>'
+    return text
+
+
+def _plain_with_url(body: str, url: str | None) -> str:
+    return body if not url else f"{body}\n\n{url}"
+
+
+def _email_message(
+    title: str,
+    body: str,
+    url: str | None,
+    *,
+    from_addr: str,
+    to_addr: str,
+) -> EmailMessage:
+    msg = EmailMessage()
+    msg["Subject"] = title
+    msg["From"] = from_addr
+    msg["To"] = to_addr
+    msg.set_content(_plain_with_url(body, url))
+    if url:
+        msg.add_alternative(_html_with_url(body, url), subtype="html")
+    return msg
 
 
 def send_test(settings: dict[str, Any], channel: str | None = None) -> list[str]:
@@ -85,24 +122,40 @@ def _serverchan(conf: dict, title: str, body: str, url: str | None) -> None:
     sendkey = conf.get("sendkey") or ""
     if not sendkey:
         raise NotifyError("Server酱 sendkey 为空")
-    desp = body if not url else f"{body}\n\n{url}"
-    _post_form(f"https://sctapi.ftqq.com/{sendkey}.send", {"title": title, "desp": desp})
+    _post_form(
+        f"https://sctapi.ftqq.com/{sendkey}.send",
+        {"title": title, "desp": _markdown_with_url(body, url)},
+    )
 
 
 def _pushplus(conf: dict, title: str, body: str, url: str | None) -> None:
     token = conf.get("token") or ""
     if not token:
         raise NotifyError("PushPlus token 为空")
-    content = body if not url else f"{body}\n{url}"
-    _post_json("https://www.pushplus.plus/send", {"token": token, "title": title, "content": content})
+    _post_json(
+        "https://www.pushplus.plus/send",
+        {
+            "token": token,
+            "title": title,
+            "content": _html_with_url(body, url),
+            "template": "html",
+        },
+    )
 
 
 def _feishu(conf: dict, title: str, body: str, url: str | None) -> None:
     webhook = conf.get("webhook") or ""
     if not webhook:
         raise NotifyError("飞书 webhook 为空")
-    text = f"{title}\n{body}" + (f"\n{url}" if url else "")
-    payload: dict[str, Any] = {"msg_type": "text", "content": {"text": text}}
+    lines = [[{"tag": "text", "text": f"{line}\n"}] for line in str(body).splitlines()]
+    if not lines:
+        lines = [[{"tag": "text", "text": ""}]]
+    if url:
+        lines.append([{"tag": "a", "text": LINK_TEXT, "href": url}])
+    payload: dict[str, Any] = {
+        "msg_type": "post",
+        "content": {"post": {"zh_cn": {"title": title, "content": lines}}},
+    }
     secret = conf.get("secret") or ""
     if secret:
         timestamp = str(int(time.time()))
@@ -115,7 +168,9 @@ def _dingtalk(conf: dict, title: str, body: str, url: str | None) -> None:
     webhook = conf.get("webhook") or ""
     if not webhook:
         raise NotifyError("钉钉 webhook 为空")
-    text = f"{title}\n{body}" + (f"\n{url}" if url else "")
+    text = f"### {title}\n\n{body}"
+    if url:
+        text = _markdown_with_url(text, url)
     secret = conf.get("secret") or ""
     target = webhook
     if secret:
@@ -125,7 +180,7 @@ def _dingtalk(conf: dict, title: str, body: str, url: str | None) -> None:
         sign = quote(base64.b64encode(digest).decode("ascii"), safe="")
         sep = "&" if "?" in webhook else "?"
         target = f"{webhook}{sep}timestamp={timestamp}&sign={sign}"
-    _post_json(target, {"msgtype": "text", "text": {"content": text}})
+    _post_json(target, {"msgtype": "markdown", "markdown": {"title": title, "text": text}})
 
 
 def _telegram(conf: dict, title: str, body: str, url: str | None) -> None:
@@ -133,9 +188,18 @@ def _telegram(conf: dict, title: str, body: str, url: str | None) -> None:
     chat_id = conf.get("chat_id") or ""
     if not token or not chat_id:
         raise NotifyError("Telegram bot_token 或 chat_id 为空")
-    text = f"{title}\n{body}" + (f"\n{url}" if url else "")
+    text = f"{escape(title)}\n{escape(body)}"
+    if url:
+        text += f'\n<a href="{escape(url, quote=True)}">{LINK_TEXT}</a>'
     api = f"https://api.telegram.org/bot{token}/sendMessage"
-    _post_json(api, {"chat_id": chat_id, "text": text, "disable_web_page_preview": False})
+    payload: dict[str, Any] = {
+        "chat_id": chat_id,
+        "text": text,
+        "disable_web_page_preview": False,
+    }
+    if url:
+        payload["parse_mode"] = "HTML"
+    _post_json(api, payload)
 
 
 def _email(conf: dict, title: str, body: str, url: str | None) -> None:
@@ -146,11 +210,7 @@ def _email(conf: dict, title: str, body: str, url: str | None) -> None:
     if not host or not username or not password or not to_addr:
         raise NotifyError("邮件 SMTP 配置不完整")
     port = int(conf.get("smtp_port") or 465)
-    msg = EmailMessage()
-    msg["Subject"] = title
-    msg["From"] = username
-    msg["To"] = to_addr
-    msg.set_content(body + (f"\n\n{url}" if url else ""))
+    msg = _email_message(title, body, url, from_addr=username, to_addr=to_addr)
     use_tls = bool(conf.get("use_tls", True))
     if use_tls and port == 465:
         with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
