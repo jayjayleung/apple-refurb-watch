@@ -227,8 +227,8 @@ JSON API 是网页 / 桌面 / CLI / TUI 的共同入口，先看 `GET /api/healt
 
 GitHub Actions 只留一套 `ci`：
 
-- 推 `main` 不跑。PR 才跑 Linux / Windows / macOS pytest。
-- `v*` 标签：打三端 onedir zip，发 GitHub Release。不再先跑一遍 pytest，也不烟测。
+- 推 `main` 不跑；PR、`v*` 标签和手动运行会跑 Linux / Windows / macOS pytest。
+- `v*` 标签：三端 pytest 通过后，打 onedir zip 和 onefile 单文件可执行文件并发 GitHub Release；构建阶段会做最小化启动烟测。
 - 手动运行只留 artifacts，不发 Release。不打 Docker 镜像。
 
 Windows / macOS 托盘依赖系统通知区域。Linux 开发机只能验证 `--probe` 与导入，不能代替真机关窗留守。`desktop --probe` 只检查本机服务能否启动，日常打开窗口请直接双击或 `desktop`。
@@ -242,6 +242,16 @@ git push origin v0.3.1
 
 ```bash
 pip install ".[desktop]" ".[pack]"
-python -m PyInstaller --noconfirm --clean packaging/apple-refurb-watch.spec
-# 产物在 dist/apple-refurb-watch/
+# 目录版：产物在 dist/onedir/apple-refurb-watch/
+python -m PyInstaller --noconfirm --clean \
+  --distpath dist/onedir --workpath build/onedir \
+  packaging/apple-refurb-watch.spec
+
+# 单文件版：Linux/macOS 为无扩展名可执行文件，Windows 为 .exe
+APPLE_REFURB_WATCH_BUILD=onefile python -m PyInstaller --noconfirm --clean \
+  --distpath dist/onefile --workpath build/onefile \
+  packaging/apple-refurb-watch.spec
+# 产物在 dist/onefile/apple-refurb-watch[.exe]
 ```
+
+单文件版可以直接复制到目标机器运行，不需要解压目录；首次启动会自动解压运行时文件，因此启动速度和杀毒软件误报风险通常高于目录版。Linux/macOS 下载后若没有执行权限，先运行 `chmod +x`。`serve --detach` 会为后台进程重新解压运行时文件，避免父进程退出后临时目录被清理。

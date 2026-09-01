@@ -1,7 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 # 请在仓库根目录执行:
 #   python -m PyInstaller packaging/apple-refurb-watch.spec
+# 默认生成目录版；设置 APPLE_REFURB_WATCH_BUILD=onefile 生成单文件版。
 
+import os
 import sys
 from pathlib import Path
 
@@ -10,6 +12,9 @@ from PyInstaller.utils.hooks import collect_all
 spec_dir = Path(SPEC).resolve().parent
 repo_root = spec_dir.parent
 pkg = repo_root / "src" / "apple_refurb_watch"
+build_mode = os.environ.get("APPLE_REFURB_WATCH_BUILD", "onedir").strip().lower()
+if build_mode not in {"onedir", "onefile"}:
+    raise ValueError("APPLE_REFURB_WATCH_BUILD must be 'onedir' or 'onefile'")
 datas, binaries, hiddenimports = collect_all("apple_refurb_watch")
 
 datas += [
@@ -98,21 +103,38 @@ a = Analysis(
     noarchive=False,
 )
 pyz = PYZ(a.pure)
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],
-    exclude_binaries=True,
-    name="apple-refurb-watch",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,
-    console=True,
-)
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    name="apple-refurb-watch",
-)
+if build_mode == "onefile":
+    # Onefile embeds the collected binaries/data in the executable and
+    # extracts them to a temporary _MEIPASS directory at startup.
+    exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.datas,
+        [],
+        name="apple-refurb-watch",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        console=True,
+    )
+else:
+    exe = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name="apple-refurb-watch",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        console=True,
+    )
+    COLLECT(
+        exe,
+        a.binaries,
+        a.datas,
+        name="apple-refurb-watch",
+    )

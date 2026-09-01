@@ -53,12 +53,15 @@ jobs:
         include:
           - os: ubuntu-latest
             asset: apple-refurb-watch-linux-x86_64
+            onefile_asset: apple-refurb-watch-linux-x86_64
             uv_extra: "--extra pack"
           - os: windows-latest
             asset: apple-refurb-watch-windows-x86_64
+            onefile_asset: apple-refurb-watch-windows-x86_64.exe
             uv_extra: "--extra desktop --extra pack"
           - os: macos-latest
             asset: apple-refurb-watch-macos-arm64
+            onefile_asset: apple-refurb-watch-macos-arm64
             uv_extra: "--extra desktop --extra pack"
     defaults:
       run:
@@ -75,18 +78,67 @@ jobs:
       - name: Install
         run: uv sync --locked ${{ matrix.uv_extra }}
       - name: Build
-        run: uv run python -m PyInstaller --noconfirm --clean packaging/apple-refurb-watch.spec
-      - name: Smoke test
+        run: uv run python -m PyInstaller --noconfirm --clean --distpath dist/onedir --workpath build/onedir packaging/apple-refurb-watch.spec
+      - name: Onedir smoke test
         if: matrix.os == 'ubuntu-latest'
-        run: uv run apple-refurb-watch desktop --probe
-      - name: Zip
+        run: dist/onedir/apple-refurb-watch/apple-refurb-watch desktop --probe
+      - name: Build onefile
+        env:
+          APPLE_REFURB_WATCH_BUILD: onefile
+        run: uv run python -m PyInstaller --noconfirm --clean --distpath dist/onefile --workpath build/onefile packaging/apple-refurb-watch.spec
+      - name: Onefile smoke test
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          APPLE_REFURB_WATCH_HOME: ${{ runner.temp }}/apple-refurb-watch-smoke-data
+          APPLE_REFURB_WATCH_LOG: ${{ runner.temp }}/apple-refurb-watch-smoke-log
         run: |
+          set -euo pipefail
+          onefile="dist/onefile/apple-refurb-watch"
+          expected_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          cleanup() {
+            "$onefile" stop >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          test "$("$onefile" version)" = "$expected_version"
+          "$onefile" desktop --probe
+          port="$(python -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
+          "$onefile" serve --detach --host 127.0.0.1 --port "$port"
+          python - "$port" "$expected_version" <<'PY'
+          import json
+          import sys
+          import time
+          from urllib.request import urlopen
+
+          url = f"http://127.0.0.1:{sys.argv[1]}/api/health"
+          expected_version = sys.argv[2]
+          deadline = time.monotonic() + 60
+          while time.monotonic() < deadline:
+              try:
+                  with urlopen(url, timeout=2) as response:
+                      payload = json.load(response)
+                  if payload.get("ok") and payload.get("server_version") == expected_version:
+                      break
+              except Exception:
+                  time.sleep(0.5)
+          else:
+              raise SystemExit("onefile serve --detach health check timed out")
+          PY
+      - name: Package artifacts
+        run: |
+          set -euo pipefail
           mkdir -p dist/out
-          python -c "import shutil; shutil.make_archive('dist/out/${{ matrix.asset }}', 'zip', 'dist', 'apple-refurb-watch')"
+          python -c "import shutil; shutil.make_archive('dist/out/${{ matrix.asset }}', 'zip', 'dist/onedir', 'apple-refurb-watch')"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp dist/onefile/apple-refurb-watch.exe "dist/out/${{ matrix.onefile_asset }}"
+          else
+            cp dist/onefile/apple-refurb-watch "dist/out/${{ matrix.onefile_asset }}"
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}
-          path: dist/out/${{ matrix.asset }}.zip
+          path: |
+            dist/out/${{ matrix.asset }}.zip
+            dist/out/${{ matrix.onefile_asset }}
           if-no-files-found: error
 
   release:
