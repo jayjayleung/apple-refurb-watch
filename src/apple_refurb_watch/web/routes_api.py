@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
 from apple_refurb_watch.fetch import fetch_html
 from apple_refurb_watch.filters import live_catalog_path, load_catalog, sync_filter_catalog, user_catalog_path
 from apple_refurb_watch.listing import listing_filters
 from apple_refurb_watch.notify import NotifyError, send_test
-from apple_refurb_watch.scanner import run_scan
 from apple_refurb_watch.settings import public_settings
 from apple_refurb_watch.usecases import health_payload, list_shop, patch_settings, public_settings_view, public_status
 from apple_refurb_watch.web.schemas import AutostartPatch, NotifyTestIn, SettingsPatch, WatchIn, WatchPatch
@@ -50,8 +50,28 @@ def api_sync_catalog() -> dict:
 @router.get("/api/listings")
 def api_listings(request: Request) -> dict:
     filters = listing_filters(request.query_params)
-    result = list_shop(request.app.state.db, filters, request.query_params.get("sort"), page_size=None)
-    return {"items": result["all_items"], "count": result["total_count"]}
+    try:
+        limit = min(500, max(1, int(request.query_params.get("limit") or 500)))
+    except (TypeError, ValueError):
+        limit = 500
+    try:
+        offset = max(0, int(request.query_params.get("offset") or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    result = list_shop(
+        request.app.state.db,
+        filters,
+        request.query_params.get("sort"),
+        offset=offset,
+        page_size=limit,
+    )
+    return {
+        "items": result["items"],
+        "count": result["total_count"],
+        "offset": result["offset"],
+        "limit": limit,
+        "has_more": result["has_more"],
+    }
 
 
 @router.get("/api/watches")
@@ -82,7 +102,56 @@ def api_delete_watch(request: Request, watch_id: int) -> dict:
 
 @router.post("/api/scan")
 def api_scan(request: Request) -> dict:
-    return run_scan(request.app.state.db)
+    return request.app.state.scan_service.run_once()
+
+
+@router.post("/api/scans")
+def api_scans_create(request: Request):
+    """Queue a scan and return its durable run resource.
+
+    ``ScanService.submit`` is used by the real application.  The synchronous
+    fallback keeps lightweight integrations that inject an older service
+    object compatible while they migrate to the run-resource API.
+    """
+
+    service = request.app.state.scan_service
+    submit = getattr(service, "submit", None)
+    if callable(submit):
+        result = submit()
+        if not isinstance(result, dict):
+            result = {"accepted": True, "ok": True, "result": result}
+        if not result.get("accepted", True):
+            raise HTTPException(409, result.get("message") or "已有扫描在进行")
+        headers = {}
+        try:
+            run_id = int(result.get("scan_run_id") or result.get("id"))
+        except (TypeError, ValueError):
+            run_id = 0
+        if run_id > 0:
+            headers["Location"] = f"/api/scans/{run_id}"
+        return JSONResponse(result, status_code=202, headers=headers)
+    result = service.run_once()
+    if not isinstance(result, dict):
+        result = {"ok": True, "result": result}
+    result.setdefault("accepted", True)
+    result.setdefault("status", result.get("scan_status") or "succeeded")
+    return result
+
+
+@router.get("/api/scans")
+def api_scans(
+    request: Request,
+    limit: int = Query(50, ge=1, le=500),
+) -> list:
+    return request.app.state.db.list_scan_runs(limit)
+
+
+@router.get("/api/scans/{run_id}")
+def api_scan_run(request: Request, run_id: int) -> dict:
+    run = request.app.state.db.get_scan_run(run_id)
+    if not run:
+        raise HTTPException(404, "扫描记录不存在")
+    return run
 
 
 @router.get("/api/events")

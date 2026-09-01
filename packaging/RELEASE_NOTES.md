@@ -1,52 +1,59 @@
-# 苹果官翻监听 0.2.4
+# 苹果官翻监听 0.3.0
 
-这是 **0.2** 的安装包。此前 `v0.2.0`–`v0.2.2` 因 CI 没有成功发出压缩包；`v0.2.3` 若本机还开着旧版托盘，会误报版本过旧。请用这一版。网页、桌面、CLI 共用一份数据和一个后台服务。
+这是一次面向个人长期运行场景的架构升级。网页仍是主要配置入口，CLI 用于运维，桌面壳只负责窗口、托盘和系统通知；扫描、数据和通知由唯一的 `watchd` 服务统一管理。
 
-打开新安装包时，若本机还在跑更旧的托盘或 `serve`，会先退出旧进程再启动，不必先手动退出。连 NAS 上的旧服务端时，提示改连后请把服务端也换成这一版。
+## 主要变化
+
+- **扫描生命周期可追踪**：引入 `scan_runs`、`observations` 和异步扫描资源。手动扫描返回运行 ID，可查询排队、运行、成功、部分成功和失败状态。
+- **通知可靠投递**：事件先写入通知 outbox，再由独立投递器发送；支持租约、指数退避和幂等，进程重启或通道故障不会丢失待发送任务。
+- **数据库升级到 schema v3**：旧库启动时自动迁移，升级前会保留备份；扫描失败不会误生成“售罄”事件。
+- **运维工具补齐**：新增/完善 `backup`、`restore`、`doctor` 和 `config export/import`，用于迁移、升级和故障恢复。
+- **远程服务边界明确**：本机桌面模式由本机 SQLite 持有权威数据；NAS/VPS 模式由服务端持有，远程客户端不复制可写数据库。
+- **访问控制加强**：非本机监听需要认证；健康检查保留公开能力信息，业务接口继续要求口令。
 
 ## 下载
 
 按系统解压即可，不必安装 Python。
 
 - **Windows**：`apple-refurb-watch-windows-x86_64.zip`（需要 Edge WebView2，Win10/11 一般都有）
-- **macOS Apple Silicon**：`apple-refurb-watch-macos-arm64.zip`（Intel Mac 请用源码运行）
+- **macOS Apple Silicon**：`apple-refurb-watch-macos-arm64.zip`
 - **Linux / NAS**：`apple-refurb-watch-linux-x86_64.zip`
 
-Windows / macOS 双击目录里的 `apple-refurb-watch`（Windows 是 `.exe`）。Linux 在解压目录执行 `./apple-refurb-watch serve`，后台跑用 `serve --detach`。默认网页 [http://127.0.0.1:8765](http://127.0.0.1:8765)。
+Linux / NAS 解压后执行：
 
-## 相对 0.1 主要变化
+```bash
+./apple-refurb-watch serve --host 0.0.0.0 --port 8765
+```
 
-### 桌面
+后台运行可使用 `serve --detach`。默认网页地址是 `http://127.0.0.1:8765`，实际端口以启动参数和设置为准。
 
-- 本机模式同进程自带服务。关窗默认进托盘，扫描继续；托盘「退出」才停。
-- 再双击不会起第二份扫描，会唤起已有窗口。
-- 设置「这台电脑」或托盘「连接服务器…」可改连 NAS / VPS 上已经在跑的那一份。本机不再扫描、不写第二份库。
-- 电脑通知：桌面走系统通知；网页勾选「启用电脑通知」后由浏览器弹出（需要你点一下授权，页面加载时不会要权限）。
+## 升级前后
 
-### 设置
+升级前建议先创建一份独立备份：
 
-- 分成「监听 / 通知 / 这台电脑 / 服务」。
-- 监听开关、分类、关窗到托盘、电脑通知、开机自启即时生效。
-- 间隔、端口、远程访问、口令和通道密钥点「保存」。
-- 每个通知通道可单独发送测试。密钥不回显，旁边标明「已保存」。
+```bash
+apple-refurb-watch backup --json
+```
 
-### 开机自启
+启动新版本时会自动执行数据库迁移。若迁移或启动失败，先停止服务，再用 `restore` 恢复备份并运行：
 
-- Windows / macOS 安装包：设置「开机自启（这台电脑的托盘）」，或 `apple-refurb-watch service install`。
-- NAS / VPS：`service install --serve`，或设置「开机后自动运行服务」。
-- 装好之后可用 `service start` / `stop` / `restart`。同一台机器只装一份任务：要么托盘，要么网页服务。
+```bash
+apple-refurb-watch doctor --json
+```
 
-### Docker
+通知密钥不会在配置导出中回显；导入配置默认保留本地已保存的密钥。
 
-不再发布镜像。克隆仓库后在本机构建并启动：
+## Docker / NAS
+
+CI 不发布 Docker 镜像。NAS 上从仓库固定版本构建：
 
 ```bash
 cp .env.example .env
 docker compose up -d --build
 ```
 
-不要再在同一数据目录上装本机 `service`。容器用 compose 的 `restart: unless-stopped`。
+同一数据目录不要同时安装本机 `service`。容器使用 compose 的 `restart: unless-stopped`。
 
-## 升级
+## 客户端兼容
 
-覆盖解压即可。数据目录会自动迁移；失败时还原 `app.db.bak-vN`。已经 `connect` 到远端的，服务端和客户端都换成这一版更稳妥。
+桌面、CLI 和 TUI 都通过服务端 API 工作。连接远程服务时，客户端不启动本地扫描器，也不写本地第二份数据库；若服务端 API 版本高于客户端，请先升级客户端。

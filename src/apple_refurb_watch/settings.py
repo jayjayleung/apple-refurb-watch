@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import secrets
 from typing import Any
 
@@ -65,6 +66,31 @@ NOTIFY_CHANNEL_UI: tuple[dict[str, Any], ...] = (
 )
 
 _CHANNEL_UI_BY_NAME = {item["name"]: item for item in NOTIFY_CHANNEL_UI}
+_LOOPBACK_HOSTS = {"localhost", "localhost.localdomain"}
+_WILDCARD_HOSTS = {"0.0.0.0", "::", "[::]", ""}
+
+
+def is_loopback_bind(host: str | None) -> bool:
+    """Return whether a bind address is restricted to this machine."""
+
+    value = str(host or "127.0.0.1").strip().lower().rstrip(".")
+    if value in _LOOPBACK_HOSTS:
+        return True
+    if value in _WILDCARD_HOSTS:
+        return False
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    if "%" in value:
+        value = value.split("%", 1)[0]
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        # Unresolved host names may resolve to a LAN address at bind time.
+        return False
+
+
+def listener_requires_auth(settings: dict) -> bool:
+    return not is_loopback_bind(settings.get("bind_host"))
 
 
 def public_url(settings: dict) -> str:
@@ -169,10 +195,13 @@ def normalize_settings_patch(patch: dict[str, Any], current: dict[str, Any]) -> 
             data.pop("access_token", None)
     if "listings" in data and data["listings"] is not None:
         data["listings"] = safe_listings(list(data["listings"]))
-    if data.get("lan_enabled") and not (data.get("access_token") or current.get("access_token")):
-        data["access_token"] = secrets.token_urlsafe(16)
     if data.get("lan_enabled"):
         data.setdefault("bind_host", "0.0.0.0")
     if data.get("lan_enabled") is False:
         data.setdefault("bind_host", "127.0.0.1")
+    effective_host = data.get("bind_host", current.get("bind_host"))
+    if listener_requires_auth({"bind_host": effective_host}) and not (
+        data.get("access_token") or current.get("access_token")
+    ):
+        data["access_token"] = secrets.token_urlsafe(16)
     return data

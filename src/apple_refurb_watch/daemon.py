@@ -134,6 +134,7 @@ def ping_daemon(base: str | None = None, *, stable: bool = False) -> ApiClient |
     try:
         client.health()
     except ApiError:
+        client.close()
         return None
     if not stable:
         return client
@@ -141,6 +142,7 @@ def ping_daemon(base: str | None = None, *, stable: bool = False) -> ApiClient |
     try:
         client.health()
     except ApiError:
+        client.close()
         return None
     return client
 
@@ -175,11 +177,14 @@ def _wait_base(host: str | None, port: int | None) -> str | None:
 
 
 def is_running() -> bool:
+    client = ApiClient()
     try:
-        ApiClient().health()
+        client.health()
         return True
     except ApiError:
         return False
+    finally:
+        client.close()
 
 
 def _pid_is_ours(pid: int) -> bool:

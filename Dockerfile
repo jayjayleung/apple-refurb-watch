@@ -15,11 +15,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /data
 
-COPY pyproject.toml README.md /app/
+COPY pyproject.toml README.md uv.lock /app/
 COPY src /app/src
 
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+    && pip install --no-cache-dir "uv==0.12.7" \
+    && uv sync --locked --no-dev
+
+ENV PATH="/app/.venv/bin:${PATH}"
 
 EXPOSE 8765
 VOLUME ["/data"]

@@ -14,7 +14,8 @@ fi
 # shellcheck disable=SC1091
 source "${ROOT}/.venv/bin/activate"
 python -m pip install --upgrade pip
-pip install -e ".[dev]"
+python -m pip install "uv==0.12.7"
+python -m uv sync --locked --extra dev
 
 echo
 echo "安装完成。"

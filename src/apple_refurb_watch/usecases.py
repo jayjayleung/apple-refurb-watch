@@ -15,6 +15,7 @@ CAPABILITIES = [
     "listings",
     "watches",
     "events",
+    "scans",
     "events.after_id",
     "notify.deliveries",
     "filter-catalog",

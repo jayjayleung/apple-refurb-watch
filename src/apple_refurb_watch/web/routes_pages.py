@@ -53,8 +53,19 @@ def _event_context(request: Request) -> dict:
     except (TypeError, ValueError):
         page = 1
     paged = present_events(request.app.state.db, digest=digest, kind=kind, page=page)
+    scan_run_id = None
+    try:
+        raw_run_id = request.query_params.get("scan_run_id")
+        if raw_run_id:
+            parsed_run_id = int(raw_run_id)
+            if parsed_run_id > 0:
+                scan_run_id = parsed_run_id
+    except (TypeError, ValueError):
+        scan_run_id = None
     return {
         **paged,
+        "flash": request.query_params.get("flash") or "",
+        "scan_run_id": scan_run_id,
         "events_url_all": events_url(digest=False, kind=kind),
         "events_url_digest": events_url(digest=True, kind=kind),
         "events_url_prev": events_url(page=paged["event_page"] - 1, digest=digest, kind=kind),

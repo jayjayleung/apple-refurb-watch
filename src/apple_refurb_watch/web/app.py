@@ -14,8 +14,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from apple_refurb_watch.db import Database
-from apple_refurb_watch.paths import log_path, write_runtime
-from apple_refurb_watch.scanner import run_scan
+from apple_refurb_watch.deliveries import OutboxWorker
+from apple_refurb_watch.paths import clear_runtime, log_path, write_runtime
+from apple_refurb_watch.scanner import ScanService
 from apple_refurb_watch.web.auth import AuthMiddleware
 from apple_refurb_watch.web.render import PageRenderer, templates, web_dir
 from apple_refurb_watch.web.routes_api import router as api_router
@@ -50,11 +51,30 @@ def _log_unhandled(exc: BaseException) -> str:
     return text
 
 
-def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> FastAPI:
-    database = db or Database()
+def create_app(
+    db: Database | None = None,
+    *,
+    with_scheduler: bool = True,
+    scan_service: ScanService | None = None,
+    close_database: bool | None = None,
+    listener_host: str | None = None,
+    listener_port: int | None = None,
+) -> FastAPI:
+    owns_database = db is None if close_database is None else bool(close_database)
+    database = db if db is not None else Database()
     jinja = templates()
     scheduler = BackgroundScheduler()
     renderer = PageRenderer(database, jinja)
+    service = scan_service if scan_service is not None else ScanService(database)
+    owns_service = scan_service is None
+    outbox_worker = OutboxWorker(database)
+
+    # The socket binding is decided by the process entry point.  Settings may
+    # be changed while that process is alive, but those changes take effect
+    # only after a restart; runtime metadata must describe this actual socket.
+    configured = database.settings()
+    bound_host = listener_host or configured.get("bind_host") or "127.0.0.1"
+    bound_port = int(listener_port if listener_port is not None else (configured.get("bind_port") or 8765))
 
     def reschedule() -> None:
         if not with_scheduler:
@@ -66,7 +86,7 @@ def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> Fa
             return
         interval = max(60, int(settings.get("interval_seconds") or 300))
         scheduler.add_job(
-            lambda: run_scan(database),
+            service.run_once,
             "interval",
             seconds=interval,
             id="scan",
@@ -78,33 +98,58 @@ def create_app(db: Database | None = None, *, with_scheduler: bool = True) -> Fa
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        settings = database.settings()
-        write_runtime(
-            {
-                "pid": __import__("os").getpid(),
-                "host": settings.get("bind_host") or "127.0.0.1",
-                "port": settings.get("bind_port") or 8765,
-                "url": public_url(settings),
-            }
-        )
-        if with_scheduler:
-            reschedule()
-            scheduler.start()
-        yield
-        if with_scheduler and scheduler.running:
-            scheduler.shutdown(wait=False)
+        runtime_pid = __import__("os").getpid()
+        try:
+            settings = database.settings()
+            write_runtime(
+                {
+                    "pid": runtime_pid,
+                    "host": bound_host,
+                    "port": bound_port,
+                    "url": public_url({**settings, "bind_host": bound_host, "bind_port": bound_port}),
+                }
+            )
+            if with_scheduler:
+                reschedule()
+                scheduler.start()
+                # Notification delivery is independent from scan execution;
+                # a provider outage or process restart leaves work in the
+                # durable outbox for this worker to reclaim.
+                outbox_worker.start()
+            yield
+        finally:
+            try:
+                if with_scheduler:
+                    outbox_worker.stop()
+            finally:
+                try:
+                    if with_scheduler and scheduler.running:
+                        # Wait for an in-flight scan before closing its database.
+                        scheduler.shutdown(wait=True)
+                finally:
+                    try:
+                        if owns_service:
+                            service.close()
+                    finally:
+                        if owns_database:
+                            database.close()
+            clear_runtime(runtime_pid)
 
     app = FastAPI(title="苹果官翻监听", lifespan=lifespan)
     app.state.db = database
     app.state.scheduler = scheduler
     app.state.reschedule = reschedule
+    app.state.scan_service = service
+    app.state.outbox_worker = outbox_worker
     app.state.render = renderer
     app.state.jinja = jinja
+    app.state.bound_host = bound_host
+    app.state.bound_port = bound_port
     static_dir = web_dir() / "static"
     if not static_dir.is_dir():
         raise RuntimeError(f"安装包缺少网页静态文件: {static_dir}")
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-    app.add_middleware(AuthMiddleware, db=database)
+    app.add_middleware(AuthMiddleware, db=database, bound_host=app.state.bound_host)
     app.include_router(api_router)
     app.include_router(pages_router)
     app.include_router(watches_router)

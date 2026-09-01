@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -22,16 +23,19 @@ from apple_refurb_watch.scanner import run_scan
 from apple_refurb_watch.status_view import EVENT_LABELS, format_localtime, present_event_days
 from apple_refurb_watch.usecases import list_shop
 from apple_refurb_watch.watches import watch_condition_label
+from apple_refurb_watch.web.auth import validate_listener_security
 
 app = typer.Typer(help="苹果中国官翻指定配置监听", no_args_is_help=True, rich_markup_mode="rich")
 watch_app = typer.Typer(help="监听规则", rich_help_panel="监听")
 service_app = typer.Typer(help="开机自启")
 settings_app = typer.Typer(help="设置", rich_help_panel="设置")
 events_app = typer.Typer(help="动态", invoke_without_command=True)
+config_app = typer.Typer(help="配置导入导出", rich_help_panel="运维")
 app.add_typer(watch_app, name="watch")
 app.add_typer(service_app, name="service")
 app.add_typer(settings_app, name="settings")
 app.add_typer(events_app, name="events")
+app.add_typer(config_app, name="config")
 
 
 def _client() -> ApiClient:
@@ -42,6 +46,18 @@ def _refuse_local_against_remote() -> None:
     conn = load_connection()
     if conn.url:
         typer.echo("已配置远端服务器，--local 只读本机库。请去掉 --local，或先 apple-refurb-watch disconnect。", err=True)
+        raise typer.Exit(2)
+
+
+def _require_local_maintenance(*, stop_required: bool = False) -> None:
+    """Guard commands that operate on the local authority database."""
+
+    conn = load_connection()
+    if conn.url:
+        typer.echo("当前 CLI 已连接远端服务；备份/恢复/配置维护请在权威服务所在机器执行。", err=True)
+        raise typer.Exit(2)
+    if stop_required and is_running():
+        typer.echo("请先停止本机 daemon，再执行会替换或批量写入数据库的维护命令。", err=True)
         raise typer.Exit(2)
 
 
@@ -99,7 +115,30 @@ def serve(
         db.set_setting("bind_host", bind_host)
     if port:
         db.set_setting("bind_port", bind_port)
-    fastapi_app = create_app(db, with_scheduler=True)
+    effective_settings = db.settings()
+    # Validate the effective address (including one-shot CLI overrides) before
+    # handing the socket to uvicorn.  A malformed remote configuration must
+    # fail closed and release the singleton lock cleanly.
+    effective_settings["bind_host"] = bind_host
+    try:
+        validate_listener_security(effective_settings)
+    except RuntimeError as exc:
+        db.close()
+        lock.close()
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    try:
+        fastapi_app = create_app(
+            db,
+            with_scheduler=True,
+            close_database=True,
+            listener_host=bind_host,
+            listener_port=bind_port,
+        )
+    except Exception:
+        db.close()
+        lock.close()
+        raise
     typer.echo(f"网页: http://{'127.0.0.1' if bind_host in {'0.0.0.0', '::'} else bind_host}:{bind_port}")
     try:
         apply_windows_loop_policy()
@@ -166,7 +205,7 @@ def list_products(
         database = Database()
         items = list_shop(database, filters, sort, page_size=None)["all_items"]
     else:
-        items = _client().listings(sort=sort, **filters).get("items") or []
+        items = _client().listings(all_pages=True, sort=sort, **filters).get("items") or []
     if as_json:
         _dump(items)
         return
@@ -221,6 +260,131 @@ def home() -> None:
     typer.echo(str(data_dir()))
 
 
+@app.command()
+def backup(
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="备份文件或目录"),
+    keep: int = typer.Option(8, "--keep", min=1, help="自动备份最多保留份数"),
+    as_json: bool = typer.Option(False, "--json", help="输出 JSON"),
+) -> None:
+    """创建并校验 SQLite 在线备份。"""
+    from apple_refurb_watch.maintenance import backup_database
+
+    _require_local_maintenance()
+    try:
+        result = backup_database(destination=output, keep=keep)
+    except (OSError, RuntimeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    if as_json:
+        _dump(result)
+    else:
+        typer.echo(f"备份完成: {result['backup']}")
+        typer.echo(f"完整性: {result.get('integrity', 'unknown')}")
+
+
+@app.command()
+def restore(
+    backup_path: Path = typer.Argument(..., metavar="BACKUP", help="已校验的 .db 备份"),
+    target: Optional[Path] = typer.Option(None, "--target", help="目标数据库，默认本机权威库"),
+    as_json: bool = typer.Option(False, "--json", help="输出 JSON"),
+) -> None:
+    """停止 daemon 后恢复 SQLite，并保留恢复前副本。"""
+    from apple_refurb_watch.maintenance import restore_database
+
+    _require_local_maintenance(stop_required=True)
+    try:
+        result = restore_database(backup_path, target)
+    except (OSError, RuntimeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    if as_json:
+        _dump(result)
+    else:
+        typer.echo(f"恢复完成: {result['restored']}")
+        if result.get("prior"):
+            typer.echo(f"恢复前副本: {result['prior'].get('backup')}")
+
+
+@app.command("doctor")
+def doctor_cmd(
+    as_json: bool = typer.Option(True, "--json/--human", help="输出 JSON（默认）"),
+) -> None:
+    """检查数据库、监听安全、daemon 和未完成扫描。"""
+    from apple_refurb_watch.maintenance import doctor as run_doctor
+
+    _require_local_maintenance()
+    try:
+        result = run_doctor()
+    except (OSError, RuntimeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    if as_json:
+        _dump(result)
+    else:
+        status_label = "正常" if result.get("ok") else "异常"
+        typer.echo(f"诊断: {status_label}")
+        typer.echo(f"数据库: {result.get('database', {}).get('integrity', 'unknown')}")
+        typer.echo(f"待投递: {result.get('pending_deliveries', 0)}")
+        typer.echo(f"回收孤儿扫描: {result.get('abandoned_runs_recovered', 0)}")
+    if not result.get("ok"):
+        raise typer.Exit(1)
+
+
+@config_app.command("export")
+def config_export(
+    path: Optional[Path] = typer.Argument(None, metavar="PATH", help="输出文件；省略则打印 JSON"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="输出文件（与 PATH 二选一）"),
+    include_secrets: bool = typer.Option(False, "--include-secrets", help="显式包含访问口令和通知密钥"),
+    as_json: bool = typer.Option(False, "--json", help="即使写入文件也打印 JSON"),
+) -> None:
+    """导出规则和设置，默认排除所有密钥。"""
+    from apple_refurb_watch.maintenance import export_config
+
+    _require_local_maintenance()
+    if path is not None and output is not None:
+        typer.echo("PATH 和 --output 只能指定一个", err=True)
+        raise typer.Exit(2)
+    destination = path or output
+    try:
+        result = export_config(destination, include_secrets=include_secrets)
+    except (OSError, RuntimeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    if destination is None or as_json:
+        _dump(result)
+    else:
+        typer.echo(f"配置已导出: {destination}")
+
+
+@config_app.command("import")
+def config_import(
+    path: Path = typer.Argument(..., metavar="PATH", help="配置 JSON 文件"),
+    include_secrets: bool = typer.Option(False, "--include-secrets", help="允许替换本地访问口令和通知密钥"),
+    replace_watches: bool = typer.Option(False, "--replace-watches", help="先删除本地规则再导入"),
+) -> None:
+    """原子导入规则和设置；默认保留本地密钥。"""
+    from apple_refurb_watch.maintenance import import_config
+
+    _require_local_maintenance(stop_required=True)
+    try:
+        result = import_config(
+            path,
+            include_secrets=include_secrets,
+            replace_watches=replace_watches,
+        )
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    # ``import_config`` returns the updated settings for library callers.  Do
+    # not echo retained/replaced credentials into shell history or CI logs.
+    if isinstance(result.get("settings"), dict):
+        from apple_refurb_watch.settings import public_settings
+
+        result = dict(result)
+        result["settings"] = public_settings(result["settings"])
+    _dump(result)
+
+
 @watch_app.command("ls")
 def watch_ls(
     as_json: bool = typer.Option(False, "--json", help="输出 JSON"),
@@ -235,7 +399,7 @@ def watch_ls(
         return
     stock = []
     try:
-        stock = _client().listings().get("items") or []
+        stock = _client().listings(all_pages=True).get("items") or []
     except ApiError:
         stock = []
     from apple_refurb_watch.match import matches_watch

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from apple_refurb_watch.fetch import fetch_html
 from apple_refurb_watch.filters import sync_filter_catalog
 from apple_refurb_watch.notify import CHANNELS, NotifyError, send_test
-from apple_refurb_watch.scanner import run_scan
 from apple_refurb_watch.web.settings_public import form_settings, safe_next
 
 router = APIRouter()
@@ -72,9 +72,36 @@ def settings_sync_catalog() -> RedirectResponse:
 
 
 @router.post("/settings/scan")
-def settings_scan(request: Request) -> RedirectResponse:
-    run_scan(request.app.state.db)
-    return RedirectResponse("/events", status_code=303)
+async def settings_scan(request: Request) -> RedirectResponse:
+    """Queue a manual scan without holding the browser request open."""
+
+    service = request.app.state.scan_service
+    submit = getattr(service, "submit", None)
+    if callable(submit):
+        # The reservation is small, but run it off the event loop as the
+        # service owns a synchronous SQLite connection.
+        result = await run_in_threadpool(submit)
+        if not isinstance(result, dict) or not result.get("accepted", True):
+            return RedirectResponse("/events?flash=scan-busy", status_code=303)
+        try:
+            run_id = int(result.get("scan_run_id") or result.get("id"))
+        except (TypeError, ValueError):
+            return RedirectResponse("/events?flash=scan-queued", status_code=303)
+        return RedirectResponse(
+            f"/events?flash=scan-queued&scan_run_id={run_id}",
+            status_code=303,
+        )
+
+    # Keep lightweight integrations that inject the pre-resource service
+    # working while they migrate.  The real service above always takes the
+    # asynchronous path.
+    run_once = getattr(service, "run_once", None)
+    if not callable(run_once):
+        return RedirectResponse("/events?flash=scan-busy", status_code=303)
+    result = await run_in_threadpool(run_once)
+    if isinstance(result, dict) and result.get("message") == "已有扫描在进行":
+        return RedirectResponse("/events?flash=scan-busy", status_code=303)
+    return RedirectResponse("/events?flash=scan-done", status_code=303)
 
 
 @router.post("/settings/notify-test")

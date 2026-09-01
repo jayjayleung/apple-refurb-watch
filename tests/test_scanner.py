@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from apple_refurb_watch.db import Database
 from apple_refurb_watch.scanner import run_scan
 
@@ -136,6 +138,96 @@ def test_failed_listing_does_not_clear_stock(tmp_path: Path, listing_html: str) 
     assert failed["ok"] is False
     stock = db.list_products(in_stock=True)
     assert any(p["sku"] == "FGDN4CH/A" for p in stock)
+    db.close()
+
+
+def test_partial_scan_preserves_watch_state_and_success_timestamp(tmp_path: Path, listing_html: str) -> None:
+    db = Database(tmp_path / "app.db")
+    db.set_setting("listings", ["mac", "ipad"])
+    watch = db.create_watch({"name": "14 MBP", "all_of": ["MacBook Pro"]})
+
+    def initial(url: str) -> str:
+        return listing_html
+
+    first = run_scan(
+        db,
+        fetch_listing=initial,
+        fetch_detail=lambda _url: "",
+        notifier=lambda *args: [],
+        sleep_fn=lambda _seconds: None,
+    )
+    assert first["ok"]
+    db.set_watch_sku(watch["id"], "FGDN4CH/A", in_stock=True, notified=True)
+    previous_success = db.get_setting("last_success_at")
+    assert previous_success
+
+    def partial(url: str) -> str:
+        if "/ipad" in url:
+            raise RuntimeError("ipad temporarily unavailable")
+        return "<html><body>empty but valid response</body></html>"
+
+    result = run_scan(
+        db,
+        fetch_listing=partial,
+        fetch_detail=lambda _url: "",
+        notifier=lambda *args: [],
+        sleep_fn=lambda _seconds: None,
+    )
+    assert result["ok"] is True
+    assert result["partial"] is True
+    state = db.watch_sku_state(watch["id"], "FGDN4CH/A")
+    assert state and state["in_stock"] == 1
+    assert db.get_setting("last_success_at") == previous_success
+    assert db.get_setting("last_error")
+    db.close()
+
+
+def test_scan_run_and_observations_are_persisted_together(tmp_path: Path, listing_html: str) -> None:
+    db = Database(tmp_path / "app.db")
+    db.set_setting("listings", ["mac"])
+    result = run_scan(
+        db,
+        fetch_listing=lambda _url: listing_html,
+        fetch_detail=lambda _url: "",
+        notifier=lambda *args: [],
+        sleep_fn=lambda _seconds: None,
+    )
+    run = db.get_scan_run(result["scan_run_id"])
+    assert run
+    assert run["status"] == "succeeded"
+    assert run["requested_listings"] == ["mac"]
+    assert run["successful_listings"] == ["mac"]
+    observations = db.list_observations(result["scan_run_id"])
+    assert observations
+    assert all(item["scan_run_id"] == result["scan_run_id"] for item in observations)
+    assert run["product_count"] == len(observations)
+    db.close()
+
+
+def test_scan_persistence_failure_rolls_back_inventory_and_events(tmp_path: Path, listing_html: str, monkeypatch) -> None:
+    db = Database(tmp_path / "app.db")
+    db.set_setting("listings", ["mac"])
+    original = db.add_event
+
+    def fail_scan_event(**kwargs):
+        if kwargs.get("type") == "scan_ok":
+            raise RuntimeError("simulated commit failure")
+        return original(**kwargs)
+
+    monkeypatch.setattr(db, "add_event", fail_scan_event)
+    with pytest.raises(RuntimeError, match="simulated commit failure"):
+        run_scan(
+            db,
+            fetch_listing=lambda _url: listing_html,
+            fetch_detail=lambda _url: "",
+            notifier=lambda *args: [],
+            sleep_fn=lambda _seconds: None,
+        )
+    assert db.list_products(in_stock=None) == []
+    assert db.list_events() == []
+    runs = db.list_scan_runs()
+    assert runs and runs[0]["status"] == "failed"
+    assert db.list_observations(runs[0]["id"]) == []
     db.close()
 
 

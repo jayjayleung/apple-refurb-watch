@@ -8,12 +8,32 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from apple_refurb_watch.db import Database
+from apple_refurb_watch.settings import is_loopback_bind, listener_requires_auth
+
+
+def validate_listener_security(settings: dict) -> None:
+    """Reject an externally reachable listener that has no access token.
+
+    The middleware still handles this state as a normal unauthorized request so
+    a misconfigured ASGI app fails closed.  The process entry points call this
+    validator before binding a socket, preventing an accidentally inaccessible
+    or unauthenticated daemon from being started.
+    """
+
+    if listener_requires_auth(settings) and not str(settings.get("access_token") or "").strip():
+        bind = settings.get("bind_host") or "0.0.0.0"
+        raise RuntimeError(f"非本机监听 {bind} 必须先配置访问口令，服务拒绝启动")
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, db: Database) -> None:
+    def __init__(self, app, db: Database, bound_host: str | None = None) -> None:
         super().__init__(app)
         self.db = db
+        # Settings can be edited while the process is running, but changing a
+        # bind address only takes effect after restart.  Keep the address that
+        # this socket was actually opened on so a token cannot be cleared to
+        # expose an already-bound non-loopback listener.
+        self.bound_host = bound_host
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -24,7 +44,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path.startswith("/static") or path in {"/login", "/api/health"}:
             return await call_next(request)
         settings = self.db.settings()
-        if not needs_auth(request, settings):
+        auth_settings = settings
+        if self.bound_host is not None:
+            auth_settings = {**settings, "bind_host": self.bound_host}
+        if not needs_auth(request, auth_settings):
             return await call_next(request)
         token = settings.get("access_token") or ""
         provided = (
@@ -62,12 +85,8 @@ def origin_ok(request: Request) -> bool:
 
 
 def needs_auth(request: Request, settings: dict) -> bool:
-    if not settings.get("lan_enabled"):
-        return False
-    bind = settings.get("bind_host") or "127.0.0.1"
-    if bind in {"127.0.0.1", "localhost", "::1"}:
-        return False
-    host = request.client.host if request.client else ""
-    if host in {"127.0.0.1", "::1", "localhost"}:
-        return False
-    return bool(settings.get("access_token"))
+    # Do not inspect request.client here.  A reverse proxy commonly connects
+    # over loopback while forwarding requests from the LAN or the public net;
+    # trusting that address would bypass authentication.
+    del request
+    return listener_requires_auth(settings)

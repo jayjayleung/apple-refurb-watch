@@ -310,3 +310,85 @@ def test_service_start_without_install(monkeypatch) -> None:
     result = invoke(["service", "start"])
     assert result.exit_code == 1
     assert "service install" in result.stderr
+
+
+def test_maintenance_commands_round_trip(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("APPLE_REFURB_WATCH_URL", raising=False)
+    monkeypatch.delenv("APPLE_REFURB_WATCH_TOKEN", raising=False)
+
+    db = Database(tmp_path / "home" / "app.db")
+    db.set_setting("interval_seconds", 180)
+    db.create_watch({"name": "CLI rule", "listing_key": "mac"})
+    db.close()
+
+    exported = tmp_path / "config.json"
+    result = invoke(["config", "export", str(exported)])
+    assert result.exit_code == 0
+    assert exported.exists()
+
+    backup = tmp_path / "snapshot.db"
+    result = invoke(["backup", "--output", str(backup), "--json"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["backup"] == str(backup)
+
+    result = invoke(["doctor"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["ok"] is True
+
+    result = invoke(["config", "import", str(exported), "--replace-watches"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["watches_imported"] == 1
+
+
+def test_local_maintenance_refuses_remote_connection(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch.connection import save_connection
+
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    save_connection("http://10.0.0.8:8765", "remote-token")
+    result = invoke(["backup", "--json"])
+    assert result.exit_code == 2
+    assert "远端服务" in result.stderr
+
+
+def test_restore_and_import_refuse_while_daemon_is_running(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("apple_refurb_watch.cli.is_running", lambda: True)
+    backup = tmp_path / "backup.db"
+    config = tmp_path / "config.json"
+    backup.write_bytes(b"placeholder")
+    config.write_text("{}", encoding="utf-8")
+    restored = invoke(["restore", str(backup)])
+    assert restored.exit_code == 2
+    assert "先停止" in restored.stderr
+    imported = invoke(["config", "import", str(config)])
+    assert imported.exit_code == 2
+    assert "先停止" in imported.stderr
+
+
+def test_config_import_output_redacts_retained_secrets(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    db = Database(tmp_path / "home" / "app.db")
+    db.update_settings(
+        {
+            "access_token": "local-secret",
+            "notify": {"bark": {"enabled": True, "url": "https://api.day.app/local-secret"}},
+        }
+    )
+    db.close()
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "format": "apple-refurb-watch.config",
+                "version": 1,
+                "settings": {"interval_seconds": 120},
+                "watches": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = invoke(["config", "import", str(config)])
+    assert result.exit_code == 0
+    assert "local-secret" not in result.stdout
+    assert "api.day.app" not in result.stdout

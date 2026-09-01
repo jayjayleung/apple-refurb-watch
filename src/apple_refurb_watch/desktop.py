@@ -23,6 +23,7 @@ from apple_refurb_watch.connection import (
     save_connection,
 )
 from apple_refurb_watch.daemon import acquire_lock, ping_daemon, spawn_env, stop_daemon, windows_creationflags
+from apple_refurb_watch.desktop_adapter import DesktopAdapter
 from apple_refurb_watch.desktop_notify import notify_os
 from apple_refurb_watch.embedded import EmbeddedServer
 from apple_refurb_watch.paths import desktop_lock_path, desktop_signal_path, package_root
@@ -32,6 +33,22 @@ from apple_refurb_watch.service import (
     is_service_installed,
     uninstall_service,
 )
+
+
+def _close_client(client: object | None) -> None:
+    """Close an API client when it supports explicit lifecycle cleanup.
+
+    Desktop tests and integrations sometimes provide a small client double;
+    keeping this helper defensive preserves that calling convention while the
+    production ``ApiClient`` gets deterministic connection cleanup.
+    """
+    close = getattr(client, "close", None)
+    if not callable(close):
+        return
+    try:
+        close()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def hide_to_tray_enabled(settings: dict | None) -> bool:
@@ -131,22 +148,9 @@ def desktop_setup_uri() -> str:
     return (package_root() / "web" / "static" / "desktop-setup.html").resolve().as_uri()
 
 
-def gui_import_status() -> dict[str, str]:
-    notes: dict[str, str] = {}
-    try:
-        import webview  # noqa: F401
-    except Exception as exc:  # noqa: BLE001
-        notes["webview"] = str(exc)
-    else:
-        notes["webview"] = "ok"
-    try:
-        import pystray  # noqa: F401
-        from PIL import Image  # noqa: F401
-    except Exception as exc:  # noqa: BLE001
-        notes["tray"] = str(exc)
-    else:
-        notes["tray"] = "ok"
-    return notes
+def gui_import_status(*, adapter: DesktopAdapter | None = None) -> dict[str, str]:
+    """Return optional desktop dependency status without importing at module load."""
+    return (adapter or DesktopAdapter()).status()
 
 
 def tray_menu_labels(*, listening: bool) -> list[str]:
@@ -192,7 +196,8 @@ def probe_runtime(*, require_gui: bool | None = None) -> dict:
     """不打开窗口：拉起本机服务、检查首页，并报告桌面/托盘依赖。"""
     import httpx
 
-    notes = gui_import_status()
+    adapter = DesktopAdapter()
+    notes = gui_import_status(adapter=adapter)
     if require_gui is None:
         require_gui = is_frozen() and sys.platform in {"win32", "darwin"}
     if require_gui and notes.get("webview") != "ok":
@@ -212,6 +217,7 @@ def probe_runtime(*, require_gui: bool | None = None) -> dict:
             raise RuntimeError(f"GET / 失败：HTTP {response.status_code}")
         return {"ok": True, "notes": notes, "health": health, "home": response.status_code}
     finally:
+        _close_client(client)
         embedded.stop()
 
 
@@ -312,16 +318,20 @@ class DesktopSession:
         self.error = None
         self.notice = None
         self.health = None
+        if self.client is not None:
+            _close_client(self.client)
         self.client = None
         if conn.url:
             client = ApiClient(conn.url, conn.token)
             try:
                 health = client.health()
             except ApiError as exc:
+                _close_client(client)
                 self.error = f"无法连接服务器 {conn.url}：{exc}"
                 return
             hard = check_client_compat(health)
             if hard:
+                _close_client(client)
                 self.error = hard
                 return
             self.client = client
@@ -338,6 +348,7 @@ class DesktopSession:
             if not local_health_is_current(health):
                 stop_daemon()
                 time.sleep(0.6)
+                _close_client(client)
                 client = None
                 health = None
         if client is None:
@@ -349,11 +360,14 @@ class DesktopSession:
                 health = client.health()
         except ApiError as exc:
             self.client = client
+            _close_client(client)
+            self.client = None
             self.error = str(exc)
             return
         hard = check_client_compat(health)
         if hard:
             self.error = hard
+            _close_client(client)
             if self.owned and self.embedded is not None:
                 self.embedded.stop()
                 self.owned = False
@@ -513,6 +527,9 @@ class DesktopSession:
                 self.desk_lock.close()
             except Exception:  # noqa: BLE001
                 pass
+        if self.client is not None:
+            _close_client(self.client)
+            self.client = None
 
     def inject_notice(self) -> None:
         if not self.notice or self.window is None:
@@ -552,14 +569,13 @@ class DesktopApi:
         return {"ok": True}
 
 
-def _start_tray(session: DesktopSession):
+def _start_tray(session: DesktopSession, *, adapter: DesktopAdapter | None = None):
     try:
-        import pystray
-        from PIL import Image
-    except Exception:  # noqa: BLE001
+        pystray, image_module = (adapter or DesktopAdapter()).require_tray()
+    except RuntimeError:
         return None
 
-    image = Image.new("RGBA", (64, 64), (0, 113, 227, 255))
+    image = image_module.new("RGBA", (64, 64), (0, 113, 227, 255))
     listen_state = {"on": bool(session.settings.get("listen_enabled", True))}
 
     def listen_label(item):  # noqa: ARG001
@@ -612,6 +628,7 @@ def run_desktop(*, hidden: bool = False) -> None:
         return
 
     session = DesktopSession(hidden=hidden)
+    adapter = DesktopAdapter()
     session.desk_lock = desk_lock
     session.attach_runtime()
     session.autostart_on = is_service_installed()
@@ -624,8 +641,8 @@ def run_desktop(*, hidden: bool = False) -> None:
     session.apply_notify_preference()
 
     try:
-        import webview
-    except ImportError as exc:
+        webview = adapter.require_webview()
+    except RuntimeError as exc:
         if session.client is not None:
             _open_in_browser(session.client.base)
             if is_frozen():
@@ -698,7 +715,7 @@ def run_desktop(*, hidden: bool = False) -> None:
             name="arw-notify",
             daemon=True,
         ).start()
-    session.tray_icon = _start_tray(session)
+    session.tray_icon = _start_tray(session, adapter=adapter)
 
     try:
         webview.start()

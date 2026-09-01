@@ -9,5 +9,58 @@
   </div>
   {% with scan_class='primary' %}{% include "_scan.html" %}{% endwith %}
 </header>
+{% if flash == 'scan-queued' %}
+<p class="flash ok" id="scan-run-status"{% if scan_run_id %} data-scan-id="{{ scan_run_id }}"{% endif %}>
+  扫描已提交{% if scan_run_id %}，正在运行…{% else %}。{% endif %}
+</p>
+{% elif flash == 'scan-busy' %}
+<p class="flash warn" id="scan-run-status">已有扫描在进行，请稍后再试。</p>
+{% elif flash == 'scan-done' %}
+<p class="flash ok" id="scan-run-status">扫描已完成。</p>
+{% endif %}
 {% include "_event_feed.html" %}
+{% endblock %}
+{% block extra_js %}
+{% if scan_run_id %}
+<script>
+(function () {
+  var node = document.getElementById("scan-run-status");
+  if (!node) return;
+  var runId = node.getAttribute("data-scan-id");
+  if (!runId) return;
+  var labels = {
+    succeeded: "扫描完成。",
+    partial: "扫描完成，但有部分分类失败。",
+    failed: "扫描失败，请展开动态查看原因。"
+  };
+  var tries = 0;
+  function poll() {
+    fetch("/api/scans/" + encodeURIComponent(runId), {headers: {"Accept": "application/json"}})
+      .then(function (response) { return response.json().then(function (data) {
+        return {ok: response.ok, data: data};
+      }); })
+      .then(function (result) {
+        var data = result.data || {};
+        if (!result.ok) {
+          node.textContent = "无法读取扫描状态。";
+          node.classList.add("bad");
+          return;
+        }
+        var status = String(data.status || "running");
+        if (labels[status]) {
+          node.textContent = labels[status];
+          if (status === "failed") node.classList.add("bad");
+          return;
+        }
+        node.textContent = "扫描进行中…";
+        if (tries++ < 600) window.setTimeout(poll, 1000);
+      })
+      .catch(function () {
+        if (tries++ < 600) window.setTimeout(poll, 1500);
+      });
+  }
+  poll();
+})();
+</script>
+{% endif %}
 {% endblock %}

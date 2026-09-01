@@ -13,7 +13,8 @@ if (-not $python) {
 & $python.Source -m venv .venv
 $venvPython = Join-Path $Root ".venv\Scripts\python.exe"
 & $venvPython -m pip install --upgrade pip
-& $venvPython -m pip install -e ".[dev]"
+& $venvPython -m pip install "uv==0.12.7"
+& $venvPython -m uv sync --locked --extra dev
 
 Write-Host ""
 Write-Host "安装完成。"

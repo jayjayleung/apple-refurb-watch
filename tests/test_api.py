@@ -757,6 +757,34 @@ def test_shop_follows_listen_listings(tmp_path) -> None:
         assert status["in_stock"] == 3
 
 
+def test_listings_api_paginates_and_bounds_limit(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    db.upsert_products(
+        [
+            {
+                "sku": f"PAGE{i}CH/A",
+                "title": f"翻新 Mac {i}",
+                "url": f"https://www.apple.com.cn/shop/product/PAGE{i}CH/A",
+                "price": 1000 + i,
+                "listing_key": "mac",
+            }
+            for i in range(3)
+        ]
+    )
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        page = client.get("/api/listings", params={"limit": 1, "offset": 1}).json()
+        assert page["count"] == 3
+        assert page["limit"] == 1
+        assert page["offset"] == 1
+        assert page["has_more"] is True
+        assert [item["sku"] for item in page["items"]] == ["PAGE1CH/A"]
+
+        capped = client.get("/api/listings", params={"limit": 99999}).json()
+        assert capped["limit"] == 500
+        assert len(capped["items"]) == 3
+
+
 def test_unhandled_page_error_shows_reason(tmp_path, monkeypatch) -> None:
     import apple_refurb_watch.web.render as render_mod
     from apple_refurb_watch.web import routes_api
@@ -990,6 +1018,4 @@ def test_notify_test_one_channel(tmp_path) -> None:
         db.update_settings({"notify": {"bark": {"enabled": False, "url": ""}}})
         empty = client.post("/api/notify/test", json={"channel": "bark"})
         assert empty.status_code == 400
-
-
 

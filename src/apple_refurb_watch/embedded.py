@@ -10,6 +10,7 @@ from apple_refurb_watch.client import ApiClient, wait_health
 from apple_refurb_watch.daemon import acquire_lock_retry
 from apple_refurb_watch.db import Database
 from apple_refurb_watch.web.app import apply_windows_loop_policy, uvicorn_options
+from apple_refurb_watch.web.auth import validate_listener_security
 
 
 class EmbeddedServer:
@@ -33,9 +34,26 @@ class EmbeddedServer:
         settings = db.settings()
         bind_host = host or settings.get("bind_host") or "127.0.0.1"
         bind_port = int(port if port is not None else (settings.get("bind_port") or 8765))
+        effective_settings = dict(settings)
+        effective_settings.update({"bind_host": bind_host, "bind_port": bind_port})
+        try:
+            validate_listener_security(effective_settings)
+        except Exception:
+            db.close()
+            handle = self._lock
+            self._lock = None
+            if handle is not None:
+                handle.close()
+            raise
         self.host = "127.0.0.1" if bind_host in {"0.0.0.0", "::"} else bind_host
         self.port = bind_port
-        app = create_app(db, with_scheduler=True)
+        app = create_app(
+            db,
+            with_scheduler=True,
+            close_database=True,
+            listener_host=bind_host,
+            listener_port=bind_port,
+        )
         config = uvicorn.Config(
             app,
             host=bind_host,

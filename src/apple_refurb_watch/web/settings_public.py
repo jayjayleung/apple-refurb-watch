@@ -51,6 +51,7 @@ def _has(form: dict, key: str) -> bool:
 
 def form_settings(form: dict, current: dict) -> dict:
     patch: dict[str, Any] = {}
+    clear_access = False
     if _has(form, "interval_seconds"):
         patch["interval_seconds"] = int(form.get("interval_seconds") or current.get("interval_seconds") or 300)
     if _has(form, "bind_port"):
@@ -71,12 +72,21 @@ def form_settings(form: dict, current: dict) -> dict:
         token = str(form.get("access_token") or "").strip()
         if token:
             patch["access_token"] = token
+        else:
+            clear_access = _truthy(form.get("access_token_clear"))
+            if clear_access:
+                # Clearing the only credential must also turn off the remote
+                # listener.  The actual socket remains protected by the
+                # process-bound host until a restart applies this setting.
+                patch["lan_enabled"] = False
+                patch["bind_host"] = "127.0.0.1"
+                patch["access_token"] = ""
     if _has(form, "listen_enabled"):
         patch["listen_enabled"] = _truthy(form.get("listen_enabled"))
     if _has(form, "close_window_keeps_daemon"):
         patch["close_window_keeps_daemon"] = _truthy(form.get("close_window_keeps_daemon"))
     patch = normalize_settings_patch(patch, current)
-    if _has(form, "save_access") and _truthy(form.get("access_token_clear")) and not str(form.get("access_token") or "").strip():
+    if clear_access:
         patch["access_token"] = ""
     if _has(form, "save_notify"):
         notify = dict(current.get("notify") or {})

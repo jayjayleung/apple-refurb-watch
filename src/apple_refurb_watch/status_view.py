@@ -147,6 +147,7 @@ def format_reltime(iso: str | None) -> str:
 EVENT_LABELS = {
     "scan_ok": "扫描完成",
     "scan": "扫描完成",
+    "scan_partial": "部分完成",
     "appeared": "上新",
     "baseline": "已建基线",
     "scan_error": "扫描失败",

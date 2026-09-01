@@ -58,7 +58,27 @@ def log_path() -> Path:
 
 
 def write_runtime(payload: dict) -> None:
-    runtime_path().write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    target = runtime_path()
+    temporary = target.with_name(f".{target.name}.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temporary, target)
+
+
+def clear_runtime(pid: int | None = None) -> None:
+    """Remove runtime metadata, optionally only when owned by ``pid``."""
+
+    target = runtime_path()
+    if pid is not None:
+        current = read_runtime()
+        try:
+            if int((current or {}).get("pid")) != int(pid):
+                return
+        except (TypeError, ValueError):
+            return
+    try:
+        target.unlink()
+    except OSError:
+        pass
 
 
 def read_runtime() -> dict | None:
@@ -67,5 +87,29 @@ def read_runtime() -> dict | None:
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return None
+
+
+def runtime_is_alive(runtime: dict | None) -> bool:
+    """Return whether runtime metadata points at this project's live process."""
+
+    if not isinstance(runtime, dict):
+        return False
+    try:
+        pid = int(runtime.get("pid"))
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    if sys.platform.startswith("linux"):
+        try:
+            command = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", "replace")
+        except OSError:
+            return False
+        return "apple_refurb_watch" in command or "apple-refurb-watch" in command
+    return True
