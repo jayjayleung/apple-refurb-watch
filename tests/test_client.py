@@ -137,3 +137,158 @@ def test_default_base_ignores_stale_runtime_port(tmp_path, monkeypatch) -> None:
     )
     monkeypatch.setattr(client_module, "runtime_is_alive", lambda _runtime: False)
     assert client_module.default_base() == "http://127.0.0.1:8766"
+
+
+def test_api_client_uses_local_db_access_token(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch.db import Database
+
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("APPLE_REFURB_WATCH_URL", raising=False)
+    monkeypatch.delenv("APPLE_REFURB_WATCH_TOKEN", raising=False)
+    database = Database()
+    database.set_setting("access_token", "local-secret")
+    database.close()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    api = ApiClient("http://127.0.0.1:8766", transport=httpx.MockTransport(handler))
+    try:
+        assert api.health() == {"ok": True}
+    finally:
+        api.close()
+    assert seen[0].headers["Authorization"] == "Bearer local-secret"
+
+
+def test_api_client_does_not_use_local_token_for_remote_connection(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch.connection import save_connection
+    from apple_refurb_watch.db import Database
+
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("APPLE_REFURB_WATCH_URL", raising=False)
+    monkeypatch.delenv("APPLE_REFURB_WATCH_TOKEN", raising=False)
+    database = Database()
+    database.set_setting("access_token", "local-secret")
+    database.close()
+    save_connection("https://remote.example")
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    api = ApiClient(transport=httpx.MockTransport(handler))
+    try:
+        assert api.health() == {"ok": True}
+    finally:
+        api.close()
+    assert "Authorization" not in seen[0].headers
+
+
+def test_api_client_does_not_send_saved_remote_token_to_explicit_local_base(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch.connection import save_connection
+
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("APPLE_REFURB_WATCH_URL", raising=False)
+    monkeypatch.delenv("APPLE_REFURB_WATCH_TOKEN", raising=False)
+    save_connection("https://remote.example", "remote-secret")
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    api = ApiClient("http://127.0.0.1:8766", transport=httpx.MockTransport(handler))
+    try:
+        assert api.health() == {"ok": True}
+    finally:
+        api.close()
+    assert "Authorization" not in seen[0].headers
+
+
+def test_api_client_does_not_send_local_token_to_env_selected_remote(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch.db import Database
+
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("APPLE_REFURB_WATCH_URL", "https://env-remote.example")
+    monkeypatch.delenv("APPLE_REFURB_WATCH_TOKEN", raising=False)
+    database = Database()
+    database.set_setting("access_token", "local-secret")
+    database.close()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    api = ApiClient(transport=httpx.MockTransport(handler))
+    try:
+        assert api.health() == {"ok": True}
+    finally:
+        api.close()
+    assert "Authorization" not in seen[0].headers
+
+
+def test_api_client_uses_local_token_for_env_selected_loopback(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch.db import Database
+
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("APPLE_REFURB_WATCH_URL", "http://127.0.0.1:8766")
+    monkeypatch.delenv("APPLE_REFURB_WATCH_TOKEN", raising=False)
+    database = Database()
+    database.set_setting("access_token", "local-secret")
+    database.close()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    api = ApiClient(transport=httpx.MockTransport(handler))
+    try:
+        assert api.health() == {"ok": True}
+    finally:
+        api.close()
+    assert seen[0].headers["Authorization"] == "Bearer local-secret"
+
+
+def test_resolve_client_uses_local_db_access_token(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch.connection import resolve_client
+    from apple_refurb_watch.db import Database
+
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("APPLE_REFURB_WATCH_URL", raising=False)
+    monkeypatch.delenv("APPLE_REFURB_WATCH_TOKEN", raising=False)
+    database = Database()
+    database.set_setting("access_token", "local-secret")
+    database.close()
+    api = resolve_client(start_local=False)
+    try:
+        assert api.token == "local-secret"
+    finally:
+        api.close()
+
+
+def test_api_client_local_loopback_without_token_keeps_headers_unset(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch.db import Database
+
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("APPLE_REFURB_WATCH_URL", raising=False)
+    monkeypatch.delenv("APPLE_REFURB_WATCH_TOKEN", raising=False)
+    database = Database()
+    database.set_setting("access_token", "")
+    database.close()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    api = ApiClient("http://127.0.0.1:8766", transport=httpx.MockTransport(handler))
+    try:
+        assert api.health() == {"ok": True}
+    finally:
+        api.close()
+    assert "Authorization" not in seen[0].headers

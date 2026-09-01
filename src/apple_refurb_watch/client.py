@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -14,6 +16,72 @@ class ApiError(RuntimeError):
     def __init__(self, message: str, status: int | None = None) -> None:
         super().__init__(message)
         self.status = status
+
+
+def _is_local_endpoint(base: str) -> bool:
+    """Whether ``base`` points at the local machine rather than a remote host."""
+
+    try:
+        host = (urlparse(base).hostname or "").strip().lower().rstrip(".")
+    except ValueError:
+        return False
+    if host in {"localhost", "localhost.localdomain", "0.0.0.0", "::"}:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+        return address.is_loopback or address.is_unspecified
+    except ValueError:
+        return False
+
+
+def _local_access_token() -> str:
+    """Read the access token owned by the local daemon, if one is configured."""
+
+    try:
+        from apple_refurb_watch.db import Database
+
+        database = Database()
+        try:
+            token = database.get_setting("access_token", "")
+        finally:
+            database.close()
+    except Exception:  # noqa: BLE001
+        return ""
+    return str(token or "").strip()
+
+
+def _resolve_token(token: str | None, base: str, *, base_explicit: bool) -> str:
+    if token is not None:
+        return token
+    env_token = os.environ.get("APPLE_REFURB_WATCH_TOKEN")
+    if env_token:
+        return env_token
+    try:
+        from apple_refurb_watch.connection import load_connection
+
+        connection = load_connection()
+    except Exception:  # noqa: BLE001
+        connection = None
+    env_url = str(os.environ.get("APPLE_REFURB_WATCH_URL") or "").strip()
+    if not base_explicit and env_url and _is_local_endpoint(base):
+        return _local_access_token()
+    if connection is not None and connection.url:
+        # A configured URL is authoritative.  Never attach the local daemon's
+        # token to a separately configured remote server, or the remote token
+        # to an explicitly selected local endpoint.
+        if (not base_explicit and not env_url) or base.rstrip("/") == connection.url.rstrip("/"):
+            return connection.token or ""
+        return ""
+    if not base_explicit and env_url and not _is_local_endpoint(base):
+        # APPLE_REFURB_WATCH_URL explicitly selects a remote endpoint.  The
+        # local SQLite token belongs to the local daemon and must not be sent.
+        return ""
+    if not base_explicit or _is_local_endpoint(base):
+        # The local access token lives in the daemon's SQLite settings, not in
+        # the remote connection.token file used by ``connect``.
+        return _local_access_token()
+    # An explicitly supplied non-local endpoint must opt into its own token.
+    return ""
 
 
 def default_base() -> str:
@@ -64,16 +132,9 @@ class ApiClient:
         transport: httpx.BaseTransport | None = None,
         client: httpx.Client | None = None,
     ) -> None:
+        base_explicit = base is not None
         self.base = (base or default_base()).rstrip("/")
-        resolved = token if token is not None else os.environ.get("APPLE_REFURB_WATCH_TOKEN")
-        if not resolved:
-            try:
-                from apple_refurb_watch.connection import load_connection
-
-                resolved = load_connection().token or ""
-            except Exception:  # noqa: BLE001
-                resolved = ""
-        self.token = resolved or ""
+        self.token = _resolve_token(token, self.base, base_explicit=base_explicit) or ""
         self._owns_client = client is None
         self._client = client if client is not None else httpx.Client(timeout=timeout, transport=transport)
         self._closed = False
