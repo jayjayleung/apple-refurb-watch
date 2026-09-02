@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import threading
 import time
 from typing import Any, Callable
@@ -40,6 +41,8 @@ def _optional_positive_number(text: str, label: str, cast: Callable[[str], Any])
         value = cast(raw)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{label}必须是数字") from exc
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{label}必须是有效数字")
     if value <= 0:
         raise ValueError(f"{label}必须大于 0")
     return value
@@ -313,10 +316,13 @@ def create_tui(
             self._syncing_switch = False
             self._connecting = False
             self._scan_busy = False
+            self._settings_ready = False
             self._generations: dict[str, int] = {}
             self._busy_operations: set[str] = set()
             self._status_request_running = False
+            self._status_poll_failures = 0
             self._stop_event = threading.Event()
+            self._pending_clients: list[Any] = []
 
         def compose(self) -> ComposeResult:
             yield Header()
@@ -366,6 +372,7 @@ def create_tui(
             events.add_columns("日期", "时间", "类型", "内容")
             self.set_focus(table)
             self.screen.set_class(self.size.width < 100, "narrow")
+            self._set_settings_controls_enabled(False)
             self.set_interval(4.0, self._poll_status)
             if self.client is None:
                 self._connect()
@@ -378,6 +385,15 @@ def create_tui(
 
         def on_unmount(self) -> None:
             self._stop_event.set()
+            pending = list(self._pending_clients)
+            self._pending_clients.clear()
+            for pending_client in pending:
+                if pending_client is self.client:
+                    continue
+                try:
+                    pending_client.close()
+                except Exception:  # noqa: BLE001
+                    pass
             if self._owns_client and self.client is not None and hasattr(self.client, "close"):
                 try:
                     self.client.close()
@@ -399,11 +415,31 @@ def create_tui(
                     result = work()
                 except Exception as exc:  # noqa: BLE001
                     error = exc
+                if group == "connect" and result is not None and hasattr(result, "close"):
+                    self._pending_clients.append(result)
                 if self._stop_event.is_set():
+                    if group == "connect" and result is not None and hasattr(result, "close"):
+                        try:
+                            self._pending_clients.remove(result)
+                        except ValueError:
+                            pass
+                        try:
+                            result.close()
+                        except Exception:  # noqa: BLE001
+                            pass
                     return
                 try:
                     self.call_from_thread(lambda: done(result, error))
                 except RuntimeError:
+                    if group == "connect" and result is not None and hasattr(result, "close"):
+                        try:
+                            self._pending_clients.remove(result)
+                        except ValueError:
+                            pass
+                        try:
+                            result.close()
+                        except Exception:  # noqa: BLE001
+                            pass
                     return
 
             self.run_worker(
@@ -460,7 +496,17 @@ def create_tui(
 
             def finish(result: Any, error: Exception | None) -> None:
                 self._connecting = False
+                if result is not None and hasattr(result, "close"):
+                    try:
+                        self._pending_clients.remove(result)
+                    except ValueError:
+                        pass
                 if error is not None:
+                    if result is not None and hasattr(result, "close"):
+                        try:
+                            result.close()
+                        except Exception:  # noqa: BLE001
+                            pass
                     self.query_one("#status", Static).update(f"连接失败 · {error}")
                     self.sub_title = "连接失败"
                     self.notify(str(error))
@@ -511,12 +557,24 @@ def create_tui(
             switch_id = event.switch.id or ""
             if self._syncing_switch:
                 return
+            if not self._settings_ready:
+                if switch_id == "listen-switch":
+                    self._set_listen_switch(bool(self._last_settings.get("listen_enabled", False)))
+                elif switch_id.startswith("listing-"):
+                    self._apply_listing_switches(
+                        list(self._last_settings.get("listings") or self._settings_listings)
+                    )
+                self.notify("设置尚未加载完成")
+                return
             if switch_id == "listen-switch":
-                self._next_generation("settings")
+                generation = self._next_generation("settings")
                 previous = bool(self._last_settings.get("listen_enabled", not event.value))
                 event.switch.disabled = True
 
                 def finish(result: Any, error: Exception | None) -> None:
+                    if not self._generation_is_current("settings", generation):
+                        event.switch.disabled = False
+                        return
                     event.switch.disabled = False
                     if error is not None:
                         self._set_listen_switch(previous)
@@ -528,7 +586,7 @@ def create_tui(
                     self.notify("已开始监听" if event.value else "已停止监听")
 
                 if not self._run_unique_client_task(
-                    "listen-setting",
+                    "settings-write",
                     lambda current: current.update_settings({"listen_enabled": event.value}),
                     finish,
                 ):
@@ -623,20 +681,20 @@ def create_tui(
 
         def _perform_scan(self, current: ApiClient) -> dict[str, Any]:
             if not hasattr(current, "submit_scan") or not hasattr(current, "scan_run"):
-                return {"legacy": True, "run": current.scan()}
+                return self._legacy_scan_result(current.scan())
             try:
                 submitted = current.submit_scan()
             except ApiError as exc:
                 if exc.status not in {404, 405}:
                     raise
-                return {"legacy": True, "run": current.scan()}
+                return self._legacy_scan_result(current.scan())
             if not isinstance(submitted, dict):
                 raise RuntimeError("服务返回了无效扫描任务")
             if not submitted.get("accepted", True):
                 raise RuntimeError(str(submitted.get("message") or "已有扫描在进行"))
             raw_run_id = submitted.get("scan_run_id") or submitted.get("id")
             if raw_run_id in (None, ""):
-                return {"legacy": True, "run": submitted}
+                return self._legacy_scan_result(submitted)
             run_id = int(raw_run_id)
             self._post_scan_progress({"id": run_id, "status": submitted.get("status") or "queued"})
             deadline = time.monotonic() + 900
@@ -653,6 +711,13 @@ def create_tui(
                 if self._stop_event.wait(min(1.0, remaining)):
                     return {"cancelled": True, "run": run}
             return {"cancelled": True}
+
+        def _legacy_scan_result(self, run: Any) -> dict[str, Any]:
+            if not isinstance(run, dict):
+                raise RuntimeError("服务返回了无效扫描结果")
+            if run.get("ok") is False:
+                raise RuntimeError(str(run.get("message") or "扫描失败"))
+            return {"legacy": True, "run": run}
 
         def _apply_scan_progress(self, run: dict[str, Any]) -> None:
             status = str(run.get("status") or "running")
@@ -675,6 +740,12 @@ def create_tui(
             if payload.get("cancelled"):
                 return
             run = payload.get("run") or {}
+            if payload.get("legacy") and run.get("ok") is False:
+                message = str(run.get("message") or "扫描失败")
+                self.query_one("#status", Static).update(f"扫描失败 · {message}")
+                self.sub_title = "扫描失败"
+                self.notify(message)
+                return
             status = str(run.get("status") or run.get("scan_status") or "")
             if status == "failed":
                 message = str(run.get("error_summary") or run.get("message") or "扫描失败")
@@ -878,8 +949,9 @@ def create_tui(
 
             def finish(result: Any, error: Exception | None) -> None:
                 if error is not None:
-                    self.query_one("#status", Static).update(f"刷新失败 · {error}")
-                    self.notify(str(error))
+                    if self._generation_is_current("listings", generations["listings"]):
+                        self.query_one("#status", Static).update(f"刷新失败 · {error}")
+                        self.notify(str(error))
                     return
                 snapshot = result or {}
                 if self._generation_is_current("settings", generations["settings"]):
@@ -994,12 +1066,26 @@ def create_tui(
             def finish(result: Any, error: Exception | None) -> None:
                 self._status_request_running = False
                 if error is not None:
-                    if not self._last_status:
+                    self._status_poll_failures += 1
+                    if not self._last_status or self._status_poll_failures >= 2:
                         self.query_one("#status", Static).update(f"连接失败 · {error}")
+                        self.sub_title = "连接失败"
                     return
-                previous_scanning = bool(self._last_status.get("scanning"))
+                previous = dict(self._last_status)
+                previous_scanning = bool(previous.get("scanning"))
+                previous_success = str(previous.get("last_success_at") or "")
+                previous_error = str(previous.get("last_error") or "")
+                self._status_poll_failures = 0
                 self._apply_status(result or {})
-                if previous_scanning and not bool((result or {}).get("scanning")) and not self._scan_busy:
+                if self._scan_busy:
+                    return
+                current_scanning = bool((result or {}).get("scanning"))
+                current_success = str((result or {}).get("last_success_at") or "")
+                current_error = str((result or {}).get("last_error") or "")
+                finished_scan = previous_scanning and not current_scanning
+                success_changed = bool(previous) and current_success and current_success != previous_success
+                error_changed = bool(previous) and current_error != previous_error
+                if finished_scan or success_changed or error_changed:
                     self.reload_all()
 
             self._run_task("status-poll", current.status, finish)
@@ -1111,8 +1197,20 @@ def create_tui(
             for item in SHOP_FAMILIES:
                 self.query_one(f"#listing-{item['key']}", Switch).disabled = disabled
 
+        def _set_settings_controls_enabled(self, enabled: bool) -> None:
+            self.query_one("#listen-switch", Switch).disabled = not enabled
+            self._set_listing_switches_disabled(not enabled)
+            self.query_one("#notify", Button).disabled = not enabled
+            self.query_one("#sync-catalog", Button).disabled = not enabled
+
         def _save_listings(self) -> None:
-            self._next_generation("settings")
+            if not self._settings_ready:
+                self._apply_listing_switches(
+                    list(self._last_settings.get("listings") or self._settings_listings)
+                )
+                self.notify("设置尚未加载完成")
+                return
+            generation = self._next_generation("settings")
             previous = list(self._last_settings.get("listings") or self._settings_listings)
             keys = [
                 str(item["key"])
@@ -1122,6 +1220,9 @@ def create_tui(
             self._set_listing_switches_disabled(True)
 
             def finish(result: Any, error: Exception | None) -> None:
+                if not self._generation_is_current("settings", generation):
+                    self._set_listing_switches_disabled(False)
+                    return
                 self._set_listing_switches_disabled(False)
                 if error is not None:
                     self._apply_listing_switches(previous)
@@ -1135,7 +1236,7 @@ def create_tui(
                 self.reload_watches()
 
             if not self._run_unique_client_task(
-                "listing-settings",
+                "settings-write",
                 lambda current: current.update_settings({"listings": keys}),
                 finish,
             ):
@@ -1158,8 +1259,10 @@ def create_tui(
 
         def _apply_settings(self, settings: dict[str, Any]) -> None:
             self._last_settings = dict(settings)
+            self._settings_ready = True
             self._set_listen_switch(bool(settings.get("listen_enabled")))
             self._apply_listing_switches(settings.get("listings") or [])
+            self._set_settings_controls_enabled(True)
             self._update_sort_label()
             self.query_one("#settings-note", Static).update(
                 f"间隔 {settings.get('interval_seconds')} 秒"

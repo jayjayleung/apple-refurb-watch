@@ -67,6 +67,8 @@ class FakeTuiClient:
             "watch_total": 1,
             "in_stock": 1,
             "scanning": False,
+            "last_success_at": "2026-08-29T06:45:00+00:00",
+            "last_error": "",
         }
 
     def watches(self):
@@ -164,6 +166,10 @@ def test_build_watch_payload_validates_compact_form() -> None:
         build_watch_payload({"listing_key": "mac", "mode": "condition", "dims": "chip"})
     with pytest.raises(ValueError, match="未知维度"):
         build_watch_payload({"listing_key": "", "mode": "condition", "dims": "typoKey=value"})
+    with pytest.raises(ValueError, match="最高价必须是有效数字"):
+        build_watch_payload({"listing_key": "mac", "mode": "condition", "max_price": "nan"})
+    with pytest.raises(ValueError, match="最高价必须是有效数字"):
+        build_watch_payload({"listing_key": "mac", "mode": "condition", "max_price": "inf"})
 
 
 def test_watch_from_product_modes() -> None:
@@ -316,6 +322,91 @@ def test_tui_scan_busy_does_not_use_legacy_endpoint() -> None:
             assert "legacy_scan" not in client.calls
             assert app.query_one("#scan").disabled is False
             assert "已有扫描在进行" in str(app.query_one("#status").render())
+
+    asyncio.run(go())
+
+
+def test_tui_legacy_busy_scan_is_not_marked_success() -> None:
+    class LegacyBusyClient(FakeTuiClient):
+        def submit_scan(self):
+            self.calls.append("submit_scan")
+            raise ApiError("not found", 404)
+
+        def scan(self):
+            self.calls.append("legacy_scan")
+            return {"ok": False, "message": "已有扫描在进行"}
+
+    async def go() -> None:
+        client = LegacyBusyClient()
+        app = create_tui(client)
+        async with app.run_test() as pilot:
+            await settle(app, pilot)
+            await pilot.press("s")
+            await settle(app, pilot)
+            assert "legacy_scan" in client.calls
+            assert "扫描完成" not in str(app.sub_title)
+            assert "已有扫描在进行" in str(app.query_one("#status").render())
+
+    asyncio.run(go())
+
+
+def test_tui_settings_stay_disabled_until_loaded() -> None:
+    class SlowSettingsClient(FakeTuiClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.release = threading.Event()
+
+        def settings(self):
+            self.calls.append("settings")
+            self.release.wait(2)
+            return dict(self.settings_data)
+
+    async def go() -> None:
+        client = SlowSettingsClient()
+        app = create_tui(client)
+        async with app.run_test() as pilot:
+            await pilot.pause(0.05)
+            assert app.query_one("#listen-switch").disabled is True
+            assert app.query_one("#listing-mac").disabled is True
+            assert app.query_one("#listing-mac").value is False
+
+            client.release.set()
+            await settle(app, pilot, rounds=3)
+            assert app.query_one("#listen-switch").disabled is False
+            assert app.query_one("#listing-mac").value is True
+            assert client.settings_data["listings"] == ["mac"]
+
+    asyncio.run(go())
+
+
+def test_tui_status_poll_reloads_when_last_success_changes() -> None:
+    class StatusClient(FakeTuiClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.status_payload = {
+                "view": {"label": "已停止", "detail": "定时扫描已暂停"},
+                "watch_count": 1,
+                "watch_total": 1,
+                "in_stock": 1,
+                "scanning": False,
+                "last_success_at": "2026-08-29T06:45:00+00:00",
+                "last_error": "",
+            }
+
+        def status(self):
+            self.calls.append("status")
+            return dict(self.status_payload)
+
+    async def go() -> None:
+        client = StatusClient()
+        app = create_tui(client)
+        async with app.run_test() as pilot:
+            await settle(app, pilot)
+            before = client.calls.count("listings")
+            client.status_payload["last_success_at"] = "2026-08-29T07:00:00+00:00"
+            app._poll_status()
+            await settle(app, pilot, rounds=3)
+            assert client.calls.count("listings") > before
 
     asyncio.run(go())
 
