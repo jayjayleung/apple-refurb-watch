@@ -1092,6 +1092,8 @@ def create_tui(
 
         def _apply_status(self, status: dict[str, Any]) -> None:
             self._last_status = dict(status)
+            if self._scan_busy:
+                return
             view = status.get("view") or {}
             label = str(view.get("label") or "状态")
             detail = str(view.get("detail") or "").strip()
@@ -1101,8 +1103,7 @@ def create_tui(
                     f" · 在售 {status.get('in_stock', 0)}"
                 )
             self.sub_title = label
-            if not self._scan_busy or bool(status.get("scanning")):
-                self.query_one("#status", Static).update(f"{label} · {detail}")
+            self.query_one("#status", Static).update(f"{label} · {detail}")
 
         def _apply_listings(self, payload: dict[str, Any]) -> None:
             items = list(payload.get("items") or [])

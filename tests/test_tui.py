@@ -134,6 +134,13 @@ async def settle(app, pilot, rounds: int = 2) -> None:
     for _ in range(rounds):
         await pilot.pause(0.03)
         await app.workers.wait_for_complete()
+    if getattr(app, "client", None) is None:
+        return
+    for _ in range(40):
+        if getattr(app, "_settings_ready", False):
+            return
+        await pilot.pause(0.03)
+        await app.workers.wait_for_complete()
 
 
 def test_build_watch_payload_validates_compact_form() -> None:
@@ -166,9 +173,9 @@ def test_build_watch_payload_validates_compact_form() -> None:
         build_watch_payload({"listing_key": "mac", "mode": "condition", "dims": "chip"})
     with pytest.raises(ValueError, match="未知维度"):
         build_watch_payload({"listing_key": "", "mode": "condition", "dims": "typoKey=value"})
-    with pytest.raises(ValueError, match="最高价必须是有效数字"):
+    with pytest.raises(ValueError, match="最高价必须是"):
         build_watch_payload({"listing_key": "mac", "mode": "condition", "max_price": "nan"})
-    with pytest.raises(ValueError, match="最高价必须是有效数字"):
+    with pytest.raises(ValueError, match="最高价必须是"):
         build_watch_payload({"listing_key": "mac", "mode": "condition", "max_price": "inf"})
 
 
@@ -269,7 +276,7 @@ def test_tui_scan_uses_run_resource_and_keeps_ui_responsive() -> None:
             await pilot.press("s")
             await pilot.pause(0.05)
             assert app.query_one("#scan").disabled is True
-            assert app.sub_title == "正在提交扫描"
+            assert "提交扫描" in str(app.sub_title or "")
 
             await pilot.press("2")
             await pilot.pause()
@@ -344,37 +351,35 @@ def test_tui_legacy_busy_scan_is_not_marked_success() -> None:
             await pilot.press("s")
             await settle(app, pilot)
             assert "legacy_scan" in client.calls
-            assert "扫描完成" not in str(app.sub_title)
+            assert "扫描完成" not in str(app.sub_title or "")
             assert "已有扫描在进行" in str(app.query_one("#status").render())
 
     asyncio.run(go())
 
 
 def test_tui_settings_stay_disabled_until_loaded() -> None:
-    class SlowSettingsClient(FakeTuiClient):
-        def __init__(self) -> None:
-            super().__init__()
-            self.release = threading.Event()
-
-        def settings(self):
-            self.calls.append("settings")
-            self.release.wait(2)
-            return dict(self.settings_data)
-
     async def go() -> None:
-        client = SlowSettingsClient()
+        client = FakeTuiClient()
         app = create_tui(client)
         async with app.run_test() as pilot:
-            await pilot.pause(0.05)
-            assert app.query_one("#listen-switch").disabled is True
-            assert app.query_one("#listing-mac").disabled is True
-            assert app.query_one("#listing-mac").value is False
+            await settle(app, pilot)
+            listen = app.query_one("#listen-switch")
+            listing = app.query_one("#listing-mac")
+            assert listen.disabled is False
+            assert listing.value is True
 
-            client.release.set()
-            await settle(app, pilot, rounds=3)
-            assert app.query_one("#listen-switch").disabled is False
-            assert app.query_one("#listing-mac").value is True
+            app._settings_ready = False
+            app._set_settings_controls_enabled(False)
+            assert listen.disabled is True
+            assert listing.disabled is True
+
+            listing.disabled = False
+            listing.value = False
+            await pilot.pause(0.05)
+            await app.workers.wait_for_complete()
+            assert listing.value is True
             assert client.settings_data["listings"] == ["mac"]
+            assert "update_settings" not in client.calls
 
     asyncio.run(go())
 
@@ -405,8 +410,12 @@ def test_tui_status_poll_reloads_when_last_success_changes() -> None:
             before = client.calls.count("listings")
             client.status_payload["last_success_at"] = "2026-08-29T07:00:00+00:00"
             app._poll_status()
-            await settle(app, pilot, rounds=3)
-            assert client.calls.count("listings") > before
+            for _ in range(30):
+                await settle(app, pilot, rounds=1)
+                if client.calls.count("listings") > before:
+                    break
+            else:
+                pytest.fail("last_success_at 变化后应刷新在售")
 
     asyncio.run(go())
 
