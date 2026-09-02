@@ -46,16 +46,19 @@ def test_desktop_chrome_does_not_repeat_app_title() -> None:
     assert 'class="brand-name"' in login
     assert "{{ app_version }}" not in base
     assert "{{ app_version }}" not in login
-    assert 'class="update-summary">有更新</summary>' in base
-    assert ".ver-pop:not(.has-update)" in mark
+    assert 'id="nav-settings"' in base
+    assert 'class="nav-update-dot"' in base
+    assert 'id="ver-pop"' not in base
+    assert ".ver-pop" not in mark
     assert "html.desktop .brand" in mark
     assert "html.desktop .login-mark" in mark
     assert "html.desktop .brand" in css
     assert "html.desktop .login-mark" in css
-    assert ".ver-pop.has-update" in css
+    assert "#nav-settings.has-update .nav-update-dot" in css
     assert "desktop-update-dismiss" not in settings
     assert 'id="service-update"' in settings
     assert "服务端 {{ app_version }}" in settings
+    assert ">有更新</a>" in settings
     assert '$(isDesktopShell() ? "desktop-update" : "service-update")' in base
     bridge_wait = 'if (document.documentElement.classList.contains("desktop")) return;'
     assert bridge_wait in base
@@ -170,9 +173,10 @@ def test_desktop_state_exposes_client_version_and_update() -> None:
     js = _update_hint_js("9.9.9", "https://example.invalid/latest")
     assert "9.9.9" in js
     assert "https://example.invalid/latest" in js
-    assert "打开下载页" in js
+    assert "nav-settings" in js
+    assert "desktop-update" in js
     assert "__arwShowUpdate" in js
-    assert "arw_update_dismissed" in js
+    assert "arw_update_dismissed" not in js
     assert "update-banner" not in js
 
 

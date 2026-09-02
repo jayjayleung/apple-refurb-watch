@@ -52,11 +52,10 @@ def test_pages_and_watch_api(tmp_path) -> None:
         assert "arw_desktop" in home.text
         assert "sessionStorage" in home.text
         assert 'class="brand-ver"' not in home.text
-        assert 'class="update-summary">有更新</summary>' in home.text
-        assert 'id="ver-pop"' in home.text
-        assert 'id="update-open"' in home.text
-        assert ">查看更新</a>" in home.text
-        assert "update-dismiss" in home.text
+        assert 'id="nav-settings"' in home.text
+        assert 'class="nav-update-dot"' in home.text
+        assert 'id="ver-pop"' not in home.text
+        assert "update-dismiss" not in home.text
         assert 'id="update-banner"' not in home.text
         mac = client.get("/?listing_key=mac")
         assert "filter-rail" in mac.text
@@ -98,6 +97,8 @@ def test_settings_redact_secrets(tmp_path) -> None:
         assert "https://github.com/jayjayleung/apple-refurb-watch" in page.text
         assert f"服务端 {__version__}" in page.text
         assert 'id="service-update"' in page.text
+        assert ">有更新</a>" in page.text
+        assert page.text.index(f"服务端 {__version__}") < page.text.index('id="service-update"')
         assert "desktop-update-dismiss" not in page.text
 
 

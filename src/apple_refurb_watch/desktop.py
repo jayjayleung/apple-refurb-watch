@@ -286,14 +286,12 @@ def _update_hint_js(latest: str, url: str) -> str:
     return (
         "(function(){"
         "var latest=" + latest_js + ",url=" + url_js + ";"
-        "try{if(localStorage.getItem('arw_update_dismissed')===String(latest))return;}catch(e){}"
         "if(window.__arwShowUpdate){window.__arwShowUpdate(latest,url);return;}"
-        "var pop=document.getElementById('ver-pop');"
-        "if(!pop)return;"
-        "var ver=pop.querySelector('.update-ver'); if(ver) ver.textContent=latest;"
-        "var a=document.getElementById('update-open')||pop.querySelector('a');"
-        "if(a){if(url)a.href=url;a.textContent='打开下载页';}"
-        "pop.classList.add('has-update');"
+        "var nav=document.getElementById('nav-settings');"
+        "if(nav){nav.classList.add('has-update');"
+        "nav.setAttribute('aria-label','设置，有新版本 '+latest);}"
+        "var a=document.getElementById('desktop-update')||document.getElementById('service-update');"
+        "if(a){if(url)a.href=url;a.hidden=false;}"
         "})();"
     )
 

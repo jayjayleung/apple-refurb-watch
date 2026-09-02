@@ -11,7 +11,7 @@
   <link rel="icon" href="/static/icon.svg?v=listen-1" type="image/svg+xml">
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/static/icon-256.png">
-  <link rel="stylesheet" href="/static/style.css?v=settings-copy-1">
+  <link rel="stylesheet" href="/static/style.css?v=nav-update-1">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
@@ -19,22 +19,12 @@
   <header class="top">
     <div class="brand-wrap">
       <a class="brand" href="/" aria-label="官翻监听"><img src="/static/icon.svg?v=listen-1" width="28" height="28" alt=""><span class="brand-name">官翻监听</span></a>
-      <details class="ver-pop" id="ver-pop">
-        <summary class="update-summary">有更新</summary>
-        <div class="ver-pop-card">
-          <p>有新版本 <span class="update-ver"></span></p>
-          <p class="ver-pop-actions">
-            <a id="update-open" href="https://github.com/jayjayleung/apple-refurb-watch/releases/latest" target="_blank" rel="noopener noreferrer">查看更新</a>
-            <button type="button" class="link-btn" id="update-dismiss">关闭</button>
-          </p>
-        </div>
-      </details>
     </div>
     <nav aria-label="主要">
       <a href="/" {% if request.url.path == '/' %}class="on" aria-current="page"{% endif %}>在售</a>
       <a href="/watches" {% if request.url.path.startswith('/watches') %}class="on" aria-current="page"{% endif %}>监听</a>
       <a href="/events" {% if request.url.path.startswith('/events') %}class="on" aria-current="page"{% endif %}>动态</a>
-      <a href="/settings" {% if request.url.path.startswith('/settings') %}class="on" aria-current="page"{% endif %}>设置</a>
+      <a href="/settings" id="nav-settings" {% if request.url.path.startswith('/settings') %}class="on" aria-current="page"{% endif %}>设置<span class="nav-update-dot" aria-hidden="true"></span></a>
     </nav>
     <div class="top-actions">
       {% include "_github.html" %}
@@ -125,72 +115,29 @@
         el.hidden = false;
         el.textContent = text;
       }
-      var UPDATE_DISMISS = "arw_update_dismissed";
-      var updateWired = false;
-      function updateDismissed(latest) {
-        try { return localStorage.getItem(UPDATE_DISMISS) === String(latest); }
-        catch (err) { return false; }
-      }
-      function hideTopUpdate() {
-        var pop = $("ver-pop");
-        if (pop) {
-          pop.classList.remove("has-update");
-          pop.open = false;
-          pop.removeAttribute("open");
-        }
-      }
       function isDesktopShell() {
         return !!(desktopApi || document.documentElement.classList.contains("desktop") || window.pywebview);
       }
       function showUpdate(latest, url) {
-        if (!latest) {
-          hideTopUpdate();
-          return;
+        var nav = $("nav-settings");
+        if (nav) {
+          if (latest) {
+            nav.classList.add("has-update");
+            nav.setAttribute("aria-label", "设置，有新版本 " + latest);
+          } else {
+            nav.classList.remove("has-update");
+            nav.removeAttribute("aria-label");
+          }
         }
         var settings = $(isDesktopShell() ? "desktop-update" : "service-update");
         if (settings) {
-          var settingsVer = settings.querySelector(".update-ver");
-          if (settingsVer) settingsVer.textContent = latest;
-          var settingsLink = settings.querySelector("a");
-          if (settingsLink && url) settingsLink.href = url;
-          settings.hidden = false;
-        }
-        if (updateDismissed(latest)) {
-          hideTopUpdate();
-          return;
-        }
-        var pop = $("ver-pop");
-        if (pop) {
-          var ver = pop.querySelector(".update-ver");
-          if (ver) ver.textContent = latest;
-          var link = $("update-open") || pop.querySelector("a");
-          if (link) {
-            if (url) link.href = url;
-            link.textContent = isDesktopShell() ? "打开下载页" : "查看更新";
+          if (latest) {
+            if (url) settings.href = url;
+            settings.hidden = false;
+          } else {
+            settings.hidden = true;
           }
-          var summary = pop.querySelector("summary");
-          if (summary) {
-            summary.textContent = "有更新";
-            summary.setAttribute("aria-label", "有新版本 " + latest);
-          }
-          pop.classList.add("has-update");
         }
-        if (updateWired) return;
-        updateWired = true;
-        function dismissNow() {
-          var node = document.querySelector("#ver-pop .update-ver");
-          var value = node && node.textContent;
-          if (value) {
-            try { localStorage.setItem(UPDATE_DISMISS, String(value)); } catch (err) {}
-          }
-          hideTopUpdate();
-        }
-        var dismiss = $("update-dismiss");
-        if (dismiss) dismiss.addEventListener("click", function (ev) {
-          ev.preventDefault();
-          ev.stopPropagation();
-          dismissNow();
-        });
       }
       window.__arwShowUpdate = showUpdate;
       function applyUpdateInfo(s) {

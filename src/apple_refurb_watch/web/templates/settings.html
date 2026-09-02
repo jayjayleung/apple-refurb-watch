@@ -134,8 +134,10 @@
   <p class="hint" id="tray-status"></p>
   <label class="check"><input type="checkbox" id="desktop-autostart"> 开机自启<span class="instant-mark">即时生效</span></label>
   <p class="hint" id="desktop-autostart-hint"></p>
-  <p class="hint" id="desktop-update" hidden>有新版本 <span class="update-ver"></span>。<a id="desktop-update-open" href="https://github.com/jayjayleung/apple-refurb-watch/releases/latest" target="_blank" rel="noopener noreferrer">打开下载页</a></p>
-  <p class="hint version-meta" id="desktop-client-ver"></p>
+  <p class="hint version-meta" id="desktop-ver-line">
+    <span id="desktop-client-ver"></span>
+    <a id="desktop-update" class="update-beside" hidden href="https://github.com/jayjayleung/apple-refurb-watch/releases/latest" target="_blank" rel="noopener noreferrer">有更新</a>
+  </p>
 </section>
 
 <section class="panel" id="settings-server">
@@ -159,8 +161,10 @@
     <label class="check"><input type="checkbox" id="server-autostart-enabled"> 开机后自动运行服务<span class="instant-mark">即时生效</span></label>
     <p class="hint" id="server-autostart-status"></p>
   </div>
-  <p class="hint" id="service-update" hidden>有新版本 <span class="update-ver"></span>。<a href="https://github.com/jayjayleung/apple-refurb-watch/releases/latest" target="_blank" rel="noopener noreferrer">查看更新</a></p>
-  <p class="hint version-meta">服务端 {{ app_version }}</p>
+  <p class="hint version-meta">
+    服务端 {{ app_version }}
+    <a id="service-update" class="update-beside" hidden href="https://github.com/jayjayleung/apple-refurb-watch/releases/latest" target="_blank" rel="noopener noreferrer">有更新</a>
+  </p>
 </section>
 
 <form class="settings-save" method="post" action="/settings" id="settings-form">
