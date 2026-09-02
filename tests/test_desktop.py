@@ -221,3 +221,80 @@ def test_stop_pid_taskkill_hides_console(monkeypatch) -> None:
     stop_pid(1234)
     assert seen["cmd"][:3] == ["taskkill", "/PID", "1234"]
     assert seen["kwargs"]["creationflags"] == CREATE_NO_WINDOW
+
+
+class _FakeWindow:
+    def __init__(self) -> None:
+        self.ops: list[str] = []
+
+    def hide(self) -> None:
+        self.ops.append("hide")
+
+    def minimize(self) -> None:
+        self.ops.append("minimize")
+
+    def destroy(self) -> None:
+        self.ops.append("destroy")
+
+
+class _FakeTray:
+    def __init__(self) -> None:
+        self.stopped = False
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
+def test_window_close_hides_to_tray_by_default() -> None:
+    from apple_refurb_watch.desktop import DesktopSession, handle_window_closing
+
+    session = DesktopSession(hidden=False)
+    session.window = _FakeWindow()
+    session.tray_icon = _FakeTray()
+    assert handle_window_closing(session) is False
+    assert session.window.ops == ["hide"]
+    assert session.cleaned is False
+    assert session.tray_icon.stopped is False
+
+
+def test_tray_quit_destroys_window_instead_of_hiding() -> None:
+    from apple_refurb_watch.desktop import DesktopSession, handle_window_closing
+
+    session = DesktopSession(hidden=False)
+    session.window = _FakeWindow()
+    session.tray_icon = _FakeTray()
+    session.quit_app(force_after=0)
+    assert session.exiting is True
+    assert session.hide is False
+    assert session.window.ops == ["destroy"]
+    assert session.tray_icon.stopped is False
+    assert handle_window_closing(session) is True
+    assert session.cleaned is True
+    assert session.tray_icon.stopped is True
+
+
+def test_window_close_exits_when_hide_to_tray_disabled() -> None:
+    from apple_refurb_watch.desktop import DesktopSession, handle_window_closing
+
+    session = DesktopSession(hidden=False)
+    session.window = _FakeWindow()
+    session.tray_icon = _FakeTray()
+    session.hide = False
+    assert handle_window_closing(session) is True
+    assert session.window.ops == []
+    assert session.cleaned is True
+    assert session.tray_icon.stopped is True
+
+
+def test_frozen_quit_arms_force_exit(monkeypatch) -> None:
+    from apple_refurb_watch import desktop as desktop_mod
+    from apple_refurb_watch.desktop import DesktopSession
+
+    armed: list[float] = []
+    monkeypatch.setattr(desktop_mod, "is_frozen", lambda: True)
+    session = DesktopSession(hidden=False)
+    session.window = _FakeWindow()
+    session._arm_force_exit = lambda delay, exit_fn=None: armed.append(delay)
+    session.quit_app()
+    assert armed == [desktop_mod.FORCE_EXIT_SECONDS]
+    assert session.window.ops == ["destroy"]

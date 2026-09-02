@@ -60,6 +60,9 @@ def _close_client(client: object | None) -> None:
         pass
 
 
+FORCE_EXIT_SECONDS = 2.0
+
+
 def hide_to_tray_enabled(settings: dict | None) -> bool:
     if not settings:
         return True
@@ -326,6 +329,7 @@ class DesktopSession:
         self.desk_lock = None
         self.cleaned = False
         self.hide = True
+        self.exiting = False
         self.settings: dict = {}
         self.stop_poll = threading.Event()
         self.notify_on = threading.Event()
@@ -521,9 +525,14 @@ class DesktopSession:
         self.schedule_relaunch(hidden=False)
         return {"ok": True, "relaunch": True}
 
+    def request_exit(self) -> None:
+        self.exiting = True
+        self.hide = False
+
     def schedule_relaunch(self, *, hidden: bool) -> None:
         def _run() -> None:
             time.sleep(0.25)
+            self.request_exit()
             self.cleanup(stop_runtime=self.owned)
             try:
                 relaunch_desktop(hidden=hidden)
@@ -538,15 +547,30 @@ class DesktopSession:
 
         threading.Thread(target=_run, name="arw-relaunch", daemon=True).start()
 
-    def quit_app(self) -> None:
-        self.cleanup(stop_runtime=self.owned)
+    def quit_app(self, *, force_after: float | None = None) -> None:
+        self.request_exit()
         window = self.window
-        if window is None:
-            return
-        try:
-            window.destroy()
-        except Exception:  # noqa: BLE001
-            pass
+        if window is not None:
+            try:
+                window.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+        else:
+            self.cleanup(stop_runtime=self.owned)
+        delay = FORCE_EXIT_SECONDS if force_after is None else force_after
+        if delay > 0 and is_frozen():
+            self._arm_force_exit(delay)
+
+    def _arm_force_exit(self, delay: float, exit_fn=os._exit) -> None:
+        def _run() -> None:
+            time.sleep(delay)
+            try:
+                self.cleanup(stop_runtime=self.owned)
+            except Exception:  # noqa: BLE001
+                pass
+            exit_fn(0)
+
+        threading.Thread(target=_run, name="arw-force-exit", daemon=True).start()
 
     def cleanup(self, *, stop_runtime: bool) -> None:
         if self.cleaned:
@@ -599,6 +623,15 @@ class DesktopSession:
             self.inject_update()
 
         threading.Thread(target=_run, name="arw-update", daemon=True).start()
+
+
+def handle_window_closing(session: DesktopSession) -> bool:
+    """关窗时是否真正退出。False 表示只藏到托盘。"""
+    if session.hide and not session.exiting:
+        session.hide_window()
+        return False
+    session.cleanup(stop_runtime=session.owned)
+    return True
 
 
 class DesktopApi:
@@ -683,13 +716,16 @@ def _start_tray(session: DesktopSession, *, adapter: DesktopAdapter | None = Non
         except Exception:  # noqa: BLE001
             pass
 
+    def on_quit(*_args) -> None:
+        threading.Thread(target=session.quit_app, name="arw-quit", daemon=True).start()
+
     menu = pystray.Menu(
         pystray.MenuItem("打开", lambda *_: session.show_window(), default=True),
         pystray.MenuItem(listen_label, on_toggle),
         pystray.MenuItem("连接服务器…", lambda *_: session.show_setup()),
         pystray.MenuItem("电脑通知", on_notify, checked=lambda item: session.notify_on.is_set()),
         pystray.MenuItem("开机自启", on_autostart, checked=lambda item: session.autostart_on),
-        pystray.MenuItem("退出", lambda *_: session.quit_app()),
+        pystray.MenuItem("退出", on_quit),
     )
     icon = pystray.Icon("apple-refurb-watch", image, desktop_app_title(), menu)
     try:
@@ -748,11 +784,7 @@ def run_desktop(*, hidden: bool = False) -> None:
         session.inject_update()
 
     def on_closing() -> bool:
-        if session.hide:
-            session.hide_window()
-            return False
-        session.cleanup(stop_runtime=session.owned)
-        return True
+        return handle_window_closing(session)
 
     def watch_signal() -> None:
         last = 0.0
