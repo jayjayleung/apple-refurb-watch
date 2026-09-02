@@ -101,23 +101,21 @@ button { cursor: pointer; }
   height: 1.55rem;
   border-radius: 0.4rem;
 }
-html.desktop .brand-name { display: none; }
-html.desktop .brand { gap: 0; }
-html.desktop .ver-pop:not(.has-update) { display: none; }
-html.desktop .login-mark .brand-name,
-html.desktop .login-mark .brand-ver { display: none; }
-.brand-ver {
+html.desktop .brand,
+html.desktop .login-mark { display: none; }
+.update-summary {
   font-weight: 500;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   letter-spacing: 0;
   color: var(--muted);
   list-style: none;
 }
 .ver-pop {
   position: relative;
-  display: inline-flex;
+  display: none;
   align-items: center;
 }
+.ver-pop.has-update { display: inline-flex; }
 .ver-pop > summary {
   display: inline-flex;
   align-items: center;
@@ -315,6 +313,7 @@ h2 { font-size: 1.05rem; margin: 0 0 0.55rem; font-weight: 650; letter-spacing: 
 h3 { font-size: 0.82rem; margin: 0 0 0.4rem; font-weight: 650; }
 .lede, .hint, .meta, .count { color: var(--muted); }
 .lede { max-width: 38rem; }
+.version-meta { margin-bottom: 0; font-size: 0.78rem; }
 .count { margin: 0; font-variant-numeric: tabular-nums; font-weight: 550; }
 
 .btn {

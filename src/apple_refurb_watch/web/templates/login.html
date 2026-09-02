@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN"{% if request.headers.get("user-agent", "").startswith("AppleRefurbWatchDesktop/") %} class="desktop"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -11,11 +11,11 @@
   <link rel="icon" href="/static/icon.svg?v=listen-1" type="image/svg+xml">
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/static/icon-256.png">
-  <link rel="stylesheet" href="/static/style.css?v=desktop-title-2">
+  <link rel="stylesheet" href="/static/style.css?v=desktop-chrome-1">
 </head>
 <body class="login-shell">
   <main class="login-wrap">
-    <p class="login-mark"><img class="brand-icon" src="/static/icon.svg?v=listen-1" width="28" height="28" alt=""><span class="brand-name">官翻监听</span><span class="brand-ver">{{ app_version }}</span>{% include "_github.html" %}</p>
+    <p class="login-mark"><img class="brand-icon" src="/static/icon.svg?v=listen-1" width="28" height="28" alt=""><span class="brand-name">官翻监听</span>{% include "_github.html" %}</p>
     <h1>输入访问口令</h1>
     <form class="login-card" method="post" action="/login">
       <label for="token">访问口令</label>

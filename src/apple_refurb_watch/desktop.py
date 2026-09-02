@@ -8,7 +8,7 @@ import threading
 import time
 import webbrowser
 
-from apple_refurb_watch import __version__
+from apple_refurb_watch import DESKTOP_USER_AGENT_PREFIX, __version__
 from apple_refurb_watch.argv import invoke_argv, is_frozen
 from apple_refurb_watch.client import ApiClient, ApiError
 from apple_refurb_watch.connection import (
@@ -155,8 +155,21 @@ def gui_import_status(*, adapter: DesktopAdapter | None = None) -> dict[str, str
     return (adapter or DesktopAdapter()).status()
 
 
+def desktop_user_agent() -> str:
+    return f"{DESKTOP_USER_AGENT_PREFIX}{__version__}"
+
+
 def desktop_app_title() -> str:
-    return f"官翻监听 {__version__}"
+    return "官翻监听"
+
+
+def tray_app_title(*, platform: str | None = None) -> str:
+    current = platform or sys.platform
+    return "Apple Refurb Watch" if current.startswith("linux") else desktop_app_title()
+
+
+def start_desktop_webview(webview) -> None:
+    webview.start(user_agent=desktop_user_agent())
 
 
 def tray_menu_labels(*, listening: bool) -> list[str]:
@@ -731,7 +744,7 @@ def _start_tray(session: DesktopSession, *, adapter: DesktopAdapter | None = Non
         pystray.MenuItem("开机自启", on_autostart, checked=lambda item: session.autostart_on),
         pystray.MenuItem("退出", on_quit),
     )
-    icon = pystray.Icon("apple-refurb-watch", image, desktop_app_title(), menu)
+    icon = pystray.Icon("apple-refurb-watch", image, tray_app_title(), menu)
     try:
         if hasattr(icon, "run_detached"):
             icon.run_detached()
@@ -831,7 +844,7 @@ def run_desktop(*, hidden: bool = False) -> None:
     session.tray_icon = _start_tray(session, adapter=adapter)
 
     try:
-        webview.start()
+        start_desktop_webview(webview)
     except Exception:
         if session.client is not None:
             _open_in_browser(session.client.base)

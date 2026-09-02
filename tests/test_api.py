@@ -51,8 +51,8 @@ def test_pages_and_watch_api(tmp_path) -> None:
         assert 'aria-label="官翻监听"' in home.text
         assert "arw_desktop" in home.text
         assert "sessionStorage" in home.text
-        assert 'class="brand-ver"' in home.text
-        assert f">{__version__}<" in home.text
+        assert 'class="brand-ver"' not in home.text
+        assert 'class="update-summary">有更新</summary>' in home.text
         assert 'id="ver-pop"' in home.text
         assert 'id="update-open"' in home.text
         assert ">查看更新</a>" in home.text
@@ -96,6 +96,9 @@ def test_settings_redact_secrets(tmp_path) -> None:
         assert "已启用" in page.text
         assert "更换" not in page.text
         assert "https://github.com/jayjayleung/apple-refurb-watch" in page.text
+        assert f"服务端 {__version__}" in page.text
+        assert 'id="service-update"' in page.text
+        assert "desktop-update-dismiss" not in page.text
 
 
 def test_empty_access_token_does_not_clear(tmp_path) -> None:
@@ -155,8 +158,22 @@ def test_login_page_has_no_app_chrome(tmp_path) -> None:
         assert "/static/icon.svg" in page.text
         assert 'class="brand-icon"' in page.text
         assert 'class="brand-name"' in page.text
-        assert 'class="brand-ver"' in page.text
-        assert f">{__version__}<" in page.text
+        assert 'class="brand-ver"' not in page.text
+
+
+def test_desktop_user_agent_marks_first_response(tmp_path) -> None:
+    from apple_refurb_watch.desktop import desktop_user_agent
+
+    db = Database(tmp_path / "app.db")
+    app = create_app(db, with_scheduler=False)
+    headers = {"User-Agent": desktop_user_agent()}
+    with TestClient(app) as client:
+        browser = client.get("/watches")
+        desktop = client.get("/watches", headers=headers)
+        desktop_login = client.get("/login", headers=headers)
+        assert '<html lang="zh-CN" class="desktop">' not in browser.text
+        assert '<html lang="zh-CN" class="desktop">' in desktop.text
+        assert '<html lang="zh-CN" class="desktop">' in desktop_login.text
 
 
 def test_status_and_dim_watch_api(tmp_path) -> None:

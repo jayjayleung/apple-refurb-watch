@@ -1,10 +1,13 @@
-from apple_refurb_watch import __version__
+from apple_refurb_watch import DESKTOP_USER_AGENT_PREFIX, __version__
 from apple_refurb_watch.desktop import (
     desktop_app_title,
     desktop_setup_uri,
+    desktop_user_agent,
     desktop_window_options,
     gui_import_status,
     local_health_is_current,
+    start_desktop_webview,
+    tray_app_title,
     tray_menu_labels,
     version_key,
 )
@@ -27,19 +30,36 @@ def test_desktop_chrome_does_not_repeat_app_title() -> None:
     base = (templates / "base.html").read_text(encoding="utf-8")
     login = (templates / "login.html").read_text(encoding="utf-8")
     mark = (templates / "_desktop_mark.html").read_text(encoding="utf-8")
+    settings = (templates / "settings.html").read_text(encoding="utf-8")
     css = (package_root() / "web" / "static" / "style.css").read_text(encoding="utf-8")
     assert 'class="brand-name"' in base
     assert 'aria-label="官翻监听"' in base
+    assert f'startswith("{DESKTOP_USER_AGENT_PREFIX}")' in base
+    assert f'startswith("{DESKTOP_USER_AGENT_PREFIX}")' in login
     assert '_desktop_mark.html' in base
     assert '_desktop_mark.html' in login
     assert "arw_desktop" in mark
     assert "sessionStorage" in mark
+    assert f'startsWith("{DESKTOP_USER_AGENT_PREFIX}")' in mark
     assert 'classList.add("desktop")' in mark
     assert "pywebviewready" in mark
     assert 'class="brand-name"' in login
-    assert "html.desktop .brand-name" in css
-    assert "html.desktop .ver-pop:not(.has-update)" in css
-    assert "html.desktop .login-mark .brand-name" in css
+    assert "{{ app_version }}" not in base
+    assert "{{ app_version }}" not in login
+    assert 'class="update-summary">有更新</summary>' in base
+    assert ".ver-pop:not(.has-update)" in mark
+    assert "html.desktop .brand" in mark
+    assert "html.desktop .login-mark" in mark
+    assert "html.desktop .brand" in css
+    assert "html.desktop .login-mark" in css
+    assert ".ver-pop.has-update" in css
+    assert "desktop-update-dismiss" not in settings
+    assert 'id="service-update"' in settings
+    assert "服务端 {{ app_version }}" in settings
+    assert '$(isDesktopShell() ? "desktop-update" : "service-update")' in base
+    bridge_wait = 'if (document.documentElement.classList.contains("desktop")) return;'
+    assert bridge_wait in base
+    assert base.index(bridge_wait) < base.index("bootTimer = setTimeout")
 
 
 def test_setup_page_is_packaged() -> None:
@@ -108,8 +128,27 @@ def test_local_health_rejects_old_server() -> None:
     assert local_health_is_current({"ok": True, "server_version": __version__})
 
 
-def test_desktop_app_title_includes_version() -> None:
-    assert desktop_app_title() == f"官翻监听 {__version__}"
+def test_desktop_app_title_omits_version() -> None:
+    assert desktop_app_title() == "官翻监听"
+
+
+def test_linux_tray_title_is_x11_safe() -> None:
+    assert tray_app_title(platform="linux") == "Apple Refurb Watch"
+    assert tray_app_title(platform="win32") == desktop_app_title()
+    assert tray_app_title(platform="darwin") == desktop_app_title()
+
+
+def test_desktop_webview_uses_versioned_user_agent() -> None:
+    captured: dict = {}
+
+    class FakeWebview:
+        @staticmethod
+        def start(**kwargs):
+            captured.update(kwargs)
+
+    assert desktop_user_agent() == f"{DESKTOP_USER_AGENT_PREFIX}{__version__}"
+    start_desktop_webview(FakeWebview)
+    assert captured == {"user_agent": desktop_user_agent()}
 
 
 def test_desktop_state_exposes_client_version_and_update() -> None:
@@ -191,7 +230,7 @@ def test_hidden_desktop_creates_hidden_window() -> None:
     assert create_session_window(FakeWebview, FakeSession(), api="api") == "window"
     assert captured["hidden"] is True
     assert captured["title"] == desktop_app_title()
-    assert captured["title"] == f"官翻监听 {__version__}"
+    assert captured["title"] == "官翻监听"
     assert captured["url"] == "http://127.0.0.1:8765"
 
 

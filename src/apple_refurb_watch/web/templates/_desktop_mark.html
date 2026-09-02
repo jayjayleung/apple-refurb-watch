@@ -1,9 +1,7 @@
 <style>
-html.desktop .brand-name,
-html.desktop .ver-pop:not(.has-update),
-html.desktop .login-mark .brand-name,
-html.desktop .login-mark .brand-ver { display: none !important; }
-html.desktop .brand { gap: 0; }
+.ver-pop:not(.has-update),
+html.desktop .brand,
+html.desktop .login-mark { display: none !important; }
 </style>
 <script>
 (function () {
@@ -11,6 +9,7 @@ html.desktop .brand { gap: 0; }
     document.documentElement.classList.add("desktop");
     try { sessionStorage.setItem("arw_desktop", "1"); } catch (e) {}
   }
+  if ((navigator.userAgent || "").startsWith("AppleRefurbWatchDesktop/")) markDesktop();
   try { if (sessionStorage.getItem("arw_desktop") === "1") markDesktop(); } catch (e) {}
   if (window.pywebview) markDesktop();
   document.addEventListener("pywebviewready", markDesktop);

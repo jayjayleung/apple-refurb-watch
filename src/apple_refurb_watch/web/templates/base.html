@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN"{% if request.headers.get("user-agent", "").startswith("AppleRefurbWatchDesktop/") %} class="desktop"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -11,7 +11,7 @@
   <link rel="icon" href="/static/icon.svg?v=listen-1" type="image/svg+xml">
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/static/icon-256.png">
-  <link rel="stylesheet" href="/static/style.css?v=desktop-title-2">
+  <link rel="stylesheet" href="/static/style.css?v=desktop-chrome-1">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
@@ -20,7 +20,7 @@
     <div class="brand-wrap">
       <a class="brand" href="/" aria-label="官翻监听"><img src="/static/icon.svg?v=listen-1" width="28" height="28" alt=""><span class="brand-name">官翻监听</span></a>
       <details class="ver-pop" id="ver-pop">
-        <summary class="brand-ver">{{ app_version }}</summary>
+        <summary class="update-summary">有更新</summary>
         <div class="ver-pop-card">
           <p>有新版本 <span class="update-ver"></span></p>
           <p class="ver-pop-actions">
@@ -131,22 +131,32 @@
         try { return localStorage.getItem(UPDATE_DISMISS) === String(latest); }
         catch (err) { return false; }
       }
-      function hideUpdate() {
+      function hideTopUpdate() {
         var pop = $("ver-pop");
         if (pop) {
           pop.classList.remove("has-update");
           pop.open = false;
           pop.removeAttribute("open");
         }
-        var settings = $("desktop-update");
-        if (settings) settings.hidden = true;
       }
       function isDesktopShell() {
         return !!(desktopApi || document.documentElement.classList.contains("desktop") || window.pywebview);
       }
       function showUpdate(latest, url) {
-        if (!latest || updateDismissed(latest)) {
-          hideUpdate();
+        if (!latest) {
+          hideTopUpdate();
+          return;
+        }
+        var settings = $(isDesktopShell() ? "desktop-update" : "service-update");
+        if (settings) {
+          var settingsVer = settings.querySelector(".update-ver");
+          if (settingsVer) settingsVer.textContent = latest;
+          var settingsLink = settings.querySelector("a");
+          if (settingsLink && url) settingsLink.href = url;
+          settings.hidden = false;
+        }
+        if (updateDismissed(latest)) {
+          hideTopUpdate();
           return;
         }
         var pop = $("ver-pop");
@@ -158,37 +168,27 @@
             if (url) link.href = url;
             link.textContent = isDesktopShell() ? "打开下载页" : "查看更新";
           }
-          pop.classList.add("has-update");
           var summary = pop.querySelector("summary");
-          if (summary) summary.setAttribute("aria-label", "版本 " + (summary.textContent || "").trim() + "，有新版本 " + latest);
-        }
-        var settings = $("desktop-update");
-        if (settings) {
-          var settingsVer = settings.querySelector(".update-ver");
-          if (settingsVer) settingsVer.textContent = latest;
-          var settingsLink = $("desktop-update-open");
-          if (settingsLink && url) settingsLink.href = url;
-          settings.hidden = false;
+          if (summary) {
+            summary.textContent = "有更新";
+            summary.setAttribute("aria-label", "有新版本 " + latest);
+          }
+          pop.classList.add("has-update");
         }
         if (updateWired) return;
         updateWired = true;
         function dismissNow() {
-          var node = document.querySelector("#ver-pop .update-ver, #desktop-update .update-ver");
+          var node = document.querySelector("#ver-pop .update-ver");
           var value = node && node.textContent;
           if (value) {
             try { localStorage.setItem(UPDATE_DISMISS, String(value)); } catch (err) {}
           }
-          hideUpdate();
+          hideTopUpdate();
         }
         var dismiss = $("update-dismiss");
         if (dismiss) dismiss.addEventListener("click", function (ev) {
           ev.preventDefault();
           ev.stopPropagation();
-          dismissNow();
-        });
-        var settingsDismiss = $("desktop-update-dismiss");
-        if (settingsDismiss) settingsDismiss.addEventListener("click", function (ev) {
-          ev.preventDefault();
           dismissNow();
         });
       }
@@ -350,7 +350,7 @@
         }
         var clientVer = $("desktop-client-ver");
         if (clientVer && s.client_version) {
-          clientVer.textContent = "本机 " + s.client_version;
+          clientVer.textContent = "桌面端 " + s.client_version;
         }
         var token = $("desktop-token");
         if (token && s.has_token) token.placeholder = "已保存";
@@ -550,10 +550,17 @@
           boot();
           return;
         }
-        if (!bootTimer) bootTimer = setTimeout(boot, 120);
+        if (document.documentElement.classList.contains("desktop")) return;
+        if (!bootTimer) {
+          bootTimer = setTimeout(function () {
+            bootTimer = null;
+            boot();
+          }, 120);
+        }
       }
       window.addEventListener("pywebviewready", function () {
         if (bootTimer) clearTimeout(bootTimer);
+        bootTimer = null;
         boot();
       });
       if (document.readyState === "loading") {
