@@ -324,6 +324,12 @@ class _FakeWindow:
     def hide(self) -> None:
         self.ops.append("hide")
 
+    def show(self) -> None:
+        self.ops.append("show")
+
+    def restore(self) -> None:
+        self.ops.append("restore")
+
     def minimize(self) -> None:
         self.ops.append("minimize")
 
@@ -439,3 +445,109 @@ def test_frozen_quit_arms_force_exit(monkeypatch) -> None:
     session.quit_app()
     assert armed == [desktop_mod.FORCE_EXIT_SECONDS]
     assert session.window.ops == ["destroy"]
+
+
+def test_connect_relaunch_keeps_window_visible() -> None:
+    from apple_refurb_watch.desktop import DesktopSession
+
+    seen: list[bool] = []
+    session = DesktopSession(hidden=False)
+    session.schedule_relaunch = lambda *, hidden: seen.append(hidden)  # type: ignore[method-assign]
+    assert session.connect_server("http://192.168.1.8:8765", "token")["relaunch"] is True
+    assert session.disconnect_server()["relaunch"] is True
+    assert seen == [False, False]
+
+
+def test_visible_start_shows_window_hidden_start_stays_tray() -> None:
+    from apple_refurb_watch.desktop import DesktopSession, handle_window_shown
+
+    visible = DesktopSession(hidden=False)
+    visible.window = _FakeWindow()
+    handle_window_shown(visible)
+    assert visible.window.ops == ["show", "restore"]
+
+    hidden = DesktopSession(hidden=True)
+    hidden.window = _FakeWindow()
+    handle_window_shown(hidden)
+    assert hidden.window.ops == ["hide"]
+    assert hidden.hidden is False
+    assert hidden.start_hidden is True
+
+
+def test_visible_relaunch_does_not_pass_sw_hide(monkeypatch) -> None:
+    from apple_refurb_watch import desktop as desktop_mod
+    from apple_refurb_watch.desktop import relaunch_desktop
+
+    seen: dict = {}
+
+    def fake_popen(cmd, **kwargs):
+        seen["cmd"] = cmd
+        seen["kwargs"] = kwargs
+
+        class Proc:
+            pass
+
+        return Proc()
+
+    monkeypatch.setattr(desktop_mod.os, "name", "nt")
+    monkeypatch.setattr(desktop_mod, "windows_creationflags", lambda: [0x1])
+    monkeypatch.setattr(desktop_mod.subprocess, "Popen", fake_popen)
+    relaunch_desktop(hidden=False)
+    assert seen["cmd"][-1] == "desktop"
+    assert "--hidden" not in seen["cmd"]
+    assert "startupinfo" not in seen["kwargs"]
+
+
+def test_hidden_relaunch_adds_flag_without_sw_hide(monkeypatch) -> None:
+    from apple_refurb_watch import desktop as desktop_mod
+    from apple_refurb_watch.desktop import relaunch_desktop
+
+    seen: dict = {}
+
+    def fake_popen(cmd, **kwargs):
+        seen["cmd"] = cmd
+        seen["kwargs"] = kwargs
+
+        class Proc:
+            pass
+
+        return Proc()
+
+    monkeypatch.setattr(desktop_mod.os, "name", "nt")
+    monkeypatch.setattr(desktop_mod, "windows_creationflags", lambda: [0x1])
+    monkeypatch.setattr(desktop_mod.subprocess, "Popen", fake_popen)
+    relaunch_desktop(hidden=True)
+    assert seen["cmd"][-2:] == ["desktop", "--hidden"]
+    assert "startupinfo" not in seen["kwargs"]
+
+
+def test_desktop_lock_retries_before_signaling(monkeypatch) -> None:
+    import threading
+    import time
+
+    from apple_refurb_watch.daemon import acquire_lock
+    from apple_refurb_watch.desktop import stamp_desktop_lock, take_desktop_lock
+    from apple_refurb_watch.paths import desktop_lock_path
+
+    signaled: list[float] = []
+    monkeypatch.setattr(
+        "apple_refurb_watch.desktop.signal_existing_window",
+        lambda: signaled.append(1.0),
+    )
+    holder = acquire_lock(desktop_lock_path(), label="桌面窗口")
+    stamp_desktop_lock(holder)
+    try:
+        def release() -> None:
+            time.sleep(0.2)
+            holder.close()
+
+        threading.Thread(target=release, daemon=True).start()
+        handle = take_desktop_lock()
+        assert handle is not None
+        assert signaled == []
+        handle.close()
+    finally:
+        try:
+            holder.close()
+        except Exception:
+            pass

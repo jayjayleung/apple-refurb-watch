@@ -24,6 +24,7 @@ from apple_refurb_watch.connection import (
 )
 from apple_refurb_watch.daemon import (
     acquire_lock,
+    acquire_lock_retry,
     ping_daemon,
     spawn_env,
     stop_daemon,
@@ -127,7 +128,7 @@ def take_desktop_lock():
         handle = acquire_lock(desktop_lock_path(), label="桌面窗口")
     except RuntimeError:
         pid, running_ver = read_desktop_lock_meta()
-        if version_key(running_ver) < version_key(__version__) and pid:
+        if version_key(running_ver) < version_key(__version__) and pid and pid != os.getpid():
             stop_pid(pid)
             time.sleep(0.8)
             try:
@@ -136,8 +137,17 @@ def take_desktop_lock():
                 alert_quit_old_desktop(running_ver)
                 return None
         else:
-            signal_existing_window()
-            return None
+            try:
+                # 改连后旧进程可能还握着锁；先重试，避免新窗口直接放弃只剩托盘。
+                handle = acquire_lock_retry(
+                    attempts=8,
+                    delay=0.15,
+                    path=desktop_lock_path(),
+                    label="桌面窗口",
+                )
+            except RuntimeError:
+                signal_existing_window()
+                return None
     stamp_desktop_lock(handle)
     return handle
 
@@ -198,16 +208,16 @@ def relaunch_desktop(*, hidden: bool = False) -> None:
     cmd = invoke_argv(*args)
     env = spawn_env()
     if os.name == "nt":
-        hidden_kw = windows_hidden_kwargs()
         last: OSError | None = None
         for flags in windows_creationflags():
             try:
+                # 只带 CREATE_NO_WINDOW 藏控制台。STARTF_USESHOWWINDOW+SW_HIDE
+                # 会让新进程第一次 ShowWindow 被忽略，窗口停在托盘里。
                 subprocess.Popen(
                     cmd,
                     env=env,
                     close_fds=False,
                     creationflags=flags,
-                    startupinfo=hidden_kw.get("startupinfo"),
                 )
                 return
             except OSError as exc:
@@ -328,6 +338,7 @@ def _poll_appeared(client: ApiClient, enabled: threading.Event, stop: threading.
 class DesktopSession:
     def __init__(self, *, hidden: bool) -> None:
         self.hidden = hidden
+        self.start_hidden = hidden
         self.client: ApiClient | None = None
         self.health: dict | None = None
         self.embedded: EmbeddedServer | None = None
@@ -461,7 +472,9 @@ class DesktopSession:
             return
         for method in ("show", "restore"):
             try:
-                getattr(window, method)()
+                fn = getattr(window, method, None)
+                if callable(fn):
+                    fn()
             except Exception:  # noqa: BLE001
                 pass
 
@@ -563,6 +576,7 @@ class DesktopSession:
                 except Exception:  # noqa: BLE001
                     pass
             self.cleanup(stop_runtime=self.owned)
+            time.sleep(0.15)
             try:
                 relaunch_desktop(hidden=hidden)
             except Exception:  # noqa: BLE001
@@ -657,6 +671,15 @@ def handle_window_closing(session: DesktopSession) -> bool:
         return False
     session.cleanup(stop_runtime=session.owned)
     return True
+
+
+def handle_window_shown(session: DesktopSession) -> None:
+    """首次显示：开机自启藏到托盘，改连/正常启动则拉到前台。"""
+    if session.start_hidden:
+        session.hide_window()
+        session.hidden = False
+        return
+    session.show_window()
 
 
 class DesktopApi:
@@ -809,11 +832,15 @@ def run_desktop(*, hidden: bool = False) -> None:
     session.window = window
 
     def on_shown() -> None:
-        if session.hidden:
-            session.hide_window()
-            session.hidden = False
+        handle_window_shown(session)
         session.inject_notice()
         session.inject_update()
+
+    def ensure_visible() -> None:
+        time.sleep(0.35)
+        if session.exiting or session.cleaned or session.start_hidden:
+            return
+        session.show_window()
 
     def on_loaded() -> None:
         session.inject_notice()
@@ -848,6 +875,8 @@ def run_desktop(*, hidden: bool = False) -> None:
         pass
 
     threading.Thread(target=watch_signal, name="arw-desktop-signal", daemon=True).start()
+    if not session.start_hidden:
+        threading.Thread(target=ensure_visible, name="arw-show", daemon=True).start()
     session.start_update_check()
     if session.client is not None and has_capability(session.health, "events.after_id"):
         threading.Thread(
