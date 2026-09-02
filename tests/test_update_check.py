@@ -52,6 +52,27 @@ def test_latest_release_info_same_version_is_not_newer() -> None:
     assert info["newer"] is False
 
 
+def test_latest_release_info_refresh_ignores_fresh_cache(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    latest_release_info(current="0.3.5", now=1000.0, fetch=lambda: "0.3.5")
+    info = latest_release_info(
+        current="0.3.5",
+        now=1000.0 + 60,
+        refresh=True,
+        fetch=lambda: "v0.3.6",
+    )
+    assert info["latest"] == "0.3.6"
+    assert info["newer"] is True
+
+
+def test_latest_release_info_refetches_when_running_newer_than_cache(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    latest_release_info(current="0.3.3", now=1000.0, fetch=lambda: "0.3.3")
+    info = latest_release_info(current="0.3.6", now=1000.0 + 60, fetch=lambda: "v0.3.6")
+    assert info["latest"] == "0.3.6"
+    assert info["newer"] is False
+
+
 def test_latest_release_info_fetch_failure_keeps_quiet() -> None:
     info = latest_release_info(current="0.3.3", now=1.0, fetch=lambda: None)
     assert info["latest"] is None

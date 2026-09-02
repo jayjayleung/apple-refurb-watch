@@ -49,6 +49,8 @@ def test_pages_and_watch_api(tmp_path) -> None:
         assert home.text.index("github-link") < home.text.index('id="main"')
         assert 'class="brand-name"' in home.text
         assert 'aria-label="官翻监听"' in home.text
+        assert "arw_desktop" in home.text
+        assert "sessionStorage" in home.text
         assert 'class="brand-ver"' in home.text
         assert f">{__version__}<" in home.text
         assert 'id="ver-pop"' in home.text
@@ -434,6 +436,9 @@ def test_listen_toggle_form_and_api(tmp_path) -> None:
         assert "要改就填新的再保存" not in settings_page.text
         assert 'formaction="/settings/notify-test"' in settings_page.text
         assert "requestSubmit" in settings_page.text
+        assert "startedOpen" in settings_page.text
+        assert 'block: "nearest"' in settings_page.text
+        assert 'block: "center"' not in settings_page.text
         assert "试一下" in settings_page.text
         assert "computer-notify-allow" not in settings_page.text
         assert "computer-notify-web-hint" not in settings_page.text

@@ -23,14 +23,20 @@ def test_tray_menu_covers_connect_notify_autostart() -> None:
 
 
 def test_desktop_chrome_does_not_repeat_app_title() -> None:
-    base = (package_root() / "web" / "templates" / "base.html").read_text(encoding="utf-8")
-    login = (package_root() / "web" / "templates" / "login.html").read_text(encoding="utf-8")
+    templates = package_root() / "web" / "templates"
+    base = (templates / "base.html").read_text(encoding="utf-8")
+    login = (templates / "login.html").read_text(encoding="utf-8")
+    mark = (templates / "_desktop_mark.html").read_text(encoding="utf-8")
     css = (package_root() / "web" / "static" / "style.css").read_text(encoding="utf-8")
     assert 'class="brand-name"' in base
     assert 'aria-label="官翻监听"' in base
-    assert 'classList.add("desktop")' in base
+    assert '_desktop_mark.html' in base
+    assert '_desktop_mark.html' in login
+    assert "arw_desktop" in mark
+    assert "sessionStorage" in mark
+    assert 'classList.add("desktop")' in mark
+    assert "pywebviewready" in mark
     assert 'class="brand-name"' in login
-    assert 'classList.add("desktop")' in login
     assert "html.desktop .brand-name" in css
     assert "html.desktop .ver-pop:not(.has-update)" in css
     assert "html.desktop .login-mark .brand-name" in css
@@ -113,6 +119,7 @@ def test_desktop_state_exposes_client_version_and_update() -> None:
     state = session.public_state()
     assert state["client_version"] == __version__
     assert state["update"] is None
+    assert state["update_checked"] is False
     session.update = {
         "ok": True,
         "current": __version__,
@@ -128,6 +135,34 @@ def test_desktop_state_exposes_client_version_and_update() -> None:
     assert "__arwShowUpdate" in js
     assert "arw_update_dismissed" in js
     assert "update-banner" not in js
+
+
+def test_desktop_update_check_bypasses_cache(monkeypatch) -> None:
+    from apple_refurb_watch.desktop import DesktopSession
+
+    seen: dict = {}
+
+    def fake_info(**kwargs):
+        seen.update(kwargs)
+        return {
+            "ok": True,
+            "current": "0.3.5",
+            "latest": "0.3.6",
+            "newer": True,
+            "url": "https://github.com/jayjayleung/apple-refurb-watch/releases/latest",
+        }
+
+    monkeypatch.setattr("apple_refurb_watch.desktop.latest_release_info", fake_info)
+    session = DesktopSession(hidden=True)
+    injected: list[str] = []
+    session.window = type("Window", (), {"evaluate_js": lambda self, js: injected.append(js)})()
+    session.check_for_update()
+    assert seen.get("refresh") is True
+    assert seen.get("current") == __version__
+    assert session.update_checked is True
+    assert session.update["latest"] == "0.3.6"
+    assert injected
+    assert "0.3.6" in injected[0]
 
 
 def test_hidden_desktop_creates_hidden_window() -> None:

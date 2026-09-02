@@ -324,6 +324,7 @@ class DesktopSession:
         self.error: str | None = None
         self.notice: str | None = None
         self.update: dict | None = None
+        self.update_checked = False
         self.window = None
         self.tray_icon = None
         self.desk_lock = None
@@ -350,6 +351,7 @@ class DesktopSession:
             "notice": self.notice,
             "client_version": __version__,
             "update": self.update,
+            "update_checked": self.update_checked,
             "capabilities": sorted(inferred_capabilities(self.health)),
             "can_notify": has_capability(self.health, "events.after_id") if self.health else False,
             "connected": self.client is not None and not self.error,
@@ -614,15 +616,17 @@ class DesktopSession:
         except Exception:  # noqa: BLE001
             pass
 
-    def start_update_check(self) -> None:
-        def _run() -> None:
-            try:
-                self.update = latest_release_info(current=__version__)
-            except Exception:  # noqa: BLE001
-                return
-            self.inject_update()
+    def check_for_update(self) -> None:
+        try:
+            self.update = latest_release_info(current=__version__, refresh=True)
+        except Exception:  # noqa: BLE001
+            self.update_checked = True
+            return
+        self.update_checked = True
+        self.inject_update()
 
-        threading.Thread(target=_run, name="arw-update", daemon=True).start()
+    def start_update_check(self) -> None:
+        threading.Thread(target=self.check_for_update, name="arw-update", daemon=True).start()
 
 
 def handle_window_closing(session: DesktopSession) -> bool:
@@ -783,6 +787,10 @@ def run_desktop(*, hidden: bool = False) -> None:
         session.inject_notice()
         session.inject_update()
 
+    def on_loaded() -> None:
+        session.inject_notice()
+        session.inject_update()
+
     def on_closing() -> bool:
         return handle_window_closing(session)
 
@@ -800,6 +808,10 @@ def run_desktop(*, hidden: bool = False) -> None:
 
     try:
         window.events.shown += on_shown
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        window.events.loaded += on_loaded
     except Exception:  # noqa: BLE001
         pass
     try:

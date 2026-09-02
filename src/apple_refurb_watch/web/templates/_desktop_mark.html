@@ -1,0 +1,18 @@
+<style>
+html.desktop .brand-name,
+html.desktop .ver-pop:not(.has-update),
+html.desktop .login-mark .brand-name,
+html.desktop .login-mark .brand-ver { display: none !important; }
+html.desktop .brand { gap: 0; }
+</style>
+<script>
+(function () {
+  function markDesktop() {
+    document.documentElement.classList.add("desktop");
+    try { sessionStorage.setItem("arw_desktop", "1"); } catch (e) {}
+  }
+  try { if (sessionStorage.getItem("arw_desktop") === "1") markDesktop(); } catch (e) {}
+  if (window.pywebview) markDesktop();
+  document.addEventListener("pywebviewready", markDesktop);
+})();
+</script>

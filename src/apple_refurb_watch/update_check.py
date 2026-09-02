@@ -95,6 +95,7 @@ def latest_release_info(
     current: str | None = None,
     now: float | None = None,
     fetch: FetchLatest | None = None,
+    refresh: bool = False,
 ) -> dict[str, Any]:
     current_ver = parse_release_tag(current or __version__)
     checked_at = time.time() if now is None else float(now)
@@ -107,7 +108,11 @@ def latest_release_info(
         except (TypeError, ValueError):
             cached_at = 0.0
         fresh = bool(latest) and (checked_at - cached_at) < CACHE_TTL_SECONDS
+        if fresh and is_newer(current_ver, latest):
+            fresh = False
     else:
+        fresh = False
+    if refresh:
         fresh = False
     if not fresh:
         fetched = (fetch or fetch_latest_tag)()

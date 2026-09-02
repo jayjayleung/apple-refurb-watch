@@ -7,14 +7,12 @@
   <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#161617" media="(prefers-color-scheme: dark)">
   <title>{% block title %}官翻监听{% endblock %}</title>
+  {% include "_desktop_mark.html" %}
   <link rel="icon" href="/static/icon.svg?v=listen-1" type="image/svg+xml">
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/static/icon-256.png">
-  <link rel="stylesheet" href="/static/style.css?v=desktop-title-1">
+  <link rel="stylesheet" href="/static/style.css?v=desktop-title-2">
   <script src="/static/htmx.min.js" defer></script>
-  <script>
-    if (window.pywebview) document.documentElement.classList.add("desktop");
-  </script>
 </head>
 <body>
   <a class="skip" href="#main">跳到内容</a>
@@ -198,10 +196,48 @@
       function applyUpdateInfo(s) {
         if (s && s.newer && s.latest) showUpdate(s.latest, s.url);
       }
+      function parseReleaseTag(tag) {
+        var text = String(tag || "").trim();
+        if (/^v\d/i.test(text)) return text.slice(1);
+        return text;
+      }
+      function versionParts(ver) {
+        var nums = [];
+        String(ver || "").replace(/-/g, ".").split(".").forEach(function (part) {
+          var digits = part.replace(/\D/g, "");
+          if (digits) nums.push(parseInt(digits, 10));
+        });
+        return nums;
+      }
+      function isNewerRelease(latest, current) {
+        var a = versionParts(parseReleaseTag(latest));
+        var b = versionParts(parseReleaseTag(current));
+        if (!a.length || !b.length) return false;
+        var n = Math.max(a.length, b.length);
+        for (var i = 0; i < n; i += 1) {
+          var x = a[i] || 0;
+          var y = b[i] || 0;
+          if (x > y) return true;
+          if (x < y) return false;
+        }
+        return false;
+      }
+      function showIfClientBehind(current, latest, url) {
+        if (latest && current && isNewerRelease(latest, current)) showUpdate(latest, url);
+      }
       function checkServerUpdate() {
         fetch("/api/update")
           .then(function (r) { return r.json(); })
           .then(applyUpdateInfo)
+          .catch(function () {});
+      }
+      function checkServerUpdateFor(current) {
+        fetch("/api/update")
+          .then(function (r) { return r.json(); })
+          .then(function (u) {
+            if (!u) return;
+            showIfClientBehind(current || u.current, u.latest, u.url);
+          })
           .catch(function () {});
       }
       function watchDesktopUpdate(api) {
@@ -209,12 +245,18 @@
         function tick() {
           tries += 1;
           api.state().then(function (s) {
-            if (s && s.update && s.update.latest != null) {
-              applyUpdateInfo(s.update);
+            var current = (s && s.client_version) || "";
+            if (s && s.update) showIfClientBehind(current, s.update.latest, s.update.url);
+            if (s && s.update && s.update.newer) return;
+            if (s && s.update_checked) {
+              checkServerUpdateFor(current);
               return;
             }
-            if (tries < 8) setTimeout(tick, 500);
-          }).catch(function () {});
+            if (tries < 24) setTimeout(tick, 500);
+            else checkServerUpdateFor(current);
+          }).catch(function () {
+            if (tries < 24) setTimeout(tick, 500);
+          });
         }
         setTimeout(tick, 400);
       }

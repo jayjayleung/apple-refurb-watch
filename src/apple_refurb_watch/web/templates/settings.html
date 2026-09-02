@@ -240,10 +240,15 @@
     });
   });
   document.querySelectorAll("details.notify-channel").forEach(function (box) {
+    var startedOpen = box.open;
     box.addEventListener("toggle", function () {
+      if (startedOpen) {
+        startedOpen = false;
+        return;
+      }
       if (!box.open) return;
       var test = box.querySelector(".notify-test-form");
-      if (test) test.scrollIntoView({ block: "center", inline: "nearest" });
+      if (test) test.scrollIntoView({ block: "nearest", inline: "nearest" });
     });
   });
 })();
