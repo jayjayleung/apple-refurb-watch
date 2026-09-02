@@ -6,7 +6,7 @@
 
 仓库：[github.com/jayjayleung/apple-refurb-watch](https://github.com/jayjayleung/apple-refurb-watch)
 
-当前版本：**0.3.4**
+当前版本：**0.3.5**
 
 默认地址 `http://127.0.0.1:8765`。数据目录可用 `APPLE_REFURB_WATCH_HOME` 覆盖，看当前目录：`apple-refurb-watch home`。
 
@@ -234,8 +234,8 @@ GitHub Actions 只留一套 `ci`：
 Windows / macOS 托盘依赖系统通知区域。Linux 开发机只能验证 `--probe` 与导入，不能代替真机关窗留守。`desktop --probe` 只检查本机服务能否启动，日常打开窗口请直接双击或 `desktop`。
 
 ```bash
-git tag v0.3.4
-git push origin v0.3.4
+git tag v0.3.5
+git push origin v0.3.5
 ```
 
 本地打当前系统一份：
