@@ -436,7 +436,12 @@ def test_listen_toggle_form_and_api(tmp_path) -> None:
         assert "定时扫描官网" in settings_page.text
         assert "从官网同步筛选词条" in settings_page.text
         assert "监听分类" in settings_page.text
-        assert "仅扫描所选分类" in settings_page.text
+        assert "MacBook Pro 与 Air 请在 Mac 中选择。" in settings_page.text
+        assert "仅扫描所选分类" not in settings_page.text
+        assert "分类更改立即生效" not in settings_page.text
+        assert "系统登录后自动运行此服务" not in settings_page.text
+        assert "更改端口或绑定地址后请重新启动" not in settings_page.text
+        assert "连接远程服务器。" not in settings_page.text
         assert "关闭窗口到托盘" in settings_page.text
         assert "close_window_keeps_daemon" in settings_page.text
         assert "desktop-this-computer" in settings_page.text

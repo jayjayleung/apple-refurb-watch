@@ -11,7 +11,7 @@
   <link rel="icon" href="/static/icon.svg?v=listen-1" type="image/svg+xml">
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/static/icon-256.png">
-  <link rel="stylesheet" href="/static/style.css?v=desktop-chrome-1">
+  <link rel="stylesheet" href="/static/style.css?v=settings-copy-1">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
@@ -336,11 +336,7 @@
         var auto = $("desktop-autostart");
         if (auto) auto.checked = !!s.autostart;
         var hint = $("desktop-autostart-hint");
-        if (hint) {
-          hint.textContent = s.autostart_kind === "tray"
-            ? "系统登录后启动托盘应用。"
-            : "系统登录后启动后台服务。";
-        }
+        if (hint) hint.textContent = "";
         var st = $("desktop-conn-status");
         if (st) {
           if (s.env_locked) st.textContent = "连接由环境变量指定，无法在此更改。";
@@ -401,6 +397,7 @@
               return;
             }
             auto.checked = !!r.autostart;
+            if (hint) hint.textContent = "";
           });
         });
       }
@@ -446,9 +443,6 @@
               setStatus(box.checked ? "已开启。" : "已关闭。");
             });
           });
-          setStatus(box.checked
-            ? "已开启。"
-            : "已关闭。");
           return;
         }
         if (!canAfterId) {
@@ -460,7 +454,6 @@
         box.checked = enabled();
         if (enabled()) {
           if (permissionState() === "granted") {
-            setStatus("已开启。");
             seedCursor();
           } else if (permissionState() === "denied") {
             setStatus(HINT_DENIED, true);
@@ -488,11 +481,7 @@
           .then(function (r) { return r.json(); })
           .then(function (s) {
             box.checked = !!s.installed;
-            if (status) {
-              status.textContent = s.installed
-                ? "已开启。"
-                : "未开启。";
-            }
+            if (status) status.textContent = "";
           })
           .catch(function () {
             if (status) status.textContent = "无法读取开机自启状态。";
