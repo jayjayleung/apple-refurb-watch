@@ -4,7 +4,7 @@
 
 [下载最新版本](https://github.com/jayjayleung/apple-refurb-watch/releases/latest)
 
-当前源码版本：**0.3.12** · 需要 Python **3.11+**
+当前源码版本：**0.3.13** · 需要 Python **3.11+**
 
 > 本项目不是 Apple 官方产品，适合个人、自托管使用。请合理设置扫描间隔。
 
