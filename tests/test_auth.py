@@ -43,6 +43,7 @@ def test_health_is_public_for_remote_listener(tmp_path) -> None:
     app = create_app(db, with_scheduler=False)
     with TestClient(app) as client:
         assert client.get("/api/health").status_code == 200
+        assert client.get("/api/update").status_code == 200
 
 
 def test_remote_listener_without_token_is_rejected_before_startup() -> None:

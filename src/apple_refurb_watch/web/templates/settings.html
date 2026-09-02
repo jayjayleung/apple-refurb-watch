@@ -120,6 +120,8 @@
 <section class="panel desktop-only" id="desktop-this-computer" hidden>
   <h2>这台电脑</h2>
   <p class="hint" id="desktop-conn-status">连接远程服务器。</p>
+  <p class="hint" id="desktop-client-ver"></p>
+  <p class="hint" id="desktop-update" hidden>有新版本 <span class="update-ver"></span>。<a id="desktop-update-open" href="https://github.com/jayjayleung/apple-refurb-watch/releases/latest" target="_blank" rel="noopener noreferrer">打开下载页</a> <button type="button" class="link-btn" id="desktop-update-dismiss">关闭</button></p>
   <label>服务器地址 <input id="desktop-url" type="url" placeholder="http://192.168.1.8:8765" autocomplete="off"></label>
   <label>访问口令 <input id="desktop-token" type="password" autocomplete="off"></label>
   <label class="check"><input type="checkbox" id="desktop-insecure"> 允许通过 HTTP 连接（不推荐）</label>

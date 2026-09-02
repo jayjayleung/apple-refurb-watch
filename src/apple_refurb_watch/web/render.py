@@ -6,6 +6,7 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from apple_refurb_watch import __version__
 from apple_refurb_watch.argv import is_frozen
 from apple_refurb_watch.categories import CATEGORIES, LISTING_GROUPS, SHOP_FAMILIES, shop_family_key
 from apple_refurb_watch.db import Database
@@ -20,8 +21,7 @@ from apple_refurb_watch.settings import (
     NOTIFY_CHANNEL_UI,
 )
 from apple_refurb_watch.status_view import format_localtime, load_status
-
-GITHUB_URL = "https://github.com/jayjayleung/apple-refurb-watch"
+from apple_refurb_watch.update_check import GITHUB_URL
 
 
 def web_dir() -> Path:
@@ -55,6 +55,7 @@ def templates() -> Environment:
     env.filters["thumb"] = thumb_url
     env.filters["localtime"] = format_localtime
     env.globals["github_url"] = GITHUB_URL
+    env.globals["app_version"] = __version__
     return env
 
 

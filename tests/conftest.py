@@ -11,6 +11,11 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setenv("APPLE_REFURB_WATCH_LOG", str(tmp_path / "logs"))
 
 
+@pytest.fixture(autouse=True)
+def no_github_update_check(monkeypatch):
+    monkeypatch.setattr("apple_refurb_watch.update_check.fetch_latest_tag", lambda: None)
+
+
 @pytest.fixture
 def listing_html() -> str:
     return (FIXTURES / "listing_mac.html").read_text(encoding="utf-8")

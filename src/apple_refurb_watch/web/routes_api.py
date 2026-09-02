@@ -19,6 +19,13 @@ def health() -> dict:
     return health_payload()
 
 
+@router.get("/api/update")
+def api_update() -> dict:
+    from apple_refurb_watch.update_check import latest_release_info
+
+    return latest_release_info()
+
+
 @router.get("/api/status")
 def status(request: Request) -> dict:
     return public_status(request.app.state.db)

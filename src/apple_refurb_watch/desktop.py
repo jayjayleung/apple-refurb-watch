@@ -22,12 +22,20 @@ from apple_refurb_watch.connection import (
     save_computer_notify,
     save_connection,
 )
-from apple_refurb_watch.daemon import acquire_lock, ping_daemon, spawn_env, stop_daemon, windows_creationflags
+from apple_refurb_watch.daemon import (
+    acquire_lock,
+    ping_daemon,
+    spawn_env,
+    stop_daemon,
+    windows_creationflags,
+    windows_hidden_kwargs,
+)
 from apple_refurb_watch.desktop_adapter import DesktopAdapter
 from apple_refurb_watch.desktop_notify import notify_os
 from apple_refurb_watch.embedded import EmbeddedServer
 from apple_refurb_watch.parse import product_page_url
 from apple_refurb_watch.paths import desktop_lock_path, desktop_signal_path, package_root
+from apple_refurb_watch.update_check import latest_release_info, version_key
 from apple_refurb_watch.service import (
     desktop_autostart_preferred,
     install_service,
@@ -56,17 +64,6 @@ def hide_to_tray_enabled(settings: dict | None) -> bool:
     if not settings:
         return True
     return bool(settings.get("close_window_keeps_daemon", True))
-
-
-def version_key(ver: str | None) -> tuple[int, ...]:
-    if not ver:
-        return (0,)
-    nums: list[int] = []
-    for part in str(ver).replace("-", ".").split("."):
-        digits = "".join(ch for ch in part if ch.isdigit())
-        if digits:
-            nums.append(int(digits))
-    return tuple(nums) or (0,)
 
 
 def local_health_is_current(health: dict | None) -> bool:
@@ -118,6 +115,7 @@ def stop_pid(pid: int) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
+            **windows_hidden_kwargs(),
         )
 
 
@@ -154,6 +152,10 @@ def gui_import_status(*, adapter: DesktopAdapter | None = None) -> dict[str, str
     return (adapter or DesktopAdapter()).status()
 
 
+def desktop_app_title() -> str:
+    return f"官翻监听 {__version__}"
+
+
 def tray_menu_labels(*, listening: bool) -> list[str]:
     return [
         "打开",
@@ -180,10 +182,17 @@ def relaunch_desktop(*, hidden: bool = False) -> None:
     cmd = invoke_argv(*args)
     env = spawn_env()
     if os.name == "nt":
+        hidden_kw = windows_hidden_kwargs()
         last: OSError | None = None
         for flags in windows_creationflags():
             try:
-                subprocess.Popen(cmd, env=env, close_fds=False, creationflags=flags)
+                subprocess.Popen(
+                    cmd,
+                    env=env,
+                    close_fds=False,
+                    creationflags=flags,
+                    startupinfo=hidden_kw.get("startupinfo"),
+                )
                 return
             except OSError as exc:
                 last = exc
@@ -255,6 +264,24 @@ def _banner_js(message: str) -> str:
     )
 
 
+def _update_hint_js(latest: str, url: str) -> str:
+    latest_js = json.dumps(str(latest), ensure_ascii=False)
+    url_js = json.dumps(str(url), ensure_ascii=False)
+    return (
+        "(function(){"
+        "var latest=" + latest_js + ",url=" + url_js + ";"
+        "try{if(localStorage.getItem('arw_update_dismissed')===String(latest))return;}catch(e){}"
+        "if(window.__arwShowUpdate){window.__arwShowUpdate(latest,url);return;}"
+        "var pop=document.getElementById('ver-pop');"
+        "if(!pop)return;"
+        "var ver=pop.querySelector('.update-ver'); if(ver) ver.textContent=latest;"
+        "var a=document.getElementById('update-open')||pop.querySelector('a');"
+        "if(a){if(url)a.href=url;a.textContent='打开下载页';}"
+        "pop.classList.add('has-update');"
+        "})();"
+    )
+
+
 def _poll_appeared(client: ApiClient, enabled: threading.Event, stop: threading.Event) -> None:
     cursor = 0
     try:
@@ -293,6 +320,7 @@ class DesktopSession:
         self.owned = False
         self.error: str | None = None
         self.notice: str | None = None
+        self.update: dict | None = None
         self.window = None
         self.tray_icon = None
         self.desk_lock = None
@@ -316,6 +344,8 @@ class DesktopSession:
             "env_locked": bool(os.environ.get(ENV_URL)),
             "error": self.error,
             "notice": self.notice,
+            "client_version": __version__,
+            "update": self.update,
             "capabilities": sorted(inferred_capabilities(self.health)),
             "can_notify": has_capability(self.health, "events.after_id") if self.health else False,
             "connected": self.client is not None and not self.error,
@@ -547,6 +577,29 @@ class DesktopSession:
         except Exception:  # noqa: BLE001
             pass
 
+    def inject_update(self) -> None:
+        info = self.update
+        if not info or not info.get("newer") or self.window is None:
+            return
+        latest = str(info.get("latest") or "")
+        url = str(info.get("url") or "")
+        if not latest or not url:
+            return
+        try:
+            self.window.evaluate_js(_update_hint_js(latest, url))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def start_update_check(self) -> None:
+        def _run() -> None:
+            try:
+                self.update = latest_release_info(current=__version__)
+            except Exception:  # noqa: BLE001
+                return
+            self.inject_update()
+
+        threading.Thread(target=_run, name="arw-update", daemon=True).start()
+
 
 class DesktopApi:
     def __init__(self, session: DesktopSession) -> None:
@@ -575,6 +628,25 @@ class DesktopApi:
 
         notify_os(TEST_TITLE, TEST_BODY, None)
         return {"ok": True}
+
+
+def desktop_window_options(*, hidden: bool) -> dict:
+    return {
+        "width": 1180,
+        "height": 800,
+        "min_size": (960, 640),
+        "hidden": bool(hidden),
+    }
+
+
+def create_session_window(webview, session: DesktopSession, api: DesktopApi):
+    url = session.start_url()
+    options = desktop_window_options(hidden=session.hidden)
+    try:
+        return webview.create_window(desktop_app_title(), url, js_api=api, **options)
+    except TypeError:
+        options.pop("hidden", None)
+        return webview.create_window(desktop_app_title(), url, js_api=api, **options)
 
 
 def _start_tray(session: DesktopSession, *, adapter: DesktopAdapter | None = None):
@@ -619,7 +691,7 @@ def _start_tray(session: DesktopSession, *, adapter: DesktopAdapter | None = Non
         pystray.MenuItem("开机自启", on_autostart, checked=lambda item: session.autostart_on),
         pystray.MenuItem("退出", lambda *_: session.quit_app()),
     )
-    icon = pystray.Icon("apple-refurb-watch", image, "官翻监听", menu)
+    icon = pystray.Icon("apple-refurb-watch", image, desktop_app_title(), menu)
     try:
         if hasattr(icon, "run_detached"):
             icon.run_detached()
@@ -665,26 +737,15 @@ def run_desktop(*, hidden: bool = False) -> None:
         pass
 
     api = DesktopApi(session)
-    window = webview.create_window(
-        "官翻监听",
-        session.start_url(),
-        width=1180,
-        height=800,
-        min_size=(960, 640),
-        js_api=api,
-    )
+    window = create_session_window(webview, session, api)
     session.window = window
 
     def on_shown() -> None:
         if session.hidden:
             session.hide_window()
             session.hidden = False
-        if session.client is not None and not session.error:
-            try:
-                window.load_url(session.client.base)
-            except Exception:  # noqa: BLE001
-                pass
         session.inject_notice()
+        session.inject_update()
 
     def on_closing() -> bool:
         if session.hide:
@@ -715,6 +776,7 @@ def run_desktop(*, hidden: bool = False) -> None:
         pass
 
     threading.Thread(target=watch_signal, name="arw-desktop-signal", daemon=True).start()
+    session.start_update_check()
     if session.client is not None and has_capability(session.health, "events.after_id"):
         threading.Thread(
             target=_poll_appeared,

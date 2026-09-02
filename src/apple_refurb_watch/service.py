@@ -10,9 +10,16 @@ from textwrap import dedent
 from xml.sax.saxutils import escape
 
 from apple_refurb_watch.argv import invoke_argv, is_frozen
+from apple_refurb_watch.daemon import windows_hidden_kwargs
 from apple_refurb_watch.paths import data_dir
 
 SERVICE_NAME = "apple-refurb-watch"
+
+
+def _subprocess_run(cmd: list[str], **kwargs):
+    merged = windows_hidden_kwargs()
+    merged.update(kwargs)
+    return subprocess.run(cmd, **merged)
 
 
 def desktop_autostart_preferred(*, frozen: bool | None = None, platform: str | None = None) -> bool:
@@ -73,29 +80,29 @@ def install_service(*, desktop: bool | None = None) -> str:
 def uninstall_service() -> str:
     if sys.platform.startswith("linux"):
         unit = _systemd_unit()
-        subprocess.run(["systemctl", "--user", "disable", "--now", SERVICE_NAME], check=False)
+        _subprocess_run(["systemctl", "--user", "disable", "--now", SERVICE_NAME], check=False)
         unit.unlink(missing_ok=True)
         return f"已移除 {unit}"
     if sys.platform == "darwin":
         plist = _launchd_plist()
-        subprocess.run(["launchctl", "unload", str(plist)], check=False)
+        _subprocess_run(["launchctl", "unload", str(plist)], check=False)
         plist.unlink(missing_ok=True)
         return f"已移除 {plist}"
     if os.name == "nt":
-        subprocess.run(["schtasks", "/Delete", "/TN", SERVICE_NAME, "/F"], check=False)
+        _subprocess_run(["schtasks", "/Delete", "/TN", SERVICE_NAME, "/F"], check=False)
         return "已尝试删除计划任务"
     return "无需卸载"
 
 
 def service_status() -> str:
     if sys.platform.startswith("linux"):
-        result = subprocess.run(["systemctl", "--user", "status", SERVICE_NAME], capture_output=True, text=True)
+        result = _subprocess_run(["systemctl", "--user", "status", SERVICE_NAME], capture_output=True, text=True)
         return result.stdout or result.stderr
     if sys.platform == "darwin":
-        result = subprocess.run(["launchctl", "list", SERVICE_NAME], capture_output=True, text=True)
+        result = _subprocess_run(["launchctl", "list", SERVICE_NAME], capture_output=True, text=True)
         return result.stdout or result.stderr or "未找到 LaunchAgent"
     if os.name == "nt":
-        result = subprocess.run(["schtasks", "/Query", "/TN", SERVICE_NAME], capture_output=True, text=True)
+        result = _subprocess_run(["schtasks", "/Query", "/TN", SERVICE_NAME], capture_output=True, text=True)
         return result.stdout or result.stderr
     return "未知"
 
@@ -106,7 +113,7 @@ def is_service_installed() -> bool:
     if sys.platform == "darwin":
         return _launchd_plist().exists()
     if os.name == "nt":
-        result = subprocess.run(["schtasks", "/Query", "/TN", SERVICE_NAME], capture_output=True)
+        result = _subprocess_run(["schtasks", "/Query", "/TN", SERVICE_NAME], capture_output=True)
         return result.returncode == 0
     return False
 
@@ -168,7 +175,7 @@ def _ignore_control_error(action: str, text: str) -> bool:
 
 def _run_control_commands(action: str, commands: list[list[str]]) -> str:
     for index, cmd in enumerate(commands):
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = _subprocess_run(cmd, capture_output=True, text=True)
         text = f"{result.stderr or ''}{result.stdout or ''}".strip()
         if result.returncode == 0:
             continue
@@ -209,8 +216,8 @@ def _install_systemd(argv: list[str]) -> str:
         + "\n",
         encoding="utf-8",
     )
-    subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
-    subprocess.run(["systemctl", "--user", "enable", "--now", SERVICE_NAME], check=False)
+    _subprocess_run(["systemctl", "--user", "daemon-reload"], check=False)
+    _subprocess_run(["systemctl", "--user", "enable", "--now", SERVICE_NAME], check=False)
     return f"已写入 {unit} 并尝试 enable --now"
 
 
@@ -244,13 +251,13 @@ def _install_launchd(argv: list[str]) -> str:
         + "\n",
         encoding="utf-8",
     )
-    subprocess.run(["launchctl", "load", str(plist)], check=False)
+    _subprocess_run(["launchctl", "load", str(plist)], check=False)
     return f"已写入 {plist}"
 
 
 def _install_windows(argv: list[str]) -> str:
     cmd = " ".join(f'"{part}"' if " " in part else part for part in argv)
-    subprocess.run(
+    _subprocess_run(
         ["schtasks", "/Create", "/SC", "ONLOGON", "/TN", SERVICE_NAME, "/TR", cmd, "/F"],
         check=False,
     )

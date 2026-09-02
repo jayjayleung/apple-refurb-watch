@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 import sys
 
+from apple_refurb_watch.daemon import windows_hidden_kwargs
+
 
 def notify_os(title: str, body: str, url: str | None = None) -> None:
     text = str(body or "")[:400]
@@ -37,9 +39,18 @@ def _windows_toast(title: str, body: str) -> None:
         "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('官翻监听').Show($toast)"
     )
     subprocess.run(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+        [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            ps,
+        ],
         check=False,
         capture_output=True,
+        **windows_hidden_kwargs(),
     )
 
 

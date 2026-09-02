@@ -63,3 +63,32 @@ def test_start_requires_install(monkeypatch) -> None:
     monkeypatch.setattr("apple_refurb_watch.service.is_service_installed", lambda: False)
     with pytest.raises(RuntimeError, match="service install"):
         start_service()
+
+
+def test_windows_schtasks_hides_console(monkeypatch) -> None:
+    from apple_refurb_watch.daemon import CREATE_NO_WINDOW
+    from apple_refurb_watch import service
+
+    seen: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        seen["kwargs"] = kwargs
+
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(
+        service,
+        "windows_hidden_kwargs",
+        lambda: {"creationflags": CREATE_NO_WINDOW},
+    )
+    monkeypatch.setattr(service.subprocess, "run", fake_run)
+    service._install_windows([r"C:\app.exe", "desktop", "--hidden"])
+    assert seen["cmd"][0] == "schtasks"
+    assert "/Create" in seen["cmd"]
+    assert seen["kwargs"]["creationflags"] == CREATE_NO_WINDOW

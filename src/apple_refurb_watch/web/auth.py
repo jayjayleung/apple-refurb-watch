@@ -41,7 +41,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if path.startswith("/api/"):
                 return JSONResponse({"detail": "拒绝跨站请求"}, status_code=403)
             return HTMLResponse("<p>拒绝跨站请求</p>", status_code=403)
-        if path.startswith("/static") or path in {"/login", "/api/health"}:
+        if path.startswith("/static") or path in {"/login", "/api/health", "/api/update"}:
             return await call_next(request)
         settings = self.db.settings()
         auth_settings = settings

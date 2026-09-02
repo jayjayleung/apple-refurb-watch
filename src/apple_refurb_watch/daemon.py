@@ -87,6 +87,24 @@ def windows_creationflags() -> list[int]:
     ]
 
 
+def windows_startupinfo():
+    """Windows STARTUPINFO：不显示控制台窗口。"""
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = 0
+    return startupinfo
+
+
+def windows_hidden_kwargs() -> dict:
+    """给 GUI 拉起的 Windows 工具隐藏黑框。"""
+    if os.name != "nt":
+        return {}
+    return {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", CREATE_NO_WINDOW),
+        "startupinfo": windows_startupinfo(),
+    }
+
+
 def spawn_env() -> dict[str, str]:
     env = os.environ.copy()
     if is_frozen():
@@ -98,9 +116,7 @@ def spawn_env() -> dict[str, str]:
 def spawn_detached(cmd: list[str], log_stream):
     env = spawn_env()
     if os.name == "nt":
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = 0
+        hidden = windows_hidden_kwargs()
         last: OSError | None = None
         for flags in windows_creationflags():
             try:
@@ -111,7 +127,7 @@ def spawn_detached(cmd: list[str], log_stream):
                     cwd=None,
                     env=env,
                     creationflags=flags,
-                    startupinfo=startupinfo,
+                    startupinfo=hidden["startupinfo"],
                     close_fds=False,
                 )
             except OSError as exc:

@@ -10,7 +10,7 @@
   <link rel="icon" href="/static/icon.svg?v=listen-1" type="image/svg+xml">
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/static/icon-256.png">
-  <link rel="stylesheet" href="/static/style.css?v=notify-test-2">
+  <link rel="stylesheet" href="/static/style.css?v=update-2">
   <script src="/static/htmx.min.js" defer></script>
   <script>
     if (window.pywebview) document.documentElement.classList.add("desktop");
@@ -19,7 +19,19 @@
 <body>
   <a class="skip" href="#main">跳到内容</a>
   <header class="top">
-    <a class="brand" href="/"><img src="/static/icon.svg?v=listen-1" width="28" height="28" alt="">官翻监听</a>
+    <div class="brand-wrap">
+      <a class="brand" href="/"><img src="/static/icon.svg?v=listen-1" width="28" height="28" alt="">官翻监听</a>
+      <details class="ver-pop" id="ver-pop">
+        <summary class="brand-ver">{{ app_version }}</summary>
+        <div class="ver-pop-card">
+          <p>有新版本 <span class="update-ver"></span></p>
+          <p class="ver-pop-actions">
+            <a id="update-open" href="https://github.com/jayjayleung/apple-refurb-watch/releases/latest" target="_blank" rel="noopener noreferrer">查看更新</a>
+            <button type="button" class="link-btn" id="update-dismiss">关闭</button>
+          </p>
+        </div>
+      </details>
+    </div>
     <nav aria-label="主要">
       <a href="/" {% if request.url.path == '/' %}class="on" aria-current="page"{% endif %}>在售</a>
       <a href="/watches" {% if request.url.path.startswith('/watches') %}class="on" aria-current="page"{% endif %}>监听</a>
@@ -115,6 +127,97 @@
         el.hidden = false;
         el.textContent = text;
       }
+      var UPDATE_DISMISS = "arw_update_dismissed";
+      var updateWired = false;
+      function updateDismissed(latest) {
+        try { return localStorage.getItem(UPDATE_DISMISS) === String(latest); }
+        catch (err) { return false; }
+      }
+      function hideUpdate() {
+        var pop = $("ver-pop");
+        if (pop) {
+          pop.classList.remove("has-update");
+          pop.open = false;
+          pop.removeAttribute("open");
+        }
+        var settings = $("desktop-update");
+        if (settings) settings.hidden = true;
+      }
+      function isDesktopShell() {
+        return !!(desktopApi || document.documentElement.classList.contains("desktop") || window.pywebview);
+      }
+      function showUpdate(latest, url) {
+        if (!latest || updateDismissed(latest)) {
+          hideUpdate();
+          return;
+        }
+        var pop = $("ver-pop");
+        if (pop) {
+          var ver = pop.querySelector(".update-ver");
+          if (ver) ver.textContent = latest;
+          var link = $("update-open") || pop.querySelector("a");
+          if (link) {
+            if (url) link.href = url;
+            link.textContent = isDesktopShell() ? "打开下载页" : "查看更新";
+          }
+          pop.classList.add("has-update");
+          var summary = pop.querySelector("summary");
+          if (summary) summary.setAttribute("aria-label", "版本 " + (summary.textContent || "").trim() + "，有新版本 " + latest);
+        }
+        var settings = $("desktop-update");
+        if (settings) {
+          var settingsVer = settings.querySelector(".update-ver");
+          if (settingsVer) settingsVer.textContent = latest;
+          var settingsLink = $("desktop-update-open");
+          if (settingsLink && url) settingsLink.href = url;
+          settings.hidden = false;
+        }
+        if (updateWired) return;
+        updateWired = true;
+        function dismissNow() {
+          var node = document.querySelector("#ver-pop .update-ver, #desktop-update .update-ver");
+          var value = node && node.textContent;
+          if (value) {
+            try { localStorage.setItem(UPDATE_DISMISS, String(value)); } catch (err) {}
+          }
+          hideUpdate();
+        }
+        var dismiss = $("update-dismiss");
+        if (dismiss) dismiss.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          dismissNow();
+        });
+        var settingsDismiss = $("desktop-update-dismiss");
+        if (settingsDismiss) settingsDismiss.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          dismissNow();
+        });
+      }
+      window.__arwShowUpdate = showUpdate;
+      function applyUpdateInfo(s) {
+        if (s && s.newer && s.latest) showUpdate(s.latest, s.url);
+      }
+      function checkServerUpdate() {
+        fetch("/api/update")
+          .then(function (r) { return r.json(); })
+          .then(applyUpdateInfo)
+          .catch(function () {});
+      }
+      function watchDesktopUpdate(api) {
+        var tries = 0;
+        function tick() {
+          tries += 1;
+          api.state().then(function (s) {
+            if (s && s.update && s.update.latest != null) {
+              applyUpdateInfo(s.update);
+              return;
+            }
+            if (tries < 8) setTimeout(tick, 500);
+          }).catch(function () {});
+        }
+        setTimeout(tick, 400);
+      }
       function getDesktopApi() {
         return (window.pywebview && window.pywebview.api) ? window.pywebview.api : null;
       }
@@ -203,6 +306,10 @@
           else if (s.mode === "remote") st.textContent = "已连接 " + (s.url || "") + "。";
           else st.textContent = "正在使用本机服务。";
         }
+        var clientVer = $("desktop-client-ver");
+        if (clientVer && s.client_version) {
+          clientVer.textContent = "本机 " + s.client_version;
+        }
         var token = $("desktop-token");
         if (token && s.has_token) token.placeholder = "已保存";
         if (s.env_locked) {
@@ -214,6 +321,7 @@
         if (s.notice) showBanner(s.notice);
         if (s.error) showBanner(s.error);
         if (s.can_notify === false) canAfterId = false;
+        applyUpdateInfo(s.update);
       }
       function wireDesktopButtons(api) {
         var connectBtn = $("desktop-connect");
@@ -385,7 +493,12 @@
         Promise.all([ready, healthP]).then(function () {
           wireNotify($("computer-notify-enabled"));
           wireNotifyTest();
-          if (desktopApi) wireDesktopButtons(desktopApi);
+          if (desktopApi) {
+            wireDesktopButtons(desktopApi);
+            watchDesktopUpdate(desktopApi);
+          } else {
+            checkServerUpdate();
+          }
           wireServerAutostart(desktopRuntimeMode === "local");
         });
       }

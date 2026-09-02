@@ -6,6 +6,7 @@ from apple_refurb_watch.daemon import (
     CREATE_NO_WINDOW,
     pid_is_alive,
     windows_creationflags,
+    windows_hidden_kwargs,
 )
 
 
@@ -39,6 +40,15 @@ def test_windows_flags_break_away_from_job():
     assert flags[0] & CREATE_NEW_PROCESS_GROUP
     assert flags[1] & CREATE_NO_WINDOW
     assert not (flags[1] & CREATE_BREAKAWAY_FROM_JOB)
+
+
+def test_windows_hidden_kwargs_hide_console():
+    if os.name != "nt":
+        assert windows_hidden_kwargs() == {}
+        return
+    kwargs = windows_hidden_kwargs()
+    assert kwargs["creationflags"] & CREATE_NO_WINDOW
+    assert kwargs["startupinfo"].wShowWindow == 0
 
 
 def test_uvicorn_uses_h11_on_windows(monkeypatch) -> None:

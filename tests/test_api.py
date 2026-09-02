@@ -2,6 +2,7 @@ import httpx
 import respx
 from fastapi.testclient import TestClient
 
+from apple_refurb_watch import __version__
 from apple_refurb_watch.api import create_app
 from apple_refurb_watch.db import Database
 
@@ -46,6 +47,13 @@ def test_pages_and_watch_api(tmp_path) -> None:
         assert "github-link" in home.text
         assert 'class="site-foot"' not in home.text
         assert home.text.index("github-link") < home.text.index('id="main"')
+        assert 'class="brand-ver"' in home.text
+        assert f">{__version__}<" in home.text
+        assert 'id="ver-pop"' in home.text
+        assert 'id="update-open"' in home.text
+        assert ">查看更新</a>" in home.text
+        assert "update-dismiss" in home.text
+        assert 'id="update-banner"' not in home.text
         mac = client.get("/?listing_key=mac")
         assert "filter-rail" in mac.text
         assert 'class="shop-families"' in mac.text
@@ -142,6 +150,8 @@ def test_login_page_has_no_app_chrome(tmp_path) -> None:
         assert "https://github.com/jayjayleung/apple-refurb-watch" in page.text
         assert "/static/icon.svg" in page.text
         assert 'class="brand-icon"' in page.text
+        assert 'class="brand-ver"' in page.text
+        assert f">{__version__}<" in page.text
 
 
 def test_status_and_dim_watch_api(tmp_path) -> None:
@@ -1152,6 +1162,21 @@ def test_health_capabilities(tmp_path) -> None:
         assert data["server_version"] == __version__
         assert data["api_revision"] == API_REVISION
         assert data["capabilities"] == list(CAPABILITIES)
+
+
+def test_update_api_compares_against_github_tag(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch.update_check import LATEST_RELEASE_URL
+
+    monkeypatch.setattr("apple_refurb_watch.update_check.fetch_latest_tag", lambda: "v9.9.9")
+    db = Database(tmp_path / "app.db")
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        data = client.get("/api/update").json()
+        assert data["ok"] is True
+        assert data["current"] == __version__
+        assert data["latest"] == "9.9.9"
+        assert data["newer"] is True
+        assert data["url"] == LATEST_RELEASE_URL
 
 
 def test_events_after_id_and_type(tmp_path) -> None:

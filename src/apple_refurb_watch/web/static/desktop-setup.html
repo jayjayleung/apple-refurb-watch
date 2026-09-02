@@ -45,6 +45,11 @@
     .flash.bad { background: #fde8ea; color: var(--bad); }
     .flash.warn { background: #fff4d6; color: var(--busy); }
     .flash.ok { background: #e8f6ec; color: #248a3d; }
+    .hint a { color: var(--accent); font-weight: 650; text-decoration: none; }
+    .link-btn {
+      border: 0; background: none; padding: 0; font: inherit; color: var(--muted); cursor: pointer;
+    }
+    #setup-update[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -52,6 +57,7 @@
     <h1>连接服务器</h1>
     <p class="lede">使用本机服务，或连接到远程服务器。更改后窗口将重新启动。</p>
     <p id="status" class="flash warn" hidden></p>
+    <p class="hint" id="setup-update" hidden>有新版本 <span class="update-ver"></span>。<a id="update-open" href="https://github.com/jayjayleung/apple-refurb-watch/releases/latest" target="_blank" rel="noopener noreferrer">打开下载页</a> <button type="button" class="link-btn" id="update-dismiss">关闭</button></p>
     <section class="panel">
       <label>服务器地址
         <input id="url" type="url" placeholder="http://192.168.1.8:8765" autocomplete="off">
@@ -79,7 +85,28 @@
     function api() {
       return window.pywebview && window.pywebview.api ? window.pywebview.api : null;
     }
+    function showUpdate(s) {
+      var info = s && s.update;
+      var el = $("setup-update");
+      var latest = info && info.latest;
+      if (!el || !info || !info.newer || !latest) return;
+      try { if (localStorage.getItem("arw_update_dismissed") === String(latest)) return; } catch (err) {}
+      var ver = el.querySelector(".update-ver");
+      if (ver) ver.textContent = latest;
+      var link = $("update-open");
+      if (link && info.url) link.href = info.url;
+      el.hidden = false;
+      var dismiss = $("update-dismiss");
+      if (dismiss && !dismiss._wired) {
+        dismiss._wired = true;
+        dismiss.addEventListener("click", function () {
+          try { localStorage.setItem("arw_update_dismissed", String(latest)); } catch (err) {}
+          el.hidden = true;
+        });
+      }
+    }
     function fill(s) {
+      showUpdate(s);
       if (s.url) $("url").value = s.url;
       $("insecure").checked = !!s.allow_insecure;
       if (s.has_token) $("token").placeholder = "已保存";
@@ -100,6 +127,15 @@
         return;
       }
       bridge.state().then(fill);
+      var tries = 0;
+      function pollUpdate() {
+        tries += 1;
+        bridge.state().then(function (s) {
+          showUpdate(s);
+          if ((!s || !s.update || s.update.latest == null) && tries < 8) setTimeout(pollUpdate, 500);
+        }).catch(function () {});
+      }
+      setTimeout(pollUpdate, 400);
       $("connect").addEventListener("click", function () {
         setStatus("正在保存…", "warn");
         bridge.connect($("url").value, $("token").value, $("insecure").checked).then(function (r) {
