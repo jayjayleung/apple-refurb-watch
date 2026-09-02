@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Sequence
 
 
 def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
+
+
+def ensure_stdio() -> None:
+    """无控制台的安装包里 stdout/stderr 可能是 None，uvicorn 配日志会崩。"""
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is not None and callable(getattr(stream, "isatty", None)):
+            continue
+        setattr(sys, name, open(os.devnull, "w", encoding="utf-8", errors="replace"))
 
 
 def with_frozen_default_command(
@@ -41,6 +51,7 @@ def apply_windows_console(
     """GUI-subsystem EXEs: hide console for the window, attach for CLI/probe."""
 
     if platform != "win32" or not frozen:
+        ensure_stdio()
         return
     try:
         import ctypes
@@ -54,7 +65,9 @@ def apply_windows_console(
             sys.stdout = io.TextIOWrapper(open("CONOUT$", "wb"), encoding="utf-8", errors="replace")
             sys.stderr = io.TextIOWrapper(open("CONOUT$", "wb"), encoding="utf-8", errors="replace")
     except Exception:  # noqa: BLE001
-        return
+        pass
+    finally:
+        ensure_stdio()
 
 
 def invoke_argv(

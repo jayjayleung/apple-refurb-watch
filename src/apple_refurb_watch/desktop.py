@@ -290,7 +290,7 @@ def _update_hint_js(latest: str, url: str) -> str:
         "var nav=document.getElementById('nav-settings');"
         "if(nav){nav.classList.add('has-update');"
         "nav.setAttribute('aria-label','设置，有新版本 '+latest);}"
-        "var a=document.getElementById('desktop-update')||document.getElementById('service-update');"
+        "var a=document.getElementById('desktop-update')||document.getElementById('server-update');"
         "if(a){if(url)a.href=url;a.hidden=false;}"
         "})();"
     )
@@ -408,16 +408,26 @@ class DesktopSession:
                 health = None
         if client is None:
             self.embedded = EmbeddedServer()
-            client = self.embedded.start()
+            try:
+                client = self.embedded.start()
+            except Exception as exc:
+                self.embedded.stop()
+                self.embedded = None
+                self.owned = False
+                self.error = f"无法启动本机服务：{exc}"
+                return
             self.owned = True
         try:
             if health is None:
                 health = client.health()
         except ApiError as exc:
-            self.client = client
             _close_client(client)
             self.client = None
             self.error = str(exc)
+            if self.owned and self.embedded is not None:
+                self.embedded.stop()
+                self.owned = False
+                self.embedded = None
             return
         hard = check_client_compat(health)
         if hard:
@@ -546,17 +556,17 @@ class DesktopSession:
         def _run() -> None:
             time.sleep(0.25)
             self.request_exit()
-            self.cleanup(stop_runtime=self.owned)
-            try:
-                relaunch_desktop(hidden=hidden)
-            except Exception:  # noqa: BLE001
-                pass
             window = self.window
             if window is not None:
                 try:
                     window.destroy()
                 except Exception:  # noqa: BLE001
                     pass
+            self.cleanup(stop_runtime=self.owned)
+            try:
+                relaunch_desktop(hidden=hidden)
+            except Exception:  # noqa: BLE001
+                pass
 
         threading.Thread(target=_run, name="arw-relaunch", daemon=True).start()
 
@@ -761,7 +771,11 @@ def run_desktop(*, hidden: bool = False) -> None:
     session = DesktopSession(hidden=hidden)
     adapter = DesktopAdapter()
     session.desk_lock = desk_lock
-    session.attach_runtime()
+    try:
+        session.attach_runtime()
+    except Exception as exc:
+        session.cleanup(stop_runtime=True)
+        raise RuntimeError(f"无法启动本机服务：{exc}") from exc
     session.autostart_on = is_service_installed()
     if session.client is not None:
         try:
@@ -769,6 +783,9 @@ def run_desktop(*, hidden: bool = False) -> None:
         except Exception:  # noqa: BLE001
             session.settings = {}
         session.hide = hide_to_tray_enabled(session.settings)
+    else:
+        # 本机服务没起来或远程连不上时，关窗直接退出，不要占着托盘。
+        session.hide = False
     session.apply_notify_preference()
 
     try:

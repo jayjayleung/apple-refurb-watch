@@ -150,3 +150,50 @@ def test_embedded_server_starts_and_stops():
         raise AssertionError("stopped server should not answer health")
     except ApiError:
         pass
+
+
+def test_embedded_start_releases_lock_when_uvicorn_config_fails(monkeypatch) -> None:
+    import uvicorn
+
+    from apple_refurb_watch.daemon import acquire_lock
+    from apple_refurb_watch.embedded import EmbeddedServer
+    from apple_refurb_watch.paths import lock_path
+
+    def boom(*_args, **_kwargs):
+        raise ValueError("Unable to configure formatter 'default'")
+
+    monkeypatch.setattr(uvicorn, "Config", boom)
+    server = EmbeddedServer()
+    try:
+        server.start(host="127.0.0.1", port=0)
+    except ValueError as exc:
+        assert "formatter" in str(exc)
+    else:
+        raise AssertionError("start should fail")
+    handle = acquire_lock()
+    try:
+        assert lock_path().exists()
+    finally:
+        handle.close()
+
+
+def test_embedded_start_survives_none_stdio(monkeypatch) -> None:
+    import socket
+    import sys
+
+    from apple_refurb_watch.db import Database
+    from apple_refurb_watch.embedded import EmbeddedServer
+
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    Database().set_setting("bind_port", port)
+    server = EmbeddedServer()
+    client = server.start()
+    try:
+        assert client.health()["ok"] is True
+    finally:
+        server.stop()

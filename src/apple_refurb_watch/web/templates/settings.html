@@ -26,14 +26,13 @@
     <input type="hidden" name="enabled" id="listen-enabled-value" value="{{ '1' if settings.listen_enabled else '0' }}">
     <label class="check">
       <input type="checkbox" id="settings-listen" {% if settings.listen_enabled %}checked{% endif %}>
-      定时扫描官网
+      定时扫描
       <span class="instant-mark">即时生效</span>
     </label>
   </form>
   <label>间隔（秒）<input type="number" form="settings-form" name="interval_seconds" min="60" value="{{ settings.interval_seconds }}"></label>
   <fieldset>
     <legend>监听分类 <span class="instant-mark">即时生效</span></legend>
-    <p class="hint">MacBook Pro 与 Air 请在 Mac 中选择。</p>
     <div class="pills" id="listings-pills" role="group" aria-label="监听分类">
       {% for item in shop_families %}
       <label class="pill">
@@ -59,11 +58,11 @@
   <h2>通知</h2>
   <label class="check">
     <input type="checkbox" id="computer-notify-enabled">
-    启用电脑通知
+    电脑通知
     <span class="instant-mark">即时生效</span>
   </label>
   <div class="row">
-    <button class="btn" type="button" id="computer-notify-test">试一下</button>
+    <button class="btn" type="button" id="computer-notify-test">发送测试</button>
   </div>
   <p class="hint" id="computer-notify-status" role="status"></p>
 
@@ -158,12 +157,12 @@
   <label>端口 <input type="number" form="settings-form" name="bind_port" min="1" value="{{ settings.bind_port }}"></label>
   <p class="hint">绑定 {{ settings.bind_host }}</p>
   <div id="server-autostart">
-    <label class="check"><input type="checkbox" id="server-autostart-enabled"> 开机后自动运行服务<span class="instant-mark">即时生效</span></label>
+    <label class="check"><input type="checkbox" id="server-autostart-enabled"> 开机自启<span class="instant-mark">即时生效</span></label>
     <p class="hint" id="server-autostart-status"></p>
   </div>
   <p class="hint version-meta">
-    服务端 {{ app_version }}
-    <a id="service-update" class="update-beside" hidden href="https://github.com/jayjayleung/apple-refurb-watch/releases/latest" target="_blank" rel="noopener noreferrer">有更新</a>
+    服务 {{ app_version }}
+    <a id="server-update" class="update-beside" hidden href="https://github.com/jayjayleung/apple-refurb-watch/releases/latest" target="_blank" rel="noopener noreferrer">有更新</a>
   </p>
 </section>
 

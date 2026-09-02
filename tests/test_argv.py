@@ -1,4 +1,4 @@
-from apple_refurb_watch.argv import desktop_hides_console, invoke_argv, with_frozen_default_command
+from apple_refurb_watch.argv import desktop_hides_console, ensure_stdio, invoke_argv, with_frozen_default_command
 
 
 def test_frozen_windows_no_args_opens_desktop():
@@ -52,3 +52,39 @@ def test_desktop_hides_console_for_window_not_probe():
     assert desktop_hides_console(["app.exe", "desktop", "--probe"]) is False
     assert desktop_hides_console(["app.exe", "serve"]) is False
     assert desktop_hides_console(["python", "-m", "apple_refurb_watch", "desktop"]) is False
+
+
+def test_ensure_stdio_replaces_none_streams(monkeypatch) -> None:
+    monkeypatch.setattr("sys.stdout", None)
+    monkeypatch.setattr("sys.stderr", None)
+    ensure_stdio()
+    import sys
+
+    assert sys.stdout is not None
+    assert sys.stderr is not None
+    assert sys.stdout.isatty() is False
+    assert sys.stderr.isatty() is False
+
+
+def test_uvicorn_config_survives_missing_stdio(monkeypatch) -> None:
+    import sys
+
+    import uvicorn
+    from fastapi import FastAPI
+
+    from apple_refurb_watch.web.app import uvicorn_options
+
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    ensure_stdio()
+    options = uvicorn_options()
+    assert options["http"] == "h11"
+    uvicorn.Config(
+        FastAPI(),
+        host="127.0.0.1",
+        port=0,
+        log_level="warning",
+        access_log=False,
+        log_config=None,
+        **options,
+    )

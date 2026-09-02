@@ -56,10 +56,11 @@ def test_desktop_chrome_does_not_repeat_app_title() -> None:
     assert "html.desktop .login-mark" in css
     assert "#nav-settings.has-update .nav-update-dot" in css
     assert "desktop-update-dismiss" not in settings
-    assert 'id="service-update"' in settings
-    assert "服务端 {{ app_version }}" in settings
+    assert 'id="server-update"' in settings
+    assert "服务 {{ app_version }}" in settings
+    assert '"桌面 " + s.client_version' in base
     assert ">有更新</a>" in settings
-    assert '$(isDesktopShell() ? "desktop-update" : "service-update")' in base
+    assert '$(isDesktopShell() ? "desktop-update" : "server-update")' in base
     bridge_wait = 'if (document.documentElement.classList.contains("desktop")) return;'
     assert bridge_wait in base
     assert base.index(bridge_wait) < base.index("bootTimer = setTimeout")
@@ -175,6 +176,7 @@ def test_desktop_state_exposes_client_version_and_update() -> None:
     assert "https://example.invalid/latest" in js
     assert "nav-settings" in js
     assert "desktop-update" in js
+    assert "server-update" in js
     assert "__arwShowUpdate" in js
     assert "arw_update_dismissed" not in js
     assert "update-banner" not in js
@@ -376,6 +378,53 @@ def test_window_close_exits_when_hide_to_tray_disabled() -> None:
     assert session.window.ops == []
     assert session.cleaned is True
     assert session.tray_icon.stopped is True
+
+
+def test_attach_runtime_local_failure_does_not_occupy(monkeypatch) -> None:
+    from apple_refurb_watch.daemon import acquire_lock
+    from apple_refurb_watch.desktop import DesktopSession
+    from apple_refurb_watch.embedded import EmbeddedServer
+
+    def boom(self, *args, **kwargs):
+        raise ValueError("Unable to configure formatter 'default'")
+
+    monkeypatch.setattr(EmbeddedServer, "start", boom)
+    session = DesktopSession(hidden=False)
+    session.attach_runtime()
+    assert session.client is None
+    assert session.owned is False
+    assert session.embedded is None
+    assert "无法启动本机服务" in (session.error or "")
+    handle = acquire_lock()
+    handle.close()
+
+
+def test_disconnect_relaunch_stops_before_respawn(monkeypatch) -> None:
+    import time
+
+    from apple_refurb_watch.desktop import DesktopSession
+
+    order: list[str] = []
+    monkeypatch.setattr(
+        "apple_refurb_watch.desktop.relaunch_desktop",
+        lambda **kwargs: order.append("relaunch"),
+    )
+    session = DesktopSession(hidden=False)
+    session.window = _FakeWindow()
+    session.owned = False
+    original = session.cleanup
+
+    def tracked_cleanup(*, stop_runtime: bool) -> None:
+        order.append("cleanup")
+        original(stop_runtime=stop_runtime)
+
+    session.cleanup = tracked_cleanup  # type: ignore[method-assign]
+    session.schedule_relaunch(hidden=False)
+    deadline = time.monotonic() + 2.0
+    while "relaunch" not in order and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert session.window.ops == ["destroy"]
+    assert order == ["cleanup", "relaunch"]
 
 
 def test_frozen_quit_arms_force_exit(monkeypatch) -> None:

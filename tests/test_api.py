@@ -95,10 +95,10 @@ def test_settings_redact_secrets(tmp_path) -> None:
         assert "已启用" in page.text
         assert "更换" not in page.text
         assert "https://github.com/jayjayleung/apple-refurb-watch" in page.text
-        assert f"服务端 {__version__}" in page.text
-        assert 'id="service-update"' in page.text
+        assert f"服务 {__version__}" in page.text
+        assert 'id="server-update"' in page.text
         assert ">有更新</a>" in page.text
-        assert page.text.index(f"服务端 {__version__}") < page.text.index('id="service-update"')
+        assert page.text.index(f"服务 {__version__}") < page.text.index('id="server-update"')
         assert "desktop-update-dismiss" not in page.text
 
 
@@ -434,10 +434,11 @@ def test_listen_toggle_form_and_api(tmp_path) -> None:
         assert patched["listen_enabled"] is True
         assert db.settings()["listen_enabled"] is True
         settings_page = client.get("/settings")
-        assert "定时扫描官网" in settings_page.text
+        assert "定时扫描" in settings_page.text
+        assert "定时扫描官网" not in settings_page.text
         assert "从官网同步筛选词条" in settings_page.text
         assert "监听分类" in settings_page.text
-        assert "MacBook Pro 与 Air 请在 Mac 中选择。" in settings_page.text
+        assert "MacBook Pro 与 Air 请在 Mac 中选择。" not in settings_page.text
         assert "仅扫描所选分类" not in settings_page.text
         assert "分类更改立即生效" not in settings_page.text
         assert "系统登录后自动运行此服务" not in settings_page.text
@@ -448,7 +449,7 @@ def test_listen_toggle_form_and_api(tmp_path) -> None:
         assert "desktop-this-computer" in settings_page.text
         assert "开机自启" in settings_page.text
         assert "server-autostart" in settings_page.text
-        assert "开机后自动运行服务" in settings_page.text
+        assert "开机后自动运行服务" not in settings_page.text
         assert "发送测试" in settings_page.text
         assert "发送测试通知" not in settings_page.text
         assert "更换" not in settings_page.text
@@ -462,7 +463,9 @@ def test_listen_toggle_form_and_api(tmp_path) -> None:
         assert "startedOpen" in settings_page.text
         assert 'block: "nearest"' in settings_page.text
         assert 'block: "center"' not in settings_page.text
-        assert "试一下" in settings_page.text
+        assert "电脑通知" in settings_page.text
+        assert "启用电脑通知" not in settings_page.text
+        assert "试一下" not in settings_page.text
         assert "computer-notify-allow" not in settings_page.text
         assert "computer-notify-web-hint" not in settings_page.text
         assert "未授予通知权限。" not in settings_page.text

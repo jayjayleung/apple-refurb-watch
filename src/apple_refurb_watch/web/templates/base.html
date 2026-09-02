@@ -129,7 +129,7 @@
             nav.removeAttribute("aria-label");
           }
         }
-        var settings = $(isDesktopShell() ? "desktop-update" : "service-update");
+        var settings = $(isDesktopShell() ? "desktop-update" : "server-update");
         if (settings) {
           if (latest) {
             if (url) settings.href = url;
@@ -293,7 +293,7 @@
         }
         var clientVer = $("desktop-client-ver");
         if (clientVer && s.client_version) {
-          clientVer.textContent = "桌面端 " + s.client_version;
+          clientVer.textContent = "桌面 " + s.client_version;
         }
         var token = $("desktop-token");
         if (token && s.has_token) token.placeholder = "已保存";

@@ -6,6 +6,7 @@ import time
 import uvicorn
 
 from apple_refurb_watch.api import create_app
+from apple_refurb_watch.argv import ensure_stdio
 from apple_refurb_watch.client import ApiClient, wait_health
 from apple_refurb_watch.daemon import acquire_lock_retry
 from apple_refurb_watch.db import Database
@@ -30,61 +31,68 @@ class EmbeddedServer:
 
     def start(self, timeout: float = 15.0, *, host: str | None = None, port: int | None = None) -> ApiClient:
         self._lock = acquire_lock_retry()
-        db = Database()
-        settings = db.settings()
-        bind_host = host or settings.get("bind_host") or "127.0.0.1"
-        bind_port = int(port if port is not None else (settings.get("bind_port") or 8765))
-        effective_settings = dict(settings)
-        effective_settings.update({"bind_host": bind_host, "bind_port": bind_port})
+        db = None
+        started = False
         try:
+            db = Database()
+            settings = db.settings()
+            bind_host = host or settings.get("bind_host") or "127.0.0.1"
+            bind_port = int(port if port is not None else (settings.get("bind_port") or 8765))
+            effective_settings = dict(settings)
+            effective_settings.update({"bind_host": bind_host, "bind_port": bind_port})
             validate_listener_security(effective_settings)
-        except Exception:
-            db.close()
-            handle = self._lock
-            self._lock = None
-            if handle is not None:
-                handle.close()
-            raise
-        self.host = "127.0.0.1" if bind_host in {"0.0.0.0", "::"} else bind_host
-        self.port = bind_port
-        app = create_app(
-            db,
-            with_scheduler=True,
-            close_database=True,
-            listener_host=bind_host,
-            listener_port=bind_port,
-        )
-        config = uvicorn.Config(
-            app,
-            host=bind_host,
-            port=bind_port,
-            log_level="warning",
-            access_log=False,
-            **uvicorn_options(),
-        )
-        server = uvicorn.Server(config)
-        self._server = server
-        self._run_error = None
+            self.host = "127.0.0.1" if bind_host in {"0.0.0.0", "::"} else bind_host
+            self.port = bind_port
+            app = create_app(
+                db,
+                with_scheduler=True,
+                close_database=True,
+                listener_host=bind_host,
+                listener_port=bind_port,
+            )
+            ensure_stdio()
+            config = uvicorn.Config(
+                app,
+                host=bind_host,
+                port=bind_port,
+                log_level="warning",
+                access_log=False,
+                log_config=None,
+                **uvicorn_options(),
+            )
+            server = uvicorn.Server(config)
+            self._server = server
+            self._run_error = None
 
-        def _run() -> None:
+            def _run() -> None:
+                try:
+                    apply_windows_loop_policy()
+                    server.run()
+                except SystemExit as exc:
+                    self._run_error = RuntimeError(f"uvicorn 退出: {exc.code}")
+                except BaseException as exc:  # noqa: BLE001
+                    self._run_error = exc
+
+            thread = threading.Thread(target=_run, name="arw-uvicorn", daemon=True)
+            self._thread = thread
+            thread.start()
+            started = True
+            base = f"http://{self.host}:{self.port}"
             try:
-                apply_windows_loop_policy()
-                server.run()
-            except SystemExit as exc:
-                self._run_error = RuntimeError(f"uvicorn 退出: {exc.code}")
-            except BaseException as exc:  # noqa: BLE001
-                self._run_error = exc
-
-        thread = threading.Thread(target=_run, name="arw-uvicorn", daemon=True)
-        self._thread = thread
-        thread.start()
-        base = f"http://{self.host}:{self.port}"
-        try:
-            return wait_health(timeout, base=base)
+                return wait_health(timeout, base=base)
+            except Exception:
+                self.stop()
+                if self._run_error is not None:
+                    raise RuntimeError(f"网页服务启动失败: {self._run_error}") from self._run_error
+                raise
         except Exception:
-            self.stop()
-            if self._run_error is not None:
-                raise RuntimeError(f"网页服务启动失败: {self._run_error}") from self._run_error
+            if not started:
+                if db is not None:
+                    try:
+                        db.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                self.stop()
             raise
 
     def stop(self, join_timeout: float = 8.0) -> None:
