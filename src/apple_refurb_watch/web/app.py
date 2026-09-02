@@ -28,12 +28,8 @@ from apple_refurb_watch.settings import public_url
 
 def uvicorn_options() -> dict[str, Any]:
     # 钉死 h11，避免 uvicorn[standard] 在 Windows 上选 httptools + ProactorEventLoop。
-    options: dict[str, Any] = {"http": "h11"}
-    stream = getattr(sys, "stdout", None)
-    if stream is None or not callable(getattr(stream, "isatty", None)):
-        # ColourizedFormatter 默认会调 stdout.isatty()，无控制台安装包里 stdout 是 None。
-        options["use_colors"] = False
-    return options
+    # 永远关掉着色：无控制台安装包 stdout 是 None；接到 nul 后 Windows 仍会说 isatty=True。
+    return {"http": "h11", "use_colors": False}
 
 
 def apply_windows_loop_policy() -> None:

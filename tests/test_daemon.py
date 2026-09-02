@@ -55,9 +55,9 @@ def test_uvicorn_uses_h11_on_windows(monkeypatch) -> None:
     import apple_refurb_watch.web.app as appmod
 
     monkeypatch.setattr(appmod.sys, "platform", "win32")
-    assert appmod.uvicorn_options() == {"http": "h11"}
+    assert appmod.uvicorn_options() == {"http": "h11", "use_colors": False}
     monkeypatch.setattr(appmod.sys, "platform", "linux")
-    assert appmod.uvicorn_options() == {"http": "h11"}
+    assert appmod.uvicorn_options() == {"http": "h11", "use_colors": False}
 
 
 def test_package_root_uses_meipass(tmp_path, monkeypatch) -> None:

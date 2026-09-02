@@ -62,8 +62,11 @@ def test_ensure_stdio_replaces_none_streams(monkeypatch) -> None:
 
     assert sys.stdout is not None
     assert sys.stderr is not None
-    assert sys.stdout.isatty() is False
-    assert sys.stderr.isatty() is False
+    sys.stdout.write("")
+    sys.stderr.write("")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # Windows 会把 nul 报成 TTY，不能靠 isatty() 判断。
 
 
 def test_uvicorn_config_survives_missing_stdio(monkeypatch) -> None:
@@ -79,6 +82,7 @@ def test_uvicorn_config_survives_missing_stdio(monkeypatch) -> None:
     ensure_stdio()
     options = uvicorn_options()
     assert options["http"] == "h11"
+    assert options["use_colors"] is False
     uvicorn.Config(
         FastAPI(),
         host="127.0.0.1",
