@@ -44,7 +44,7 @@ wheels = [
 
 [[package]]
 name = "apple-refurb-watch"
-version = "0.3.10"
+version = "0.3.11"
 source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },
