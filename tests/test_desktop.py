@@ -22,6 +22,20 @@ def test_tray_menu_covers_connect_notify_autostart() -> None:
     assert "开始监听" in tray_menu_labels(listening=False)
 
 
+def test_desktop_chrome_does_not_repeat_app_title() -> None:
+    base = (package_root() / "web" / "templates" / "base.html").read_text(encoding="utf-8")
+    login = (package_root() / "web" / "templates" / "login.html").read_text(encoding="utf-8")
+    css = (package_root() / "web" / "static" / "style.css").read_text(encoding="utf-8")
+    assert 'class="brand-name"' in base
+    assert 'aria-label="官翻监听"' in base
+    assert 'classList.add("desktop")' in base
+    assert 'class="brand-name"' in login
+    assert 'classList.add("desktop")' in login
+    assert "html.desktop .brand-name" in css
+    assert "html.desktop .ver-pop:not(.has-update)" in css
+    assert "html.desktop .login-mark .brand-name" in css
+
+
 def test_setup_page_is_packaged() -> None:
     assert "desktop-setup.html" in desktop_setup_uri()
     html = package_root() / "web" / "static" / "desktop-setup.html"

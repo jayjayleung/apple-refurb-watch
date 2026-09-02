@@ -101,6 +101,11 @@ button { cursor: pointer; }
   height: 1.55rem;
   border-radius: 0.4rem;
 }
+html.desktop .brand-name { display: none; }
+html.desktop .brand { gap: 0; }
+html.desktop .ver-pop:not(.has-update) { display: none; }
+html.desktop .login-mark .brand-name,
+html.desktop .login-mark .brand-ver { display: none; }
 .brand-ver {
   font-weight: 500;
   font-size: 0.72rem;

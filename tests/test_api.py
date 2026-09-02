@@ -47,6 +47,8 @@ def test_pages_and_watch_api(tmp_path) -> None:
         assert "github-link" in home.text
         assert 'class="site-foot"' not in home.text
         assert home.text.index("github-link") < home.text.index('id="main"')
+        assert 'class="brand-name"' in home.text
+        assert 'aria-label="官翻监听"' in home.text
         assert 'class="brand-ver"' in home.text
         assert f">{__version__}<" in home.text
         assert 'id="ver-pop"' in home.text
@@ -150,6 +152,7 @@ def test_login_page_has_no_app_chrome(tmp_path) -> None:
         assert "https://github.com/jayjayleung/apple-refurb-watch" in page.text
         assert "/static/icon.svg" in page.text
         assert 'class="brand-icon"' in page.text
+        assert 'class="brand-name"' in page.text
         assert 'class="brand-ver"' in page.text
         assert f">{__version__}<" in page.text
 
