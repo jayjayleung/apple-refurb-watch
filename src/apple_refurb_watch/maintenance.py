@@ -165,6 +165,39 @@ def restore_database(backup: Path, target: Path | None = None) -> dict[str, Any]
     return {"ok": True, "restored": str(target_path), "backup": str(backup_path), "prior": prior}
 
 
+def compact_database(source: Path | None = None) -> dict[str, Any]:
+    """Backup, VACUUM and verify the local SQLite file to reclaim space."""
+
+    source_path = Path(source) if source is not None else _default_db_path()
+    source_path = source_path.resolve()
+    try:
+        size_before = int(source_path.stat().st_size)
+    except OSError:
+        size_before = 0
+    backup = backup_database(source_path)
+    conn = sqlite3.connect(str(source_path), timeout=30)
+    try:
+        conn.execute("VACUUM")
+        conn.commit()
+    finally:
+        conn.close()
+    checked = integrity_check(source_path)
+    if not checked.get("ok"):
+        raise RuntimeError(f"压缩后完整性检查失败: {checked.get('error') or checked.get('integrity')}")
+    try:
+        size_after = int(source_path.stat().st_size)
+    except OSError:
+        size_after = 0
+    return {
+        "ok": True,
+        "path": str(source_path),
+        "backup": backup.get("backup"),
+        "integrity": checked.get("integrity"),
+        "bytes_before": size_before,
+        "bytes_after": size_after,
+    }
+
+
 def export_config(
     path: Path | None = None,
     *,
@@ -343,11 +376,18 @@ def doctor(*, db: Database | None = None, stale_after_minutes: int = 120) -> dic
         pending = database.list_pending_deliveries()
         listener_ok = not listener_requires_auth(settings) or bool(str(settings.get("access_token") or "").strip())
         schema_ok = check.get("schema_version") == SCHEMA_VERSION
+        try:
+            database_bytes = int(database.path.stat().st_size)
+        except OSError:
+            database_bytes = 0
         result = {
             "ok": bool(check.get("ok")) and schema_ok and listener_ok,
             "database": check,
             "schema_version": check.get("schema_version"),
             "expected_schema_version": SCHEMA_VERSION,
+            "database_bytes": database_bytes,
+            "observations": database.count_observations(),
+            "scan_runs": database.count_scan_runs(),
             "listener": {
                 "bind_host": settings.get("bind_host"),
                 "bind_port": settings.get("bind_port"),
@@ -402,6 +442,7 @@ def _rotate_backup_dirs(root: Path, *, keep: int) -> None:
 __all__ = [
     "EXPORT_VERSION",
     "backup_database",
+    "compact_database",
     "doctor",
     "export_config",
     "import_config",

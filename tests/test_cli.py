@@ -364,6 +364,9 @@ def test_restore_and_import_refuse_while_daemon_is_running(tmp_path, monkeypatch
     imported = invoke(["config", "import", str(config)])
     assert imported.exit_code == 2
     assert "先停止" in imported.stderr
+    compacted = invoke(["compact"])
+    assert compacted.exit_code == 2
+    assert "先停止" in compacted.stderr
 
 
 def test_config_import_output_redacts_retained_secrets(tmp_path, monkeypatch) -> None:

@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, is_dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
-from apple_refurb_watch.storage.schema import MAX_EVENT_LIMIT, utcnow
+from apple_refurb_watch.storage.schema import HISTORY_KEEP_DAYS, MAX_EVENT_LIMIT, utcnow
 from apple_refurb_watch.storage.sqlite import SQLiteStore
 
 
@@ -76,6 +77,8 @@ class ScanRunRepository:
                     int(run_id),
                 ),
             )
+            if str(status) == "succeeded":
+                self._prune(conn, (datetime.now(timezone.utc) - timedelta(days=HISTORY_KEEP_DAYS)).isoformat())
 
     def get(self, run_id: int) -> dict | None:
         with self.store.lock:
@@ -105,6 +108,31 @@ class ScanRunRepository:
             )
             return int(cur.rowcount or 0)
 
+    def prune(self, *, older_than: str | None = None, keep_days: int | None = None) -> int:
+        cutoff = older_than or (
+            datetime.now(timezone.utc) - timedelta(days=keep_days if keep_days is not None else HISTORY_KEEP_DAYS)
+        ).isoformat()
+        with self.store.transaction() as conn:
+            return self._prune(conn, cutoff)
+
+    @staticmethod
+    def _prune(conn, cutoff: str) -> int:
+        cur = conn.execute(
+            "DELETE FROM scan_runs WHERE started_at < ? AND status != 'running'",
+            (str(cutoff),),
+        )
+        return int(cur.rowcount or 0)
+
+    def count_observations(self) -> int:
+        with self.store.lock:
+            row = self.store.conn.execute("SELECT COUNT(*) FROM observations").fetchone()
+        return int(row[0] if row else 0)
+
+    def count_runs(self) -> int:
+        with self.store.lock:
+            row = self.store.conn.execute("SELECT COUNT(*) FROM scan_runs").fetchone()
+        return int(row[0] if row else 0)
+
     def add_observations(
         self,
         run_id: int,
@@ -114,10 +142,19 @@ class ScanRunRepository:
         in_stock: bool = True,
     ) -> int:
         timestamp = observed_at or utcnow()
+        items = [_product_dict(product) for product in products]
         count = 0
         with self.store.transaction() as conn:
-            for product in products:
-                item = _product_dict(product)
+            latest = {
+                str(row["sku"]): row["fingerprint"]
+                for row in conn.execute(
+                    """
+                    SELECT sku, fingerprint FROM observations
+                    WHERE id IN (SELECT MAX(id) FROM observations GROUP BY sku)
+                    """
+                )
+            }
+            for item in items:
                 payload = item.get("extra") or {}
                 payload_text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
                 fingerprint = hashlib.sha256(
@@ -134,6 +171,9 @@ class ScanRunRepository:
                         default=str,
                     ).encode("utf-8")
                 ).hexdigest()
+                sku = str(item.get("sku") or "")
+                if sku and latest.get(sku) == fingerprint:
+                    continue
                 conn.execute(
                     """
                     INSERT INTO observations(
@@ -148,7 +188,7 @@ class ScanRunRepository:
                     """,
                     (
                         int(run_id),
-                        str(item.get("sku") or ""),
+                        sku,
                         item.get("listing_key"),
                         item.get("title"),
                         item.get("url"),
@@ -159,6 +199,7 @@ class ScanRunRepository:
                         fingerprint,
                     ),
                 )
+                latest[sku] = fingerprint
                 count += 1
         return count
 

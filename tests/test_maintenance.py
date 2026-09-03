@@ -8,6 +8,7 @@ import pytest
 from apple_refurb_watch.db import Database
 from apple_refurb_watch.maintenance import (
     backup_database,
+    compact_database,
     doctor,
     export_config,
     import_config,
@@ -115,4 +116,39 @@ def test_doctor_does_not_recover_stale_run_while_daemon_is_alive(tmp_path: Path,
     dead = doctor(db=db, stale_after_minutes=1)
     assert dead["abandoned_runs_recovered"] == 1
     assert db.get_scan_run(run_id)["status"] == "failed"
+    assert dead["observations"] == 0
+    assert dead["scan_runs"] == 1
+    assert dead["database_bytes"] > 0
     db.close()
+
+
+def test_compact_database_vacuums_after_backup(tmp_path: Path) -> None:
+    source = tmp_path / "app.db"
+    db = Database(source)
+    run_id = db.start_scan_run(["mac"])
+    db.add_observations(
+        run_id,
+        [
+            {
+                "sku": "SKU1CH/A",
+                "listing_key": "mac",
+                "title": "Mac",
+                "url": "https://www.apple.com.cn/shop/product/SKU1CH/A",
+                "price": 1,
+                "extra": {"n": i},
+            }
+            for i in range(20)
+        ],
+    )
+    db.finish_scan_run(run_id, status="succeeded", successful_listings=["mac"], product_count=20)
+    db.conn.execute(
+        "UPDATE scan_runs SET started_at=? WHERE id=?",
+        ("2000-01-01T00:00:00+00:00", run_id),
+    )
+    db.conn.commit()
+    db.prune_scan_history(keep_days=30)
+    db.close()
+    result = compact_database(source)
+    assert result["ok"] is True
+    assert Path(result["backup"]).exists()
+    assert result["integrity"] == "ok"

@@ -210,6 +210,15 @@ class Database:
     def finish_scan_run(self, run_id: int, **kwargs: Any) -> None:
         self.scans_repo.finish(run_id, **kwargs)
 
+    def prune_scan_history(self, **kwargs: Any) -> int:
+        return self.scans_repo.prune(**kwargs)
+
+    def count_observations(self) -> int:
+        return self.scans_repo.count_observations()
+
+    def count_scan_runs(self) -> int:
+        return self.scans_repo.count_runs()
+
     def get_scan_run(self, run_id: int) -> dict | None:
         return self.scans_repo.get(run_id)
 

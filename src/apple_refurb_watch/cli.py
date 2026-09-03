@@ -283,6 +283,27 @@ def backup(
 
 
 @app.command()
+def compact(
+    as_json: bool = typer.Option(False, "--json", help="输出 JSON"),
+) -> None:
+    """备份后 VACUUM，回收已删除扫描快照占用的空间。"""
+    from apple_refurb_watch.maintenance import compact_database
+
+    _require_local_maintenance(stop_required=True)
+    try:
+        result = compact_database()
+    except (OSError, RuntimeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    if as_json:
+        _dump(result)
+    else:
+        typer.echo(f"压缩完成: {result['path']}")
+        typer.echo(f"备份: {result.get('backup')}")
+        typer.echo(f"体积: {result.get('bytes_before')} -> {result.get('bytes_after')}")
+
+
+@app.command()
 def restore(
     backup_path: Path = typer.Argument(..., metavar="BACKUP", help="已校验的 .db 备份"),
     target: Optional[Path] = typer.Option(None, "--target", help="目标数据库，默认本机权威库"),
@@ -324,6 +345,9 @@ def doctor_cmd(
         status_label = "正常" if result.get("ok") else "异常"
         typer.echo(f"诊断: {status_label}")
         typer.echo(f"数据库: {result.get('database', {}).get('integrity', 'unknown')}")
+        typer.echo(f"库体积: {result.get('database_bytes', 0)}")
+        typer.echo(f"扫描记录: {result.get('scan_runs', 0)}")
+        typer.echo(f"快照行: {result.get('observations', 0)}")
         typer.echo(f"待投递: {result.get('pending_deliveries', 0)}")
         typer.echo(f"回收孤儿扫描: {result.get('abandoned_runs_recovered', 0)}")
     if not result.get("ok"):

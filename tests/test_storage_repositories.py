@@ -366,3 +366,47 @@ def test_sync_prefers_newer_processing_lease_when_tokens_diverge(tmp_path) -> No
     assert legacy["lease_token"] == canonical["lease_token"] == "new-token"
     assert legacy["leased_until"] == canonical["leased_until"] == "2026-01-01T00:02:00+00:00"
     db.close()
+
+
+def test_observations_skip_unchanged_fingerprints_and_prune_old_runs(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    first = db.start_scan_run(["mac"])
+    product = {
+        "sku": "SKU1CH/A",
+        "listing_key": "mac",
+        "title": "Mac",
+        "url": "https://www.apple.com.cn/shop/product/SKU1CH/A",
+        "price": 8999,
+        "extra": {"chip": "m4"},
+    }
+    assert db.add_observations(first, [product]) == 1
+    db.finish_scan_run(first, status="succeeded", successful_listings=["mac"], product_count=1)
+    second = db.start_scan_run(["mac"])
+    assert db.add_observations(second, [product]) == 0
+    db.finish_scan_run(second, status="succeeded", successful_listings=["mac"], product_count=1)
+    changed = dict(product, price=7999)
+    third = db.start_scan_run(["mac"])
+    assert db.add_observations(third, [changed]) == 1
+    db.finish_scan_run(third, status="succeeded", successful_listings=["mac"], product_count=1)
+    assert db.count_observations() == 2
+
+    old = db.start_scan_run(["mac"])
+    db.add_observations(old, [dict(product, sku="OLDCH/A")])
+    db.finish_scan_run(old, status="succeeded", successful_listings=["mac"], product_count=1)
+    db.conn.execute(
+        "UPDATE scan_runs SET started_at=? WHERE id=?",
+        ("2000-01-01T00:00:00+00:00", old),
+    )
+    db.conn.commit()
+    running = db.start_scan_run(["mac"])
+    db.conn.execute(
+        "UPDATE scan_runs SET started_at=? WHERE id=?",
+        ("2000-01-02T00:00:00+00:00", running),
+    )
+    db.conn.commit()
+    deleted = db.prune_scan_history(keep_days=30)
+    assert deleted >= 1
+    assert db.get_scan_run(old) is None
+    assert db.list_observations(old) == []
+    assert db.get_scan_run(running)["status"] == "running"
+    db.close()
