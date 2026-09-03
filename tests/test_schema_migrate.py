@@ -144,7 +144,7 @@ def test_migrate_failure_restores_backup(tmp_path, monkeypatch) -> None:
     conn.commit()
     conn.close()
 
-    def boom(self):  # noqa: ARG001
+    def boom(self):
         raise sqlite3.DatabaseError("simulated migrate failure")
 
     monkeypatch.setattr(Database, "_apply_schema", boom)

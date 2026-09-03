@@ -44,13 +44,13 @@ class DesktopAdapter:
         image = None
         try:
             webview = import_module("webview")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors["webview"] = str(exc)
         try:
             pystray = import_module("pystray")
             image_module = import_module("PIL.Image")
             image = image_module
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors["tray"] = str(exc)
         self._modules = DesktopModules(webview, pystray, image, errors)
         return self._modules

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from fastapi import Request
@@ -28,7 +29,14 @@ def web_dir() -> Path:
     return package_root() / "web"
 
 
-WEB_DIR = web_dir()
+def asset_version() -> str:
+    digest = hashlib.sha256()
+    static = web_dir() / "static"
+    for name in ("app.js", "style.css"):
+        path = static / name
+        if path.is_file():
+            digest.update(path.read_bytes())
+    return digest.hexdigest()[:12]
 
 
 def templates() -> Environment:
@@ -56,6 +64,7 @@ def templates() -> Environment:
     env.filters["localtime"] = format_localtime
     env.globals["github_url"] = GITHUB_URL
     env.globals["app_version"] = __version__
+    env.globals["asset_v"] = asset_version()
     return env
 
 

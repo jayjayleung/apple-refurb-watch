@@ -1,0 +1,23 @@
+{% macro listen_form(form_class) %}
+<form method="post" action="/settings/listen" class="{{ form_class }}">
+  <input type="hidden" name="enabled" value="{{ '0' if settings.listen_enabled else '1' }}">
+  <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+  <button class="btn" type="submit">{{ '停止监听' if settings.listen_enabled else '开始监听' }}</button>
+</form>
+{% endmacro %}
+
+{% macro pager(has_prev, has_next, prev_url, next_url, count_text, label='分页') %}
+<nav class="pager" aria-label="{{ label }}">
+  {% if has_prev %}
+  <a class="btn" href="{{ prev_url }}">上一页</a>
+  {% else %}
+  <span class="btn" aria-disabled="true">上一页</span>
+  {% endif %}
+  <p class="count">{{ count_text }}</p>
+  {% if has_next %}
+  <a class="btn" href="{{ next_url }}">下一页</a>
+  {% else %}
+  <span class="btn" aria-disabled="true">下一页</span>
+  {% endif %}
+</nav>
+{% endmacro %}

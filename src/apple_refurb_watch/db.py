@@ -3,21 +3,21 @@ from __future__ import annotations
 from typing import Any, Iterable
 from pathlib import Path
 
-from apple_refurb_watch.categories import DEFAULT_LISTINGS
-from apple_refurb_watch.storage.schema import (
-    DEFAULT_NOTIFY,
-    DEFAULT_SETTINGS,
-    EVENT_KEEP,
-    SCHEMA,
-    SCHEMA_VERSION,
-    utcnow,
-)
 from apple_refurb_watch.storage.events import EventRepository
 from apple_refurb_watch.storage.products import ProductRepository
 from apple_refurb_watch.storage.scans import ScanRunRepository
+from apple_refurb_watch.storage.schema import DEFAULT_NOTIFY, DEFAULT_SETTINGS, EVENT_KEEP, SCHEMA_VERSION
 from apple_refurb_watch.storage.settings import SettingsRepository
 from apple_refurb_watch.storage.sqlite import SQLiteStore
-from apple_refurb_watch.storage.watches import WatchRepository, _as_dim_filters, _as_float, _as_int
+from apple_refurb_watch.storage.watches import WatchRepository
+
+__all__ = [
+    "DEFAULT_NOTIFY",
+    "DEFAULT_SETTINGS",
+    "Database",
+    "EVENT_KEEP",
+    "SCHEMA_VERSION",
+]
 
 
 class Database:
@@ -43,7 +43,7 @@ class Database:
         except Exception:
             try:
                 self._store.close()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             raise
 

@@ -12,11 +12,14 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Scope
+from starlette.responses import Response
 
 from apple_refurb_watch.db import Database
 from apple_refurb_watch.deliveries import OutboxWorker
 from apple_refurb_watch.paths import clear_runtime, log_path, write_runtime
 from apple_refurb_watch.scanner import ScanService
+from apple_refurb_watch.storage.schema import DEFAULT_BIND_PORT
 from apple_refurb_watch.web.auth import AuthMiddleware, SecurityHeadersMiddleware, login_redirect
 from apple_refurb_watch.web.render import PageRenderer, templates, web_dir
 from apple_refurb_watch.web.routes_api import router as api_router
@@ -24,6 +27,13 @@ from apple_refurb_watch.web.routes_pages import router as pages_router
 from apple_refurb_watch.web.routes_settings import router as settings_router
 from apple_refurb_watch.web.routes_watches import router as watches_router
 from apple_refurb_watch.settings import public_url
+
+
+class CachedStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 def uvicorn_options() -> dict[str, Any]:
@@ -81,7 +91,7 @@ def create_app(
     # only after a restart; runtime metadata must describe this actual socket.
     configured = database.settings()
     bound_host = listener_host or configured.get("bind_host") or "127.0.0.1"
-    bound_port = int(listener_port if listener_port is not None else (configured.get("bind_port") or 8765))
+    bound_port = int(listener_port if listener_port is not None else (configured.get("bind_port") or DEFAULT_BIND_PORT))
 
     def reschedule() -> None:
         if not with_scheduler:
@@ -155,7 +165,7 @@ def create_app(
     static_dir = web_dir() / "static"
     if not static_dir.is_dir():
         raise RuntimeError(f"安装包缺少网页静态文件: {static_dir}")
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    app.mount("/static", CachedStaticFiles(directory=str(static_dir)), name="static")
     app.add_middleware(AuthMiddleware, db=database, bound_host=app.state.bound_host)
     app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(api_router)

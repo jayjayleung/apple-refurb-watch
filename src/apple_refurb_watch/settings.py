@@ -5,6 +5,7 @@ import secrets
 from typing import Any
 
 from apple_refurb_watch.categories import compact_listings, listing_url, shop_family_key
+from apple_refurb_watch.storage.schema import DEFAULT_BIND_PORT, DEFAULT_LISTING_KEY
 
 _SECRET_NOTIFY_KEYS = ("password", "bot_token", "sendkey", "token", "secret", "webhook", "url")
 
@@ -97,7 +98,7 @@ def public_url(settings: dict) -> str:
     host = settings.get("bind_host") or "127.0.0.1"
     if host in {"0.0.0.0", "::"}:
         host = "127.0.0.1"
-    port = settings.get("bind_port") or 8765
+    port = settings.get("bind_port") or DEFAULT_BIND_PORT
     return f"http://{host}:{port}"
 
 
@@ -171,7 +172,7 @@ def listing_family_checked(key: str, listings: list | None) -> bool:
     selected = [str(item) for item in (listings or [])]
     if key in selected or shop_family_key(key) in selected:
         return True
-    return key == "mac" and ("macbook-pro" in selected or "macbook-air" in selected)
+    return key == DEFAULT_LISTING_KEY and ("macbook-pro" in selected or "macbook-air" in selected)
 
 
 def safe_listings(keys: list[str]) -> list[str]:
@@ -182,7 +183,7 @@ def safe_listings(keys: list[str]) -> list[str]:
         except KeyError:
             continue
         out.append(str(key))
-    return compact_listings(out) or ["mac"]
+    return compact_listings(out) or [DEFAULT_LISTING_KEY]
 
 
 def normalize_settings_patch(patch: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:

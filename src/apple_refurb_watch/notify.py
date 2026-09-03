@@ -71,7 +71,7 @@ def send_all(settings: dict[str, Any], title: str, body: str, url: str | None = 
             try:
                 send_channel(name, conf, title, body, url)
                 sent += 1
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 errors.append(redact_secrets(f"{name}: {exc}", settings))
     if sent == 0 and not errors:
         raise NotifyError("没有已启用的通知通道")
@@ -159,7 +159,7 @@ def _fail_channel(name: str, payload: dict[str, Any]) -> None:
 def _expect(name: str, response: httpx.Response, ok: Callable[[dict[str, Any]], bool]) -> None:
     try:
         payload = response.json()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise NotifyError(f"{name}: 响应无法解析") from exc
     if not isinstance(payload, dict) or not ok(payload):
         if isinstance(payload, dict):
@@ -310,7 +310,7 @@ def _email(conf: dict, title: str, body: str, url: str | None) -> None:
                 smtp.starttls()
             smtp.login(username, password)
             smtp.send_message(msg)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise NotifyError(f"邮件: {type(exc).__name__}") from None
 
 

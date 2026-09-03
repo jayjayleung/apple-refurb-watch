@@ -20,7 +20,7 @@ def _display_tz():
         pass
     try:
         return ZoneInfo("Asia/Shanghai")
-    except Exception:  # noqa: BLE001
+    except Exception:
         return timezone(timedelta(hours=8))
 
 

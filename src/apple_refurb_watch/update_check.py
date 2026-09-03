@@ -65,7 +65,7 @@ def fetch_latest_tag() -> str | None:
         if response.status_code != 200:
             return None
         payload = response.json()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     if not isinstance(payload, dict):
         return None

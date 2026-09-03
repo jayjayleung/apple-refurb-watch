@@ -1,3 +1,4 @@
+{% from "_macros.html" import listen_form with context %}
 <!DOCTYPE html>
 <html lang="zh-CN"{% if request.headers.get("user-agent", "").startswith("AppleRefurbWatchDesktop/") %} class="desktop"{% endif %}>
 <head>
@@ -8,17 +9,17 @@
   <meta name="theme-color" content="#161617" media="(prefers-color-scheme: dark)">
   <title>{% block title %}官翻监听{% endblock %}</title>
   {% include "_desktop_mark.html" %}
-  <link rel="icon" href="/static/icon.svg?v=listen-1" type="image/svg+xml">
+  <link rel="icon" href="/static/icon.svg?v={{ asset_v }}" type="image/svg+xml">
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/static/icon-256.png">
-  <link rel="stylesheet" href="/static/style.css?v=nav-update-1">
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">跳到内容</a>
   <header class="top">
     <div class="brand-wrap">
-      <a class="brand" href="/" aria-label="官翻监听"><img src="/static/icon.svg?v=listen-1" width="28" height="28" alt=""><span class="brand-name">官翻监听</span></a>
+      <a class="brand" href="/" aria-label="官翻监听"><img src="/static/icon.svg?v={{ asset_v }}" width="28" height="28" alt=""><span class="brand-name">官翻监听</span></a>
     </div>
     <nav aria-label="主要">
       <a href="/" {% if request.url.path == '/' %}class="on" aria-current="page"{% endif %}>在售</a>
@@ -28,485 +29,30 @@
     </nav>
     <div class="top-actions">
       {% include "_github.html" %}
-      <details class="pulse" data-state="{{ status_view.state }}" title="{{ status_view.detail }}">
+      <details class="pulse" id="status-pulse" data-state="{{ status_view.state }}" title="{{ status_view.detail }}">
         <summary>
           <span class="dot {{ status_view.state }}"></span>
           <b>{{ status_view.label }}</b>
         </summary>
         <div class="pulse-pop">
-          <p>上次成功 {{ status_view.last_success }}</p>
-          <p>{{ status_view.interval_label }}扫描</p>
-          <p>在售 {{ status_view.in_stock }}</p>
-          <p>规则 {{ status_view.watch_enabled }}/{{ status_view.watch_total }} 启用</p>
-          <p>基线 {{ status_view.baseline_label }}</p>
-          {% if status_view.last_error %}<p class="err">{{ status_view.last_error }}</p>{% endif %}
-          <form method="post" action="/settings/listen" class="pulse-listen">
-            <input type="hidden" name="enabled" value="{{ '0' if settings.listen_enabled else '1' }}">
-            <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
-            <button class="btn" type="submit">{{ '停止监听' if settings.listen_enabled else '开始监听' }}</button>
-          </form>
+          <p data-pulse="last-success">上次成功 {{ status_view.last_success }}</p>
+          <p data-pulse="interval">{{ status_view.interval_label }}扫描</p>
+          <p data-pulse="stock">在售 {{ status_view.in_stock }}</p>
+          <p data-pulse="watches">规则 {{ status_view.watch_enabled }}/{{ status_view.watch_total }} 启用</p>
+          <p data-pulse="baseline">基线 {{ status_view.baseline_label }}</p>
+          <p class="err" data-pulse="error"{% if not status_view.last_error %} hidden{% endif %}>{{ status_view.last_error }}</p>
+          {{ listen_form("pulse-listen") }}
         </div>
       </details>
-      {% if status_view.last_error %}<span class="pulse-err">{{ status_view.last_error }}</span>{% endif %}
-      <form method="post" action="/settings/listen" class="listen-toggle">
-        <input type="hidden" name="enabled" value="{{ '0' if settings.listen_enabled else '1' }}">
-        <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
-        <button class="btn" type="submit">{{ '停止监听' if settings.listen_enabled else '开始监听' }}</button>
-      </form>
+      <span class="pulse-err" id="pulse-err"{% if not status_view.last_error %} hidden{% endif %}>{{ status_view.last_error }}</span>
+      {{ listen_form("listen-toggle") }}
     </div>
   </header>
   <main id="main" class="{% block main_class %}{% endblock %}">
     <p id="compat-banner" class="flash warn" hidden role="status"></p>
     {% block body %}{% endblock %}
   </main>
-  <script>
-    (function () {
-      var KEY = "arw_computer_notify";
-      var CURSOR = "arw_appeared_cursor";
-      var CLIENT_API_REVISION = 2;
-      var wired = false;
-      var usingDesktopNotify = false;
-      var canAfterId = true;
-      var desktopApi = null;
-      var desktopRuntimeMode = null;
-      var bootTimer = null;
-      function $(id) { return document.getElementById(id); }
-      function enabled() { return localStorage.getItem(KEY) === "1"; }
-      var HINT_DEFAULT = "需要浏览器通知权限。";
-      var HINT_DENIED = "浏览器已关闭此网站的通知。请在地址栏允许通知后刷新页面。";
-      function setStatus(text, warn) {
-        var node = $("computer-notify-status");
-        if (!node) return;
-        node.textContent = text || "";
-        if (warn) node.classList.add("is-warn");
-        else node.classList.remove("is-warn");
-      }
-      function permissionState() {
-        if (typeof Notification === "undefined") return "unsupported";
-        return Notification.permission;
-      }
-      function askPermission(onGranted) {
-        var state = permissionState();
-        if (state === "unsupported") {
-          setStatus("当前浏览器不支持网页通知。可用桌面包或 Bark。", true);
-          return;
-        }
-        if (state === "granted") {
-          if (onGranted) onGranted();
-          return;
-        }
-        if (state === "denied") {
-          setStatus(HINT_DENIED, true);
-          return;
-        }
-        Notification.requestPermission().then(function (perm) {
-          if (perm === "granted") {
-            if (onGranted) onGranted();
-            return;
-          }
-          setStatus(perm === "denied" ? HINT_DENIED : HINT_DEFAULT, true);
-        }).catch(function () {
-          setStatus(HINT_DENIED, true);
-        });
-      }
-      function showBanner(text) {
-        var el = $("compat-banner");
-        if (!el || !text) return;
-        el.hidden = false;
-        el.textContent = text;
-      }
-      function isDesktopShell() {
-        return !!(desktopApi || document.documentElement.classList.contains("desktop") || window.pywebview);
-      }
-      function showUpdate(latest, url) {
-        var nav = $("nav-settings");
-        if (nav) {
-          if (latest) {
-            nav.classList.add("has-update");
-            nav.setAttribute("aria-label", "设置，有新版本 " + latest);
-          } else {
-            nav.classList.remove("has-update");
-            nav.removeAttribute("aria-label");
-          }
-        }
-        var settings = $(isDesktopShell() ? "desktop-update" : "server-update");
-        if (settings) {
-          if (latest) {
-            if (url) settings.href = url;
-            settings.hidden = false;
-          } else {
-            settings.hidden = true;
-          }
-        }
-      }
-      window.__arwShowUpdate = showUpdate;
-      function applyUpdateInfo(s) {
-        if (s && s.newer && s.latest) showUpdate(s.latest, s.url);
-      }
-      function parseReleaseTag(tag) {
-        var text = String(tag || "").trim();
-        if (/^v\d/i.test(text)) return text.slice(1);
-        return text;
-      }
-      function versionParts(ver) {
-        var nums = [];
-        String(ver || "").replace(/-/g, ".").split(".").forEach(function (part) {
-          var digits = part.replace(/\D/g, "");
-          if (digits) nums.push(parseInt(digits, 10));
-        });
-        return nums;
-      }
-      function isNewerRelease(latest, current) {
-        var a = versionParts(parseReleaseTag(latest));
-        var b = versionParts(parseReleaseTag(current));
-        if (!a.length || !b.length) return false;
-        var n = Math.max(a.length, b.length);
-        for (var i = 0; i < n; i += 1) {
-          var x = a[i] || 0;
-          var y = b[i] || 0;
-          if (x > y) return true;
-          if (x < y) return false;
-        }
-        return false;
-      }
-      function showIfClientBehind(current, latest, url) {
-        if (latest && current && isNewerRelease(latest, current)) showUpdate(latest, url);
-      }
-      function checkServerUpdate() {
-        fetch("/api/update")
-          .then(function (r) { return r.json(); })
-          .then(applyUpdateInfo)
-          .catch(function () {});
-      }
-      function checkServerUpdateFor(current) {
-        fetch("/api/update")
-          .then(function (r) { return r.json(); })
-          .then(function (u) {
-            if (!u) return;
-            showIfClientBehind(current || u.current, u.latest, u.url);
-          })
-          .catch(function () {});
-      }
-      function watchDesktopUpdate(api) {
-        var tries = 0;
-        function tick() {
-          tries += 1;
-          api.state().then(function (s) {
-            var current = (s && s.client_version) || "";
-            if (s && s.update) showIfClientBehind(current, s.update.latest, s.update.url);
-            if (s && s.update && s.update.newer) return;
-            if (s && s.update_checked) {
-              checkServerUpdateFor(current);
-              return;
-            }
-            if (tries < 24) setTimeout(tick, 500);
-            else checkServerUpdateFor(current);
-          }).catch(function () {
-            if (tries < 24) setTimeout(tick, 500);
-          });
-        }
-        setTimeout(tick, 400);
-      }
-      function getDesktopApi() {
-        return (window.pywebview && window.pywebview.api) ? window.pywebview.api : null;
-      }
-      function seedCursor() {
-        if (!canAfterId) return Promise.resolve();
-        return fetch("/api/events?type=appeared&limit=1")
-          .then(function (r) { return r.json(); })
-          .then(function (rows) {
-            if (localStorage.getItem(CURSOR) == null) {
-              var id = rows && rows[0] ? rows[0].id : 0;
-              localStorage.setItem(CURSOR, String(id || 0));
-            }
-          })
-          .catch(function () {});
-      }
-      function poll() {
-        if (usingDesktopNotify || !canAfterId) return;
-        if (!enabled() || typeof Notification === "undefined" || Notification.permission !== "granted") return;
-        var after = localStorage.getItem(CURSOR) || "0";
-        fetch("/api/events?type=appeared&after_id=" + encodeURIComponent(after) + "&limit=50")
-          .then(function (r) { return r.json(); })
-          .then(function (rows) {
-            (rows || []).forEach(function (ev) {
-              var id = Number(ev.id || 0);
-              var cursor = Number(localStorage.getItem(CURSOR) || 0);
-              if (id <= cursor) return;
-              try {
-                new Notification(ev.title || "官翻上线", { body: (ev.message || "").slice(0, 180), tag: "arw-" + id });
-              } catch (err) {}
-              if (id > cursor) localStorage.setItem(CURSOR, String(id));
-            });
-          })
-          .catch(function () {});
-      }
-      function applyToggle(on) {
-        if (!canAfterId) {
-          setStatus("当前服务器不支持电脑通知。");
-          var box = $("computer-notify-enabled");
-          if (box) box.checked = false;
-          return;
-        }
-        localStorage.setItem(KEY, on ? "1" : "0");
-        if (!on) {
-          setStatus("已关闭。");
-          return;
-        }
-        askPermission(function () {
-          setStatus("已开启。");
-          seedCursor();
-        });
-      }
-      function applyHealth(h) {
-        var caps = h && h.capabilities;
-        if (Array.isArray(caps) && caps.length) {
-          canAfterId = caps.indexOf("events.after_id") >= 0;
-        } else if (h && h.ok) {
-          canAfterId = false;
-        }
-        if (h && h.api_revision != null && Number(h.api_revision) > CLIENT_API_REVISION) {
-          showBanner("服务器 API 新于本页面，请升级客户端。");
-        } else if (h && !canAfterId) {
-          showBanner("服务器版本较旧，电脑通知不可用。可继续使用核心功能，或升级服务器。");
-        }
-      }
-      function fillDesktopPanel(s) {
-        desktopRuntimeMode = s.mode || null;
-        var panel = $("desktop-this-computer");
-        if (panel) panel.hidden = false;
-        document.documentElement.classList.add("desktop");
-        var url = $("desktop-url");
-        if (url && s.url) url.value = s.url;
-        var insecure = $("desktop-insecure");
-        if (insecure) insecure.checked = !!s.allow_insecure;
-        var auto = $("desktop-autostart");
-        if (auto) auto.checked = !!s.autostart;
-        var hint = $("desktop-autostart-hint");
-        if (hint) hint.textContent = "";
-        var st = $("desktop-conn-status");
-        if (st) {
-          if (s.env_locked) st.textContent = "连接由环境变量指定，无法在此更改。";
-          else if (s.error) st.textContent = s.error;
-          else if (s.mode === "remote") st.textContent = "已连接 " + (s.url || "") + "。";
-          else st.textContent = "正在使用本机服务。";
-        }
-        var clientVer = $("desktop-client-ver");
-        if (clientVer && s.client_version) {
-          clientVer.textContent = "桌面 " + s.client_version;
-        }
-        var token = $("desktop-token");
-        if (token && s.has_token) token.placeholder = "已保存";
-        if (s.env_locked) {
-          var connBtn = $("desktop-connect");
-          var discBtn = $("desktop-disconnect");
-          if (connBtn) connBtn.disabled = true;
-          if (discBtn) discBtn.disabled = true;
-        }
-        if (s.notice) showBanner(s.notice);
-        if (s.error) showBanner(s.error);
-        if (s.can_notify === false) canAfterId = false;
-        applyUpdateInfo(s.update);
-      }
-      function wireDesktopButtons(api) {
-        var connectBtn = $("desktop-connect");
-        if (connectBtn) connectBtn.addEventListener("click", function () {
-          var urlEl = $("desktop-url");
-          var tokenEl = $("desktop-token");
-          var insecureEl = $("desktop-insecure");
-          var st = $("desktop-conn-status");
-          api.connect((urlEl && urlEl.value) || "", (tokenEl && tokenEl.value) || "", !!(insecureEl && insecureEl.checked)).then(function (r) {
-            if (!r || !r.ok) {
-              if (st) st.textContent = (r && r.error) || "连接失败";
-              return;
-            }
-            if (st) st.textContent = "正在重启窗口…";
-          });
-        });
-        var discBtn = $("desktop-disconnect");
-        if (discBtn) discBtn.addEventListener("click", function () {
-          var st = $("desktop-conn-status");
-          api.disconnect().then(function (r) {
-            if (!r || !r.ok) {
-              if (st) st.textContent = (r && r.error) || "无法改回本机";
-              return;
-            }
-            if (st) st.textContent = "正在重启窗口…";
-          });
-        });
-        var auto = $("desktop-autostart");
-        if (auto) auto.addEventListener("change", function () {
-          var hint = $("desktop-autostart-hint");
-          api.set_autostart(auto.checked).then(function (r) {
-            if (!r || !r.ok) {
-              auto.checked = !auto.checked;
-              if (hint) hint.textContent = (r && r.error) || "无法更改开机自启";
-              return;
-            }
-            auto.checked = !!r.autostart;
-            if (hint) hint.textContent = "";
-          });
-        });
-      }
-      function wireNotifyTest() {
-        var btn = $("computer-notify-test");
-        if (!btn) return;
-        btn.addEventListener("click", function () {
-          if (desktopApi && desktopApi.test_computer_notify) {
-            desktopApi.test_computer_notify().then(function (r) {
-              setStatus((r && r.ok) ? "已弹出本机通知。" : ((r && r.error) || "无法弹出"), !(r && r.ok));
-            }).catch(function () { setStatus("无法弹出", true); });
-            return;
-          }
-          askPermission(function () {
-            try {
-              new Notification("官翻监听测试", { body: "电脑通知已接通。" });
-              setStatus("已弹出本机通知。");
-            } catch (err) {
-              setStatus("无法弹出通知。", true);
-            }
-          });
-        });
-      }
-      function wireNotify(box) {
-        if (!box) {
-          if (!usingDesktopNotify && canAfterId && enabled()) seedCursor();
-          return;
-        }
-        if (usingDesktopNotify) {
-          if (!canAfterId) {
-            box.disabled = true;
-            box.checked = false;
-            setStatus("当前服务器不支持电脑通知。");
-            return;
-          }
-          box.addEventListener("change", function () {
-            desktopApi.set_computer_notify(box.checked).then(function (r) {
-              if (r && !r.ok) {
-                box.checked = false;
-                setStatus(r.error || "无法保存");
-                return;
-              }
-              setStatus(box.checked ? "已开启。" : "已关闭。");
-            });
-          });
-          return;
-        }
-        if (!canAfterId) {
-          box.disabled = true;
-          box.checked = false;
-          setStatus("当前服务器不支持电脑通知。");
-          return;
-        }
-        box.checked = enabled();
-        if (enabled()) {
-          if (permissionState() === "granted") {
-            seedCursor();
-          } else if (permissionState() === "denied") {
-            setStatus(HINT_DENIED, true);
-          } else if (permissionState() === "unsupported") {
-            setStatus("当前浏览器不支持网页通知。", true);
-          } else {
-            setStatus(HINT_DEFAULT, true);
-          }
-        } else if (permissionState() === "denied") {
-          setStatus(HINT_DENIED, true);
-        }
-        box.addEventListener("change", function () { applyToggle(box.checked); });
-      }
-      function wireServerAutostart(hide) {
-        var panel = $("server-autostart");
-        var box = $("server-autostart-enabled");
-        var status = $("server-autostart-status");
-        if (!panel || !box) return;
-        if (hide) {
-          panel.hidden = true;
-          return;
-        }
-        panel.hidden = false;
-        fetch("/api/autostart")
-          .then(function (r) { return r.json(); })
-          .then(function (s) {
-            box.checked = !!s.installed;
-            if (status) status.textContent = "";
-          })
-          .catch(function () {
-            if (status) status.textContent = "无法读取开机自启状态。";
-          });
-        box.addEventListener("change", function () {
-          fetch("/api/autostart", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            body: JSON.stringify({ enabled: box.checked })
-          })
-            .then(function (r) { return r.json().then(function (data) { return { okHttp: r.ok, data: data }; }); })
-            .then(function (res) {
-              var s = res.data || {};
-              if (!res.okHttp || !s.ok) {
-                box.checked = !box.checked;
-                if (status) status.textContent = s.message || s.detail || "无法更改开机自启。";
-                return;
-              }
-              box.checked = !!s.installed;
-              if (status) status.textContent = s.message || (s.installed ? "已开启。" : "已关闭。");
-            })
-            .catch(function () {
-              box.checked = !box.checked;
-              if (status) status.textContent = "无法更改开机自启。";
-            });
-        });
-      }
-      function boot() {
-        if (wired) return;
-        wired = true;
-        desktopApi = getDesktopApi();
-        var ready = Promise.resolve();
-        if (desktopApi && desktopApi.state) {
-          usingDesktopNotify = true;
-          ready = desktopApi.state().then(fillDesktopPanel).catch(function () {
-            usingDesktopNotify = false;
-          });
-        }
-        var healthP = fetch("/api/health").then(function (r) { return r.json(); }).then(applyHealth).catch(function () {});
-        Promise.all([ready, healthP]).then(function () {
-          wireNotify($("computer-notify-enabled"));
-          wireNotifyTest();
-          if (desktopApi) {
-            wireDesktopButtons(desktopApi);
-            watchDesktopUpdate(desktopApi);
-          } else {
-            checkServerUpdate();
-          }
-          wireServerAutostart(desktopRuntimeMode === "local");
-        });
-      }
-      function bootSoon() {
-        if (getDesktopApi()) {
-          if (bootTimer) clearTimeout(bootTimer);
-          boot();
-          return;
-        }
-        if (document.documentElement.classList.contains("desktop")) return;
-        if (!bootTimer) {
-          bootTimer = setTimeout(function () {
-            bootTimer = null;
-            boot();
-          }, 120);
-        }
-      }
-      window.addEventListener("pywebviewready", function () {
-        if (bootTimer) clearTimeout(bootTimer);
-        bootTimer = null;
-        boot();
-      });
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", bootSoon);
-      } else {
-        bootSoon();
-      }
-      setInterval(poll, 12000);
-    })();
-  </script>
+  <script src="/static/app.js?v={{ asset_v }}" defer></script>
   {% block extra_js %}{% endblock %}
 </body>
 </html>

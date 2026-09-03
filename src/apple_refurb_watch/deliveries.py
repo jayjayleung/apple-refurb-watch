@@ -52,7 +52,7 @@ def _try_send(
         return None
     except NotifyError as exc:
         return redact_secrets(str(exc), settings)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return redact_secrets(str(exc), settings)
 
 
@@ -185,7 +185,7 @@ class OutboxWorker:
             while not self._stop.is_set():
                 try:
                     self.run_once()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     now = time.monotonic()
                     if now - self._last_error_log >= 60:
                         log.warning("通知投递循环失败", exc_info=True)

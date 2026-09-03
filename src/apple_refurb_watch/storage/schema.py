@@ -148,6 +148,9 @@ EVENT_KEEP = 500
 MAX_EVENT_LIMIT = 500
 MAX_PRODUCT_PAGE = 1000
 HISTORY_KEEP_DAYS = 30
+DEFAULT_BIND_PORT = 8765
+DEFAULT_DETAIL_DELAY_SECONDS = 1.4
+DEFAULT_LISTING_KEY = "mac"
 
 DEFAULT_NOTIFY = {
     "bark": {"enabled": False, "url": ""},
@@ -170,11 +173,11 @@ DEFAULT_NOTIFY = {
 DEFAULT_SETTINGS = {
     "interval_seconds": 300,
     "bind_host": "127.0.0.1",
-    "bind_port": 8765,
+    "bind_port": DEFAULT_BIND_PORT,
     "lan_enabled": False,
     "access_token": "",
     "listings": DEFAULT_LISTINGS,
-    "detail_delay_seconds": 1.4,
+    "detail_delay_seconds": DEFAULT_DETAIL_DELAY_SECONDS,
     "notify": DEFAULT_NOTIFY,
     "close_window_keeps_daemon": True,
     "listen_enabled": True,

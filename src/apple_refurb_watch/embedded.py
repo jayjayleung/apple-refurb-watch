@@ -10,6 +10,7 @@ from apple_refurb_watch.argv import ensure_stdio
 from apple_refurb_watch.client import ApiClient, wait_health
 from apple_refurb_watch.daemon import acquire_lock_retry
 from apple_refurb_watch.db import Database
+from apple_refurb_watch.storage.schema import DEFAULT_BIND_PORT
 from apple_refurb_watch.web.app import apply_windows_loop_policy, uvicorn_options
 from apple_refurb_watch.web.auth import validate_listener_security
 
@@ -23,7 +24,7 @@ class EmbeddedServer:
         self._thread: threading.Thread | None = None
         self._run_error: BaseException | None = None
         self.host = "127.0.0.1"
-        self.port = 8765
+        self.port = DEFAULT_BIND_PORT
 
     @property
     def running(self) -> bool:
@@ -37,7 +38,7 @@ class EmbeddedServer:
             db = Database()
             settings = db.settings()
             bind_host = host or settings.get("bind_host") or "127.0.0.1"
-            bind_port = int(port if port is not None else (settings.get("bind_port") or 8765))
+            bind_port = int(port if port is not None else (settings.get("bind_port") or DEFAULT_BIND_PORT))
             effective_settings = dict(settings)
             effective_settings.update({"bind_host": bind_host, "bind_port": bind_port})
             validate_listener_security(effective_settings)
@@ -70,7 +71,7 @@ class EmbeddedServer:
                     server.run()
                 except SystemExit as exc:
                     self._run_error = RuntimeError(f"uvicorn 退出: {exc.code}")
-                except BaseException as exc:  # noqa: BLE001
+                except BaseException as exc:
                     self._run_error = exc
 
             thread = threading.Thread(target=_run, name="arw-uvicorn", daemon=True)
@@ -90,7 +91,7 @@ class EmbeddedServer:
                 if db is not None:
                     try:
                         db.close()
-                    except Exception:  # noqa: BLE001
+                    except Exception:
                         pass
                 self.stop()
             raise
@@ -109,6 +110,6 @@ class EmbeddedServer:
         if handle is not None:
             try:
                 handle.close()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
         time.sleep(0.15)

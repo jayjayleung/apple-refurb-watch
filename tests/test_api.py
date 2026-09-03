@@ -34,7 +34,10 @@ def test_pages_and_watch_api(tmp_path) -> None:
         assert "盯住你要的那一台" not in home.text
         assert "kicker" not in home.text
         assert "status-bar" not in home.text
-        assert 'id="filter-open"' in home.text
+        assert 'id="filter-toggle"' in home.text
+        assert 'id="filter-dialog"' in home.text
+        assert "/static/app.js" in home.text
+        assert "/static/style.css?v=" in home.text
         assert "/static/icon.svg" in home.text
         assert "/static/favicon.ico" in home.text
         assert "filter-rail" in home.text
@@ -70,6 +73,25 @@ def test_pages_and_watch_api(tmp_path) -> None:
         settings = client.get("/api/settings")
         assert settings.status_code == 200
         assert settings.json()["bind_port"] == 8765
+
+
+def test_static_assets_are_versioned_and_cached(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        home = client.get("/")
+        assert "/static/app.js?v=" in home.text
+        assert "/static/style.css?v=" in home.text
+        js = client.get("/static/app.js")
+        assert js.status_code == 200
+        assert "max-age=31536000" in js.headers.get("cache-control", "")
+        assert "immutable" in js.headers.get("cache-control", "")
+        assert "__arwApplyStatus" in js.text
+        assert "statusInFlight" in js.text
+        css = client.get("/static/style.css")
+        assert css.status_code == 200
+        assert "max-age=31536000" in css.headers.get("cache-control", "")
+        assert ".filter-sheet" in css.text
 
 
 def test_settings_redact_secrets(tmp_path) -> None:

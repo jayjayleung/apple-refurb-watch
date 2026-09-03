@@ -14,7 +14,6 @@ from typing import Any
 from apple_refurb_watch.db import Database
 from apple_refurb_watch.paths import runtime_is_alive
 from apple_refurb_watch.settings import (
-    NOTIFY_CHANNEL_UI,
     listener_requires_auth,
     normalize_settings_patch,
 )

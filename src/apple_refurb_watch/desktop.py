@@ -63,7 +63,7 @@ def _close_client(client: object | None) -> None:
         return
     try:
         close()
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.debug("关闭 API 客户端失败", exc_info=True)
 
 
@@ -109,7 +109,7 @@ def alert_quit_old_desktop(running_ver: str | None) -> None:
 
             ctypes.windll.user32.MessageBoxW(None, message, "官翻监听", 0x30)
             return
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("弹出旧版桌面提示失败", exc_info=True)
     print(message, file=sys.stderr)
 
@@ -272,7 +272,7 @@ def load_tray_image(image_module):
     if path.is_file():
         try:
             return image_module.open(path).convert("RGBA")
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.warning("读取托盘图标失败", exc_info=True)
     return image_module.new("RGBA", (64, 64), (0, 113, 227, 255))
 
@@ -340,13 +340,13 @@ def fallback_webview_to_browser(session: DesktopSession) -> None:
         if session.embedded is not None:
             try:
                 session.embedded.stop()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.warning("webview 失败后停止内嵌服务失败", exc_info=True)
             session.embedded = None
         session.owned = False
         try:
             client = ensure_daemon()
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.warning("webview 失败后拉起独立 daemon 失败", exc_info=True)
             if session.client is not None:
                 _open_in_browser(session.client.base)
@@ -399,7 +399,7 @@ def _poll_appeared(client: ApiClient, enabled: threading.Event, stop: threading.
         latest = client.events(limit=1, type="appeared") or []
         if latest:
             cursor = int(latest[0].get("id") or 0)
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.debug("读取电脑通知游标失败", exc_info=True)
         cursor = 0
     while not stop.wait(12):
@@ -407,7 +407,7 @@ def _poll_appeared(client: ApiClient, enabled: threading.Event, stop: threading.
             continue
         try:
             rows = client.events(limit=50, after_id=cursor, type="appeared") or []
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("轮询上线事件失败", exc_info=True)
             continue
         for event in rows:
@@ -564,7 +564,7 @@ class DesktopSession:
                 fn = getattr(window, method, None)
                 if callable(fn):
                     fn()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.debug("显示桌面窗口失败 method=%s", method, exc_info=True)
 
     def hide_window(self) -> None:
@@ -574,11 +574,11 @@ class DesktopSession:
         try:
             window.hide()
             return
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("隐藏桌面窗口失败", exc_info=True)
         try:
             window.minimize()
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("最小化桌面窗口失败", exc_info=True)
 
     def load_url(self, url: str) -> None:
@@ -587,7 +587,7 @@ class DesktopSession:
             return
         try:
             window.load_url(url)
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("加载桌面地址失败", exc_info=True)
 
     def show_setup(self) -> None:
@@ -609,7 +609,7 @@ class DesktopSession:
             self.client.update_settings({"listen_enabled": enabled})
             self.settings["listen_enabled"] = enabled
             return True
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.warning("切换监听失败", exc_info=True)
             return False
 
@@ -631,7 +631,7 @@ class DesktopSession:
                 message = uninstall_service()
             self.autostart_on = is_service_installed()
             return {"ok": True, "message": message, "autostart": self.autostart_on}
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
     def connect_server(self, url: str, token: str = "", insecure: bool = False) -> dict:
@@ -668,13 +668,13 @@ class DesktopSession:
             if window is not None:
                 try:
                     window.destroy()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     log.debug("改连时销毁窗口失败", exc_info=True)
             self.cleanup(stop_runtime=self.owned)
             time.sleep(0.15)
             try:
                 relaunch_desktop(hidden=hidden)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.warning("重新拉起桌面窗口失败", exc_info=True)
 
         threading.Thread(target=_run, name="arw-relaunch", daemon=True).start()
@@ -685,7 +685,7 @@ class DesktopSession:
         if window is not None:
             try:
                 window.destroy()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.debug("退出时销毁窗口失败", exc_info=True)
         else:
             self.cleanup(stop_runtime=self.owned)
@@ -698,7 +698,7 @@ class DesktopSession:
             time.sleep(delay)
             try:
                 self.cleanup(stop_runtime=self.owned)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.debug("强制退出前清理失败", exc_info=True)
             exit_fn(0)
 
@@ -712,14 +712,14 @@ class DesktopSession:
         if self.tray_icon is not None:
             try:
                 self.tray_icon.stop()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.debug("停止托盘图标失败", exc_info=True)
         if stop_runtime and self.owned and self.embedded is not None:
             self.embedded.stop()
         if self.desk_lock is not None:
             try:
                 self.desk_lock.close()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.debug("释放桌面锁失败", exc_info=True)
         if self.client is not None:
             _close_client(self.client)
@@ -730,7 +730,7 @@ class DesktopSession:
             return
         try:
             self.window.evaluate_js(_banner_js(self.notice))
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("注入兼容提示失败", exc_info=True)
 
     def inject_update(self) -> None:
@@ -743,13 +743,13 @@ class DesktopSession:
             return
         try:
             self.window.evaluate_js(_update_hint_js(latest, url))
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("注入更新提示失败", exc_info=True)
 
     def check_for_update(self) -> None:
         try:
             self.update = latest_release_info(current=__version__, refresh=True)
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.warning("检查桌面更新失败", exc_info=True)
             self.update_checked = True
             return
@@ -793,7 +793,7 @@ class DesktopApi:
             if callable(getter):
                 try:
                     current = getter()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     log.debug("读取桌面当前页失败", exc_info=True)
         service = None
         client = getattr(self._session, "client", None)
@@ -859,28 +859,28 @@ def _start_tray(session: DesktopSession, *, adapter: DesktopAdapter | None = Non
     image = load_tray_image(image_module)
     listen_state = {"on": bool(session.settings.get("listen_enabled", True))}
 
-    def listen_label(item):  # noqa: ARG001
+    def listen_label(item):
         return "停止监听" if listen_state["on"] else "开始监听"
 
-    def on_toggle(icon, item):  # noqa: ARG001
+    def on_toggle(icon, item):
         apply_tray_listen_toggle(session, listen_state)
         try:
             icon.update_menu()
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("刷新托盘菜单失败", exc_info=True)
 
-    def on_notify(icon, item):  # noqa: ARG001
+    def on_notify(icon, item):
         session.set_computer_notify(not session.notify_on.is_set())
         try:
             icon.update_menu()
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("刷新托盘菜单失败", exc_info=True)
 
-    def on_autostart(icon, item):  # noqa: ARG001
+    def on_autostart(icon, item):
         session.set_autostart(not session.autostart_on)
         try:
             icon.update_menu()
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("刷新托盘菜单失败", exc_info=True)
 
     def on_quit(*_args) -> None:
@@ -901,7 +901,7 @@ def _start_tray(session: DesktopSession, *, adapter: DesktopAdapter | None = Non
         else:
             threading.Thread(target=icon.run, name="arw-tray", daemon=True).start()
         return icon
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.warning("启动托盘失败", exc_info=True)
         return None
 
@@ -924,7 +924,7 @@ def run_desktop(*, hidden: bool = False) -> None:
     if session.client is not None:
         try:
             session.settings = session.client.settings()
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.warning("读取本机设置失败", exc_info=True)
             session.settings = {}
         session.hide = hide_to_tray_enabled(session.settings)
@@ -946,7 +946,7 @@ def run_desktop(*, hidden: bool = False) -> None:
 
     try:
         webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.debug("设置外部链接在浏览器打开失败", exc_info=True)
 
     api = DesktopApi(session)
@@ -985,15 +985,15 @@ def run_desktop(*, hidden: bool = False) -> None:
 
     try:
         window.events.shown += on_shown
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.debug("绑定 shown 事件失败", exc_info=True)
     try:
         window.events.loaded += on_loaded
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.debug("绑定 loaded 事件失败", exc_info=True)
     try:
         window.events.closing += on_closing
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.debug("绑定 closing 事件失败", exc_info=True)
 
     threading.Thread(target=watch_signal, name="arw-desktop-signal", daemon=True).start()

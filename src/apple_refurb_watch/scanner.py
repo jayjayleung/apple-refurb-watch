@@ -13,6 +13,7 @@ from apple_refurb_watch.listing_source import ListingSource
 from apple_refurb_watch.match import matches_watch, needs_ram, needs_storage
 from apple_refurb_watch.parse import Product
 from apple_refurb_watch.watches import appeared_message
+from apple_refurb_watch.storage.schema import DEFAULT_DETAIL_DELAY_SECONDS, DEFAULT_LISTING_KEY
 from apple_refurb_watch.storage.events import event_fingerprint
 
 _scan_lock = threading.Lock()
@@ -85,7 +86,7 @@ class ScanService:
             return {"accepted": False, "ok": False, "status": "busy", "message": "已有扫描在进行"}
         try:
             settings = self.db.settings()
-            listings = compact_listings(list(settings.get("listings") or ["mac"]))
+            listings = compact_listings(list(settings.get("listings") or [DEFAULT_LISTING_KEY]))
             run_id = self.db.start_scan_run(listings, metadata={"trigger": "api"})
             self.db.set_setting("scanning", True)
             thread = threading.Thread(
@@ -114,7 +115,7 @@ class ScanService:
                         status="failed",
                         errors=[str(exc)],
                     )
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.warning("提交扫描失败后无法标记 scan_run", exc_info=True)
             _scan_lock.release()
             raise
@@ -185,7 +186,7 @@ def run_scan(
         # leaves delivery to that worker so a slow channel cannot pin a scan.
         try:
             result["notified"] = retry_pending_deliveries(database, database.settings(), notifier)
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.warning("扫描后投递失败", exc_info=True)
             result["notified"] = 0
         return result
@@ -209,7 +210,7 @@ def _run_scan_locked(
     from apple_refurb_watch.storage.schema import utcnow
 
     settings = db.settings()
-    listings = compact_listings(list(settings.get("listings") or ["mac"]))
+    listings = compact_listings(list(settings.get("listings") or [DEFAULT_LISTING_KEY]))
     watches = db.enabled_watches()
     started_run = reserved_run_id is not None
     run_id: int | None = reserved_run_id
@@ -230,7 +231,7 @@ def _run_scan_locked(
         for key in listings:
             try:
                 batch = source.fetch_listing(key)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.warning("抓取分类失败: %s", key, exc_info=True)
                 errors.append(f"{key}: {exc}")
                 continue
@@ -242,7 +243,7 @@ def _run_scan_locked(
             products.extend(batch)
             fetched_keys.append(key)
 
-        delay = float(settings.get("detail_delay_seconds") or 1.4)
+        delay = float(settings.get("detail_delay_seconds") or DEFAULT_DETAIL_DELAY_SECONDS)
         for product in products:
             if not _needs_detail(product, watches):
                 continue
@@ -258,7 +259,7 @@ def _run_scan_locked(
                 product.ram_gb = product.ram_gb or specs.get("ram_gb")
                 product.storage_gb = product.storage_gb or specs.get("storage_gb")
                 detail_updates.append((product.sku, product.ram_gb, product.storage_gb))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.warning("详情抓取失败: %s", product.sku, exc_info=True)
                 errors.append(f"{product.sku}: {exc}")
 
@@ -421,7 +422,7 @@ def _run_scan_locked(
                     )
                     db.set_setting("last_error", str(exc))
                     db.set_setting("scanning", False)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.warning("扫描失败后无法收尾 run_id=%s", run_id, exc_info=True)
         raise
 

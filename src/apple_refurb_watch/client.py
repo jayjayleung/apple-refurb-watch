@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ipaddress
-import json
 import os
 import time
 from typing import Any
@@ -10,6 +9,7 @@ from urllib.parse import urlparse
 import httpx
 
 from apple_refurb_watch.paths import read_runtime, runtime_is_alive
+from apple_refurb_watch.storage.schema import DEFAULT_BIND_PORT
 
 
 class ApiError(RuntimeError):
@@ -45,7 +45,7 @@ def _local_access_token() -> str:
             token = database.get_setting("access_token", "")
         finally:
             database.close()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return ""
     return str(token or "").strip()
 
@@ -60,7 +60,7 @@ def _resolve_token(token: str | None, base: str, *, base_explicit: bool) -> str:
         from apple_refurb_watch.connection import load_connection
 
         connection = load_connection()
-    except Exception:  # noqa: BLE001
+    except Exception:
         connection = None
     env_url = str(os.environ.get("APPLE_REFURB_WATCH_URL") or "").strip()
     if not base_explicit and env_url and _is_local_endpoint(base):
@@ -94,7 +94,7 @@ def default_base() -> str:
         conn = load_connection()
         if conn.url:
             return conn.url
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     runtime = read_runtime()
     # Runtime metadata is only authoritative while its owning process is
@@ -113,9 +113,9 @@ def default_base() -> str:
         database = Database()
         settings = database.settings()
         database.close()
-    except Exception:  # noqa: BLE001
+    except Exception:
         settings = {}
-    port = settings.get("bind_port") or (live_runtime or {}).get("port") or 8765
+    port = settings.get("bind_port") or (live_runtime or {}).get("port") or DEFAULT_BIND_PORT
     host = settings.get("bind_host") or (live_runtime or {}).get("host") or "127.0.0.1"
     if host in {"0.0.0.0", "::"}:
         host = "127.0.0.1"
@@ -161,7 +161,7 @@ class ApiClient:
             detail = response.text
             try:
                 detail = response.json().get("detail") or detail
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             raise ApiError(str(detail), response.status_code)
         if response.status_code == 204 or not response.content:

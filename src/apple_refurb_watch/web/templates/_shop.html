@@ -13,11 +13,10 @@
     {% endfor %}
   </nav>
   <div class="shop-body">
-  <input type="checkbox" id="filter-open" class="filter-check" tabindex="-1">
-  <label class="filter-scrim" for="filter-open" aria-hidden="true"></label>
+  <dialog id="filter-dialog" class="filter-sheet">
   <form id="shop-filter" class="filter-rail" hx-get="/" hx-target="#shop" hx-push-url="true" hx-indicator="#shop" hx-sync="this:replace" hx-trigger="change, keyup delay:400ms from:input[type='search'], keyup delay:400ms from:input[type='number']">
     <input type="hidden" name="listing_key" value="{{ listing_key }}">
-    <label class="filter-done" for="filter-open">完成</label>
+    <button type="button" class="filter-done" id="filter-close">完成</button>
     <p class="filter-title">筛选</p>
 
     {% include "_facets.html" %}
@@ -38,6 +37,7 @@
       </label>
     </details>
   </form>
+  </dialog>
 
   <div class="shop-main">
     <div class="shop-head">
@@ -61,7 +61,7 @@
           <option value="-price" {% if sort == '-price' %}selected{% endif %}>价格： 由高至低</option>
         </select>
       </label>
-      <label class="btn filter-toggle" for="filter-open">筛选{% if filter_chips %} {{ filter_chips|length }}{% endif %}</label>
+      <button type="button" class="btn filter-toggle" id="filter-toggle" aria-expanded="false" aria-controls="filter-dialog">筛选{% if filter_chips %} {{ filter_chips|length }}{% endif %}</button>
     </div>
     {% include "_products.html" %}
   </div>

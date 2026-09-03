@@ -32,6 +32,7 @@ def test_desktop_chrome_does_not_repeat_app_title() -> None:
     mark = (templates / "_desktop_mark.html").read_text(encoding="utf-8")
     settings = (templates / "settings.html").read_text(encoding="utf-8")
     css = (package_root() / "web" / "static" / "style.css").read_text(encoding="utf-8")
+    app_js = (package_root() / "web" / "static" / "app.js").read_text(encoding="utf-8")
     assert 'class="brand-name"' in base
     assert 'aria-label="官翻监听"' in base
     assert f'startswith("{DESKTOP_USER_AGENT_PREFIX}")' in base
@@ -58,12 +59,17 @@ def test_desktop_chrome_does_not_repeat_app_title() -> None:
     assert "desktop-update-dismiss" not in settings
     assert 'id="server-update"' in settings
     assert "服务 {{ app_version }}" in settings
-    assert '"桌面 " + s.client_version' in base
+    assert '"桌面 " + s.client_version' in app_js
     assert ">有更新</a>" in settings
-    assert '$(isDesktopShell() ? "desktop-update" : "server-update")' in base
+    assert '$(isDesktopShell() ? "desktop-update" : "server-update")' in app_js
     bridge_wait = 'if (document.documentElement.classList.contains("desktop")) return;'
-    assert bridge_wait in base
-    assert base.index(bridge_wait) < base.index("bootTimer = setTimeout")
+    assert bridge_wait in app_js
+    assert app_js.index(bridge_wait) < app_js.index("bootTimer = setTimeout")
+    assert "status-pulse" in app_js
+    assert "__arwApplyStatus" in app_js
+    assert "statusInFlight" in app_js
+    assert 'id="status-pulse"' in base
+    assert 'src="/static/app.js?v={{ asset_v }}"' in base
 
 
 def test_setup_page_is_packaged() -> None:

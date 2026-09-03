@@ -10,6 +10,7 @@ from pathlib import Path
 from apple_refurb_watch.argv import invoke_argv, is_frozen
 from apple_refurb_watch.client import ApiClient, ApiError, wait_health
 from apple_refurb_watch.paths import lock_path, log_path, runtime_path
+from apple_refurb_watch.storage.schema import DEFAULT_BIND_PORT
 
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 CREATE_BREAKAWAY_FROM_JOB = 0x01000000
@@ -189,7 +190,7 @@ def _wait_base(host: str | None, port: int | None) -> str | None:
     wait_host = host or "127.0.0.1"
     if wait_host in {"0.0.0.0", "::"}:
         wait_host = "127.0.0.1"
-    return f"http://{wait_host}:{port or 8765}"
+    return f"http://{wait_host}:{port or DEFAULT_BIND_PORT}"
 
 
 def is_running() -> bool:
@@ -218,7 +219,7 @@ def stop_daemon() -> bool:
     try:
         if runtime_path().exists():
             runtime = json.loads(runtime_path().read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
+    except Exception:
         runtime = None
     pid = (runtime or {}).get("pid")
     if not pid:

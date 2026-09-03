@@ -10,13 +10,13 @@
   {% with scan_class='primary' %}{% include "_scan.html" %}{% endwith %}
 </header>
 {% if flash == 'scan-queued' %}
-<p class="flash ok" id="scan-run-status"{% if scan_run_id %} data-scan-id="{{ scan_run_id }}"{% endif %}>
+<p class="flash ok" id="scan-run-status" aria-live="polite"{% if scan_run_id %} data-scan-id="{{ scan_run_id }}"{% endif %}>
   扫描已提交{% if scan_run_id %}，正在运行…{% else %}。{% endif %}
 </p>
 {% elif flash == 'scan-busy' %}
-<p class="flash warn" id="scan-run-status">已有扫描在进行，请稍后再试。</p>
+<p class="flash warn" id="scan-run-status" aria-live="polite">已有扫描在进行，请稍后再试。</p>
 {% elif flash == 'scan-done' %}
-<p class="flash ok" id="scan-run-status">扫描已完成。</p>
+<p class="flash ok" id="scan-run-status" aria-live="polite">扫描已完成。</p>
 {% endif %}
 {% include "_event_feed.html" %}
 {% endblock %}
@@ -31,7 +31,6 @@
     failed: "扫描失败。"
   };
   function feed() { return document.getElementById("event-feed"); }
-  function visible() { return document.visibilityState !== "hidden"; }
   function refreshFeed() {
     var node = feed();
     if (!node) return;
@@ -48,33 +47,50 @@
     }
     run();
   }
-  function tick() {
-    if (!visible()) return;
+  function onStatus(data) {
+    var stamp = (data && (data.last_scan_at || data.last_success_at)) || "";
+    if (!primed) {
+      lastScan = stamp;
+      primed = true;
+      return;
+    }
+    if (stamp && stamp !== lastScan) {
+      lastScan = stamp;
+      refreshFeed();
+    }
+  }
+  window.addEventListener("arw-status", function (ev) {
+    onStatus(ev.detail || {});
+  });
+  if (window.__arwLastStatus) onStatus(window.__arwLastStatus);
+  document.body.addEventListener("htmx:afterSwap", function (ev) {
+    var target = ev.detail && ev.detail.target;
+    if (target && target.id === "event-feed" && window.__arwLastStatus && window.__arwApplyStatus) {
+      window.__arwApplyStatus(window.__arwLastStatus);
+    }
+  });
+  var node = document.getElementById("scan-run-status");
+  var runId = node && node.getAttribute("data-scan-id");
+  if (runId && window.history && window.history.replaceState) {
+    var url = new URL(window.location.href);
+    if (url.searchParams.has("scan_run_id")) {
+      url.searchParams.delete("scan_run_id");
+      var next = url.pathname + (url.searchParams.toString() ? "?" + url.searchParams.toString() : "") + url.hash;
+      window.history.replaceState({}, "", next);
+    }
+  }
+  if (!runId) return;
+  var tries = 0;
+  function refreshChrome() {
     fetch("/api/status", {headers: {"Accept": "application/json"}})
-      .then(function (r) { return r.json(); })
+      .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
-        var stamp = (data && (data.last_scan_at || data.last_success_at)) || "";
-        if (!primed) {
-          lastScan = stamp;
-          primed = true;
-          return;
-        }
-        if (stamp && stamp !== lastScan) {
-          lastScan = stamp;
-          refreshFeed();
-        }
+        if (!data) return;
+        if (window.__arwEmitStatus) window.__arwEmitStatus(data);
+        else if (window.__arwApplyStatus) window.__arwApplyStatus(data);
       })
       .catch(function () {});
   }
-  window.setInterval(tick, 4000);
-  document.addEventListener("visibilitychange", function () {
-    if (visible()) tick();
-  });
-  tick();
-  var node = document.getElementById("scan-run-status");
-  var runId = node && node.getAttribute("data-scan-id");
-  if (!runId) return;
-  var tries = 0;
   function pollRun() {
     fetch("/api/scans/" + encodeURIComponent(runId), {headers: {"Accept": "application/json"}})
       .then(function (response) { return response.json().then(function (data) {
@@ -92,6 +108,7 @@
         if (labels[status]) {
           node.textContent = labels[status];
           if (status === "failed") node.classList.add("bad");
+          refreshChrome();
           refreshFeed();
           return;
         }

@@ -75,7 +75,7 @@ def settings_sync_catalog() -> RedirectResponse:
     try:
         sync_filter_catalog(fetch_html)
         return RedirectResponse("/settings?flash=catalog-ok", status_code=303)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return RedirectResponse("/settings?flash=catalog-fail", status_code=303)
 
 

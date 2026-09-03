@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import pager %}
 {% block title %}{{ watch.name }} · 命中 · 官翻监听{% endblock %}
 {% block main_class %}page-watch-hits{% endblock %}
 {% block body %}
@@ -12,19 +13,7 @@
 
 {% if hit_total %}
 {% if hit_pages > 1 %}
-<nav class="pager" aria-label="分页">
-  {% if has_prev %}
-  <a class="btn" href="{{ hits_url_prev }}">上一页</a>
-  {% else %}
-  <span class="btn" aria-disabled="true">上一页</span>
-  {% endif %}
-  <p class="count">{{ hit_total }} 条 · 第 {{ hit_page }} / {{ hit_pages }} 页</p>
-  {% if has_next %}
-  <a class="btn" href="{{ hits_url_next }}">下一页</a>
-  {% else %}
-  <span class="btn" aria-disabled="true">下一页</span>
-  {% endif %}
-</nav>
+{{ pager(has_prev, has_next, hits_url_prev, hits_url_next, hit_total ~ " 条 · 第 " ~ hit_page ~ " / " ~ hit_pages ~ " 页") }}
 {% endif %}
 <ul class="watch-hits">
   {% for hit in hits %}
@@ -53,19 +42,7 @@
   {% endfor %}
 </ul>
 {% if hit_pages > 1 %}
-<nav class="pager" aria-label="分页">
-  {% if has_prev %}
-  <a class="btn" href="{{ hits_url_prev }}">上一页</a>
-  {% else %}
-  <span class="btn" aria-disabled="true">上一页</span>
-  {% endif %}
-  <p class="count">第 {{ hit_page }} / {{ hit_pages }} 页</p>
-  {% if has_next %}
-  <a class="btn" href="{{ hits_url_next }}">下一页</a>
-  {% else %}
-  <span class="btn" aria-disabled="true">下一页</span>
-  {% endif %}
-</nav>
+{{ pager(has_prev, has_next, hits_url_prev, hits_url_next, "第 " ~ hit_page ~ " / " ~ hit_pages ~ " 页") }}
 {% endif %}
 {% else %}
 <div class="empty">

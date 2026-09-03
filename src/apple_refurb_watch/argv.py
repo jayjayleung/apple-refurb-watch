@@ -64,7 +64,7 @@ def apply_windows_console(
         if kernel32.AttachConsole(-1):
             sys.stdout = io.TextIOWrapper(open("CONOUT$", "wb"), encoding="utf-8", errors="replace")
             sys.stderr = io.TextIOWrapper(open("CONOUT$", "wb"), encoding="utf-8", errors="replace")
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     finally:
         ensure_stdio()

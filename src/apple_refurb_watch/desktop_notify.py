@@ -19,7 +19,7 @@ def notify_os(title: str, body: str, url: str | None = None) -> None:
             _windows_toast(title, text)
             return
         subprocess.run(["notify-send", str(title), text], check=False, capture_output=True)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return
 
 

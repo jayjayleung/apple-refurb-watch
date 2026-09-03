@@ -33,7 +33,7 @@ class SQLiteStore:
             except Exception:
                 try:
                     self.conn.close()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     log.debug("关闭失败升级的数据库连接时出错", exc_info=True)
                 raise
 
@@ -85,7 +85,7 @@ class SQLiteStore:
                     try:
                         self._restore_db(backup_path)
                         restored = True
-                    except Exception as rex:  # noqa: BLE001
+                    except Exception as rex:
                         restore_err = rex
                 if restored:
                     raise RuntimeError(

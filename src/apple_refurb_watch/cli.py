@@ -18,6 +18,7 @@ from apple_refurb_watch.client import ApiClient, ApiError
 from apple_refurb_watch.connection import clear_connection, load_connection, resolve_client, save_connection
 from apple_refurb_watch.daemon import acquire_lock, ensure_daemon, is_running, stop_daemon
 from apple_refurb_watch.db import Database
+from apple_refurb_watch.storage.schema import DEFAULT_BIND_PORT
 from apple_refurb_watch.listing import format_cny, format_gb
 from apple_refurb_watch.paths import data_dir
 from apple_refurb_watch.scanner import run_scan
@@ -44,7 +45,7 @@ ENV_ACCESS_TOKEN = "APPLE_REFURB_WATCH_ACCESS_TOKEN"
 def apply_serve_bind(db: Database, host: str | None, port: int | None, *, persist: bool) -> tuple[str, int]:
     settings = db.settings()
     bind_host = host or settings.get("bind_host") or "127.0.0.1"
-    bind_port = int(port if port is not None else (settings.get("bind_port") or 8765))
+    bind_port = int(port if port is not None else (settings.get("bind_port") or DEFAULT_BIND_PORT))
     if persist:
         if host:
             db.set_setting("bind_host", bind_host)

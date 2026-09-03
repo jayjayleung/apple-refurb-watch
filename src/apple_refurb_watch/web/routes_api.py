@@ -46,7 +46,7 @@ def api_filter_catalog() -> dict:
 def api_sync_catalog() -> dict:
     try:
         sync_filter_catalog(fetch_html)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(502, f"同步筛选词条失败: {exc}") from exc
     return {
         "ok": True,
@@ -229,7 +229,7 @@ async def api_notify_test(request: Request) -> dict:
     if content_type.startswith("application/json"):
         try:
             body = await request.json()
-        except Exception:  # noqa: BLE001
+        except Exception:
             body = None
         if isinstance(body, dict):
             channel = body.get("channel")

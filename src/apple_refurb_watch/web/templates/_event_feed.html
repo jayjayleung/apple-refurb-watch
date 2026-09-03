@@ -1,3 +1,4 @@
+{% from "_macros.html" import pager %}
 <div id="event-feed">
 {% if event_total %}
 <nav class="event-tools" aria-label="显示方式">
@@ -46,19 +47,7 @@
 </section>
 {% endfor %}
 {% if event_pages > 1 %}
-<nav class="pager" aria-label="分页">
-  {% if has_prev %}
-  <a class="btn" href="{{ events_url_prev }}">上一页</a>
-  {% else %}
-  <span class="btn" aria-disabled="true">上一页</span>
-  {% endif %}
-  <p class="count">第 {{ event_page }} / {{ event_pages }} 页</p>
-  {% if has_next %}
-  <a class="btn" href="{{ events_url_next }}">下一页</a>
-  {% else %}
-  <span class="btn" aria-disabled="true">下一页</span>
-  {% endif %}
-</nav>
+{{ pager(has_prev, has_next, events_url_prev, events_url_next, "第 " ~ event_page ~ " / " ~ event_pages ~ " 页") }}
 {% endif %}
 {% else %}
 <div class="empty">

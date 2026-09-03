@@ -4,30 +4,9 @@ import json
 import sqlite3
 from typing import Any
 
-from apple_refurb_watch.query import ProductQuery
+from apple_refurb_watch.query import ProductQuery, _as_float, _as_int, _as_list
 from apple_refurb_watch.storage.schema import utcnow
 from apple_refurb_watch.storage.sqlite import SQLiteStore
-
-
-def _as_list(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        parts = [part.strip() for part in value.replace("\n", ",").split(",")]
-        return [part for part in parts if part]
-    return [str(item).strip() for item in value if str(item).strip()]
-
-
-def _as_int(value: Any) -> int | None:
-    if value in (None, ""):
-        return None
-    return int(value)
-
-
-def _as_float(value: Any) -> float | None:
-    if value in (None, ""):
-        return None
-    return float(value)
 
 
 def _as_dim_filters(value: Any) -> dict:

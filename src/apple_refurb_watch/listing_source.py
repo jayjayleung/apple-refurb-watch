@@ -42,7 +42,7 @@ class ListingSource:
             from apple_refurb_watch.filters import ingest_bootstrap_catalog
 
             ingest_bootstrap_catalog(extract_bootstrap(html), key)
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("写入筛选词条缓存失败", exc_info=True)
         return products
 

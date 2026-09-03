@@ -10,6 +10,7 @@ from apple_refurb_watch.settings import (
     public_url,
     safe_listings,
 )
+from apple_refurb_watch.storage.schema import DEFAULT_BIND_PORT
 
 __all__ = [
     "form_settings",
@@ -62,7 +63,7 @@ def form_settings(form: dict, current: dict) -> dict:
     if _has(form, "interval_seconds"):
         patch["interval_seconds"] = int(form.get("interval_seconds") or current.get("interval_seconds") or 300)
     if _has(form, "bind_port"):
-        patch["bind_port"] = int(form.get("bind_port") or current.get("bind_port") or 8765)
+        patch["bind_port"] = int(form.get("bind_port") or current.get("bind_port") or DEFAULT_BIND_PORT)
     if _has(form, "save_listings"):
         listings = form.get("listings")
         if isinstance(listings, str):

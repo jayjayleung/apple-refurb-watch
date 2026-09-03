@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from apple_refurb_watch.filters import facet_groups
+from apple_refurb_watch.storage.schema import DEFAULT_LISTING_KEY
 from apple_refurb_watch.match import matches_watch
 from apple_refurb_watch.watches import (
     decorate_watches,
@@ -29,7 +30,7 @@ def watches_page(request: Request) -> HTMLResponse:
         "watches.html",
         request,
         watches=decorate_watches(stock, database.list_watches()),
-        watch_facets=facet_groups(stock, "mac", {}, include_catalog=True, show_counts=True, cascade=True),
+        watch_facets=facet_groups(stock, DEFAULT_LISTING_KEY, {}, include_catalog=True, show_counts=True, cascade=True),
         open_create=raw_new in {"1", "true", "yes"},
     )
 

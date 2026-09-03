@@ -42,6 +42,7 @@ __all__ = [
     "CORES_KEY",
     "MODEL_DIMS",
     "PACKAGED_CATALOG",
+    "_cache",
     "cascade_allowed_values",
     "cascade_models",
     "catalog_from_bootstrap",
