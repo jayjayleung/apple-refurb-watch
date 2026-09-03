@@ -84,16 +84,15 @@ def sku_from_url(url: str) -> str:
 
 
 def product_page_url(sku: str | None = None, raw: str | None = None) -> str:
-    """Stable Apple product URL that browsers can open.
+    """Canonical Apple product URL that browsers can open.
 
-    Official grid links are lowercase and carry a short-lived ``fnode`` query.
-    Direct lowercase short links often stall; the uppercase SKU path redirects
-    reliably and does not depend on listing-session tokens.
+    Official grid links carry a short-lived ``fnode`` query. The stable product
+    path is the lowercase SKU without that token.
     """
 
     code = normalize_sku(sku) or sku_from_url(raw or "")
     if code:
-        return f"{BASE}/shop/product/{code}"
+        return f"{BASE}/shop/product/{code.lower()}"
     text = str(raw or "").strip()
     if not text:
         return ""

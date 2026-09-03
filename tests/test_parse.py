@@ -18,7 +18,7 @@ def test_parse_listing_bootstrap(listing_html: str) -> None:
     products = parse_listing_html(listing_html, "mac", "https://www.apple.com.cn/shop/refurbished/mac")
     assert len(products) == 3
     pro = next(p for p in products if p.sku == "FGDN4CH/A")
-    assert pro.url == "https://www.apple.com.cn/shop/product/FGDN4CH/A"
+    assert pro.url == "https://www.apple.com.cn/shop/product/fgdn4ch/a"
     assert pro.price == 14999
     assert pro.ram_gb == 24
     assert pro.storage_gb == 1024
@@ -39,15 +39,19 @@ def test_first_srcset_url() -> None:
     assert first_srcset_url("") is None
 
 
-def test_product_page_url_uses_uppercase_sku_and_drops_fnode() -> None:
+def test_product_page_url_uses_lowercase_sku_and_drops_fnode() -> None:
     assert sku_from_url("/shop/product/g1mk7ch/a?fnode=abc") == "G1MK7CH/A"
     assert sku_from_url("https://www.apple.com.cn/shop/product/feh44ch/b") == "FEH44CH/B"
     assert product_page_url("g1mk7ch/a", "/shop/product/g1mk7ch/a?fnode=deadbeef") == (
-        "https://www.apple.com.cn/shop/product/G1MK7CH/A"
+        "https://www.apple.com.cn/shop/product/g1mk7ch/a"
+    )
+    assert product_page_url("G1MK7CH/A", "https://www.apple.com.cn/shop/product/G1MK7CH/A") == (
+        "https://www.apple.com.cn/shop/product/g1mk7ch/a"
     )
     assert product_page_url(None, "https://www.apple.com.cn/shop/product/fhfa4ch/a") == (
-        "https://www.apple.com.cn/shop/product/FHFA4CH/A"
+        "https://www.apple.com.cn/shop/product/fhfa4ch/a"
     )
+    assert "?" not in product_page_url("fhfa4ch/a", "/shop/product/fhfa4ch/a?fnode=deadbeef")
 
 
 def test_listing_url_rejects_ssrf() -> None:

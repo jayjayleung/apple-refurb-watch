@@ -658,7 +658,7 @@ def test_events_page_shows_hit_details_and_live_fragment(tmp_path) -> None:
         assert "内存 ≥ 64GB" not in page.text
         assert "event-conds" not in page.text
         assert "已售出" not in page.text
-        assert "shop/product/G1MK7CH/A" in page.text
+        assert "shop/product/g1mk7ch/a" in page.text
         assert "/api/status" in page.text
         assert "event-feed" in page.text
         fragment = client.get(
@@ -799,8 +799,8 @@ def test_watch_hits_page_lists_and_deletes_sold(tmp_path) -> None:
         assert "翻新 14 英寸 MacBook Pro 在售" in page.text
         assert "翻新 14 英寸 MacBook Pro 已下架" in page.text
         assert page.text.index("翻新 14 英寸 MacBook Pro 在售") < page.text.index("翻新 14 英寸 MacBook Pro 已下架")
-        assert "shop/product/G1MK7CH/A" in page.text
-        assert "shop/product/G1MK5CH/A" in page.text
+        assert "shop/product/g1mk7ch/a" in page.text
+        assert "shop/product/g1mk5ch/a" in page.text
         assert page.text.count('action="/watches/' + str(watch["id"]) + '/hits/delete"') == 1
         blocked = client.post(
             f"/watches/{watch['id']}/hits/delete",

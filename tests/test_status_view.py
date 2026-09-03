@@ -341,7 +341,7 @@ def test_present_watch_hits_puts_in_stock_first() -> None:
     assert [item["sku"] for item in hits] == ["G1MK7CH/A", "G1MK5CH/A"]
     assert hits[0]["in_stock"] is True
     assert hits[1]["in_stock"] is False
-    assert hits[0]["url"].endswith("/G1MK7CH/A")
+    assert hits[0]["url"].endswith("/g1mk7ch/a")
 
 
 def test_paginate_watch_hits_clamps_page() -> None:
