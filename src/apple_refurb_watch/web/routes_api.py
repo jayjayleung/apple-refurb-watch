@@ -237,12 +237,12 @@ async def api_notify_test(request: Request) -> dict:
             payload = NotifyTestIn.model_validate(body)
             channel = payload.channel
     channel = channel or request.query_params.get("channel")
+
+    def work():
+        return send_test(request.app.state.db.settings(), channel)
+
     try:
-        errors = await run_in_threadpool(
-            send_test,
-            request.app.state.db.settings(),
-            channel,
-        )
+        errors = await run_in_threadpool(work)
     except NotifyError as exc:
         raise HTTPException(400, str(exc)) from exc
     if errors:

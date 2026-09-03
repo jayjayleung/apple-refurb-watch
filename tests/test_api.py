@@ -1123,7 +1123,8 @@ def test_unhandled_page_error_shows_reason(tmp_path, monkeypatch) -> None:
         assert "frozen-home-crash" in home.text
         api = client.get("/api/status")
         assert api.status_code == 500
-        assert api.json()["detail"] == "frozen-home-crash"
+        assert api.json()["detail"] == "RuntimeError: frozen-home-crash"
+        assert "Traceback" not in home.text
 
 
 def test_api_sync_catalog(tmp_path, monkeypatch) -> None:

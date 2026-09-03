@@ -14,6 +14,7 @@ LATEST_RELEASE_URL = f"{GITHUB_URL}/releases/latest"
 LATEST_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 CACHE_NAME = "update-check.json"
 CACHE_TTL_SECONDS = 12 * 3600
+NEGATIVE_CACHE_TTL_SECONDS = 30 * 60
 FetchLatest = Callable[[], str | None]
 
 
@@ -107,9 +108,13 @@ def latest_release_info(
             cached_at = float(cached.get("checked_at") or 0)
         except (TypeError, ValueError):
             cached_at = 0.0
-        fresh = bool(latest) and (checked_at - cached_at) < CACHE_TTL_SECONDS
-        if fresh and is_newer(current_ver, latest):
-            fresh = False
+        age = checked_at - cached_at
+        if latest:
+            fresh = age < CACHE_TTL_SECONDS
+            if fresh and is_newer(current_ver, latest):
+                fresh = False
+        else:
+            fresh = age >= 0 and age < NEGATIVE_CACHE_TTL_SECONDS
     else:
         fresh = False
     if refresh:
@@ -118,6 +123,8 @@ def latest_release_info(
         fetched = (fetch or fetch_latest_tag)()
         if fetched:
             latest = parse_release_tag(fetched)
+            _write_cache(latest, checked_at)
+        else:
             _write_cache(latest, checked_at)
     return {
         "ok": True,

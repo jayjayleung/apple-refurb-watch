@@ -119,7 +119,7 @@ class ProductRepository:
                     item["extra"] = {}
         return items
 
-    def count(self, *, in_stock: bool | None = True, listing_key: str | None = None) -> int:
+    def count(self, *, in_stock: bool | None = True, listing_key: str | None = None, listing_keys: list[str] | None = None) -> int:
         clauses: list[str] = []
         args: list[Any] = []
         if in_stock is True:
@@ -129,6 +129,12 @@ class ProductRepository:
         if listing_key:
             clauses.append("listing_key=?")
             args.append(listing_key)
+        elif listing_keys is not None:
+            keys = [str(key) for key in listing_keys if key]
+            if not keys:
+                return 0
+            clauses.append(f"listing_key IN ({','.join('?' for _ in keys)})")
+            args.extend(keys)
         sql = "SELECT COUNT(*) AS n FROM products"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)

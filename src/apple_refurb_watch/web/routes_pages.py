@@ -4,11 +4,12 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from apple_refurb_watch.categories import canonical_shop_listing_key
 from apple_refurb_watch.listing import shop_listings_url
 from apple_refurb_watch.usecases import list_shop, present_events
-from apple_refurb_watch.web.auth import token_ok
+from apple_refurb_watch.web.auth import clear_session_cookie, set_session_cookie, token_ok
 from apple_refurb_watch.web.listing import (
     PAGE_SIZE,
     filter_chips,
@@ -142,10 +143,21 @@ def login_page(request: Request, error: str | None = None) -> HTMLResponse:
 @router.post("/login")
 async def login_submit(request: Request) -> RedirectResponse:
     form = dict(await request.form())
-    token = str(form.get("token") or "")
-    expected = request.app.state.db.settings().get("access_token") or ""
-    if not token_ok(token, expected):
-        return RedirectResponse("/login?error=1", status_code=303)
-    response = RedirectResponse("/", status_code=303)
-    response.set_cookie("arw_token", token, httponly=True, samesite="lax", max_age=30 * 24 * 3600)
+
+    def work() -> RedirectResponse:
+        token = str(form.get("token") or "")
+        expected = request.app.state.db.settings().get("access_token") or ""
+        if not token_ok(token, expected):
+            return RedirectResponse("/login?error=1", status_code=303)
+        response = RedirectResponse("/", status_code=303)
+        set_session_cookie(response, expected, secure=request.url.scheme == "https")
+        return response
+
+    return await run_in_threadpool(work)
+
+
+@router.post("/logout")
+def logout() -> RedirectResponse:
+    response = RedirectResponse("/login", status_code=303)
+    clear_session_cookie(response)
     return response

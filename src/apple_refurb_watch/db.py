@@ -47,6 +47,10 @@ class Database:
                 pass
             raise
 
+    @property
+    def settings_version(self) -> int:
+        return self.settings_repo.version
+
     def migrate(self) -> None:
         self._store.migrate(apply_schema=self._apply_schema)
 
@@ -201,8 +205,14 @@ class Database:
     def release_expired_leases(self) -> int:
         return self.events_repo.release_expired_leases()
 
-    def count_products(self, *, in_stock: bool | None = True, listing_key: str | None = None) -> int:
-        return self.products_repo.count(in_stock=in_stock, listing_key=listing_key)
+    def count_products(
+        self,
+        *,
+        in_stock: bool | None = True,
+        listing_key: str | None = None,
+        listing_keys: list[str] | None = None,
+    ) -> int:
+        return self.products_repo.count(in_stock=in_stock, listing_key=listing_key, listing_keys=listing_keys)
 
     def scan_status(self) -> dict[str, Any]:
         return self.settings_repo.scan_status()

@@ -78,3 +78,25 @@ def test_latest_release_info_fetch_failure_keeps_quiet() -> None:
     assert info["latest"] is None
     assert info["newer"] is False
     assert info["url"] == LATEST_RELEASE_URL
+
+
+def test_latest_release_info_failure_is_negatively_cached(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    calls = {"n": 0}
+
+    def fetch() -> str | None:
+        calls["n"] += 1
+        return None
+
+    first = latest_release_info(current="0.3.3", now=1000.0, fetch=fetch)
+    assert first["latest"] is None
+    assert calls["n"] == 1
+
+    def boom() -> str:
+        raise AssertionError("should use negative cache")
+
+    cached = latest_release_info(current="0.3.3", now=1000.0 + 60, fetch=boom)
+    assert cached["latest"] is None
+    assert calls["n"] == 1
+    later = latest_release_info(current="0.3.3", now=1000.0 + 31 * 60, fetch=lambda: "v0.4.0")
+    assert later["latest"] == "0.4.0"

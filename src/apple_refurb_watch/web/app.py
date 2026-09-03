@@ -10,14 +10,14 @@ from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from apple_refurb_watch.db import Database
 from apple_refurb_watch.deliveries import OutboxWorker
 from apple_refurb_watch.paths import clear_runtime, log_path, write_runtime
 from apple_refurb_watch.scanner import ScanService
-from apple_refurb_watch.web.auth import AuthMiddleware
+from apple_refurb_watch.web.auth import AuthMiddleware, SecurityHeadersMiddleware, login_redirect
 from apple_refurb_watch.web.render import PageRenderer, templates, web_dir
 from apple_refurb_watch.web.routes_api import router as api_router
 from apple_refurb_watch.web.routes_pages import router as pages_router
@@ -37,6 +37,12 @@ def apply_windows_loop_policy() -> None:
         import asyncio
 
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+def _public_error_summary(exc: BaseException) -> str:
+    detail = str(exc).strip().splitlines()[0][:240] if str(exc).strip() else ""
+    name = type(exc).__name__
+    return f"{name}: {detail}" if detail else name
 
 
 def _log_unhandled(exc: BaseException) -> str:
@@ -151,6 +157,7 @@ def create_app(
         raise RuntimeError(f"安装包缺少网页静态文件: {static_dir}")
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     app.add_middleware(AuthMiddleware, db=database, bound_host=app.state.bound_host)
+    app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(api_router)
     app.include_router(pages_router)
     app.include_router(watches_router)
@@ -161,19 +168,20 @@ def create_app(
         if request.url.path.startswith("/api/") or "application/json" in (request.headers.get("accept") or ""):
             return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
         if exc.status_code in {401, 403}:
-            return RedirectResponse("/login")
+            return login_redirect(request)
         detail = html.escape(str(exc.detail))
         return HTMLResponse(f"<p>{detail}</p><p><a href='/'>返回</a></p>", status_code=exc.status_code)
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):
-        text = _log_unhandled(exc)
+        _log_unhandled(exc)
+        summary = _public_error_summary(exc)
         if request.url.path.startswith("/api/") or "application/json" in (request.headers.get("accept") or ""):
-            return JSONResponse({"detail": str(exc)}, status_code=500)
+            return JSONResponse({"detail": summary}, status_code=500)
         body = (
             "<h1>页面出错</h1>"
             "<p>后台已启动，但打开页面时崩溃。下面是原因；完整记录在本机日志。</p>"
-            f"<pre>{html.escape(text)}</pre>"
+            f"<pre>{html.escape(summary)}</pre>"
             "<p><a href='/'>重试</a></p>"
         )
         return HTMLResponse(body, status_code=500)

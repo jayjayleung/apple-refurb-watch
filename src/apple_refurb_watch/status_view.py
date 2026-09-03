@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from apple_refurb_watch.listing import products_in_listen_scope
+from apple_refurb_watch.categories import MAC_CHILD_LISTINGS, listen_listing_keys
 from apple_refurb_watch.parse import product_page_url
 from apple_refurb_watch.watches import (
     appeared_spec_line,
@@ -25,6 +25,23 @@ def _display_tz():
 
 
 DISPLAY_TZ = _display_tz()
+
+
+def _listen_stock_count(database, listings) -> int:
+    keys = listen_listing_keys(listings)
+    if any(key in MAC_CHILD_LISTINGS for key in keys):
+        from apple_refurb_watch.listing import products_in_listen_scope
+
+        return len(products_in_listen_scope(database.list_products(in_stock=True), listings))
+    expanded: list[str] = []
+    seen: set[str] = set()
+    for key in keys:
+        extras = MAC_CHILD_LISTINGS if key == "mac" else ()
+        for item in (key, *extras):
+            if item not in seen:
+                seen.add(item)
+                expanded.append(item)
+    return database.count_products(in_stock=True, listing_keys=expanded)
 
 
 def parse_iso(iso: str | None) -> datetime | None:
@@ -51,7 +68,7 @@ def load_status(database) -> dict[str, Any]:
     data = database.scan_status()
     watch_enabled = database.count_watches(enabled=True)
     watch_total = database.count_watches()
-    in_stock = len(products_in_listen_scope(database.list_products(in_stock=True), settings.get("listings")))
+    in_stock = _listen_stock_count(database, settings.get("listings"))
     data["settings"] = {
         k: settings[k]
         for k in ("interval_seconds", "bind_host", "bind_port", "lan_enabled", "listings", "listen_enabled")

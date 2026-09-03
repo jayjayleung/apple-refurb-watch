@@ -31,35 +31,43 @@ def settings_page(request: Request, flash: str | None = None, channel: str | Non
 @router.post("/settings", response_model=None)
 async def settings_save(request: Request) -> Response:
     form = await request.form()
-    payload = {key: form.get(key) for key in form.keys()}
-    database = request.app.state.db
-    before = database.settings()
-    patch = form_settings(payload, before)
-    updated = database.update_settings(patch)
-    if "interval_seconds" in patch or "listen_enabled" in patch:
-        request.app.state.reschedule()
-    generated = ""
-    typed = str(payload.get("access_token") or "").strip()
-    if patch.get("lan_enabled") and not before.get("access_token") and updated.get("access_token") and not typed:
-        generated = str(updated.get("access_token") or "")
-    if generated:
-        return request.app.state.render(
-            "settings.html",
-            request,
-            flash="lan-token",
-            channel=None,
-            revealed_token=generated,
-        )
-    return RedirectResponse("/settings?flash=saved", status_code=303)
+
+    def work() -> Response:
+        payload = {key: form.get(key) for key in form.keys()}
+        database = request.app.state.db
+        before = database.settings()
+        patch = form_settings(payload, before)
+        updated = database.update_settings(patch)
+        if "interval_seconds" in patch or "listen_enabled" in patch:
+            request.app.state.reschedule()
+        generated = ""
+        typed = str(payload.get("access_token") or "").strip()
+        if patch.get("lan_enabled") and not before.get("access_token") and updated.get("access_token") and not typed:
+            generated = str(updated.get("access_token") or "")
+        if generated:
+            return request.app.state.render(
+                "settings.html",
+                request,
+                flash="lan-token",
+                channel=None,
+                revealed_token=generated,
+            )
+        return RedirectResponse("/settings?flash=saved", status_code=303)
+
+    return await run_in_threadpool(work)
 
 
 @router.post("/settings/listen")
 async def settings_listen(request: Request) -> RedirectResponse:
     form = await request.form()
-    enabled = str(form.get("enabled") or "") in {"1", "on", "true", "yes"}
-    request.app.state.db.update_settings({"listen_enabled": enabled})
-    request.app.state.reschedule()
-    return RedirectResponse(safe_next(str(form.get("next") or "/")), status_code=303)
+
+    def work() -> RedirectResponse:
+        enabled = str(form.get("enabled") or "") in {"1", "on", "true", "yes"}
+        request.app.state.db.update_settings({"listen_enabled": enabled})
+        request.app.state.reschedule()
+        return RedirectResponse(safe_next(str(form.get("next") or "/")), status_code=303)
+
+    return await run_in_threadpool(work)
 
 
 @router.post("/settings/sync-catalog")
@@ -110,9 +118,13 @@ async def settings_notify_test(request: Request) -> RedirectResponse:
     payload = {key: form.get(key) for key in form.keys()}
     channel = _safe_channel(str(payload.get("channel") or ""))
     suffix = f"&channel={channel}" if channel else ""
-    settings = overlay_notify_from_form(payload, request.app.state.db.settings())
+
+    def work():
+        settings = overlay_notify_from_form(payload, request.app.state.db.settings())
+        send_test(settings, channel)
+
     try:
-        await run_in_threadpool(send_test, settings, channel)
+        await run_in_threadpool(work)
         return RedirectResponse(f"/settings?flash=notify-ok{suffix}", status_code=303)
     except NotifyError:
         return RedirectResponse(f"/settings?flash=notify-fail{suffix}", status_code=303)
