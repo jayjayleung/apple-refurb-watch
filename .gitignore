@@ -16,3 +16,4 @@ build/
 /data/
 /logs/
 *.log
+/${release_home}/

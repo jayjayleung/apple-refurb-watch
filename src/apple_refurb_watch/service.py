@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -224,7 +223,7 @@ def _install_systemd(argv: list[str]) -> str:
 def _launchd_plist() -> Path:
     path = Path.home() / "Library/LaunchAgents"
     path.mkdir(parents=True, exist_ok=True)
-    return path / f"cn.apple-refurb-watch.plist"
+    return path / "cn.apple-refurb-watch.plist"
 
 
 def _install_launchd(argv: list[str]) -> str:
@@ -266,7 +265,6 @@ def _install_windows(argv: list[str]) -> str:
 
 def which_webview_hint() -> str:
     if sys.platform.startswith("linux"):
-        gtk = shutil.which("pkg-config")
         return "Linux 桌面需要 WebKitGTK，例如：sudo apt install gir1.2-webkit2-4.1 python3-gi"
     if sys.platform == "darwin":
         return "macOS 使用系统 WebKit，一般无需额外安装。"

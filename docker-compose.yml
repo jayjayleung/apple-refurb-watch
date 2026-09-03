@@ -9,4 +9,5 @@ services:
       - ./data:/data
     environment:
       APPLE_REFURB_WATCH_HOME: /data
+      APPLE_REFURB_WATCH_ACCESS_TOKEN: ${APPLE_REFURB_WATCH_ACCESS_TOKEN:-}
     restart: unless-stopped

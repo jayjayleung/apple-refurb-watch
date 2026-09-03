@@ -395,3 +395,43 @@ def test_config_import_output_redacts_retained_secrets(tmp_path, monkeypatch) ->
     assert result.exit_code == 0
     assert "local-secret" not in result.stdout
     assert "api.day.app" not in result.stdout
+
+
+def test_serve_host_override_is_ephemeral_unless_persist(tmp_path) -> None:
+    from apple_refurb_watch.cli import apply_serve_bind
+
+    db = Database(tmp_path / "app.db")
+    db.set_setting("bind_host", "127.0.0.1")
+    db.set_setting("bind_port", 8766)
+    host, port = apply_serve_bind(db, "0.0.0.0", 9999, persist=False)
+    assert host == "0.0.0.0"
+    assert port == 9999
+    assert db.settings()["bind_host"] == "127.0.0.1"
+    assert db.settings()["bind_port"] == 8766
+    apply_serve_bind(db, "0.0.0.0", 9999, persist=True)
+    assert db.settings()["bind_host"] == "0.0.0.0"
+    assert db.settings()["bind_port"] == 9999
+    db.close()
+
+
+def test_env_access_token_bootstraps_empty_database(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch.cli import apply_env_access_token
+
+    monkeypatch.setenv("APPLE_REFURB_WATCH_ACCESS_TOKEN", "from-env")
+    db = Database(tmp_path / "app.db")
+    apply_env_access_token(db)
+    assert db.settings()["access_token"] == "from-env"
+    monkeypatch.setenv("APPLE_REFURB_WATCH_ACCESS_TOKEN", "other")
+    apply_env_access_token(db)
+    assert db.settings()["access_token"] == "from-env"
+    db.close()
+
+
+def test_tui_import_error_is_friendly(monkeypatch) -> None:
+    def boom() -> None:
+        raise ImportError("textual")
+
+    monkeypatch.setattr("apple_refurb_watch.tui_app.run_tui", boom)
+    result = invoke(["tui"])
+    assert result.exit_code == 1
+    assert "TUI" in (result.stderr or result.stdout)

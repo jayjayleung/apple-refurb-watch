@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -36,6 +37,29 @@ app.add_typer(service_app, name="service")
 app.add_typer(settings_app, name="settings")
 app.add_typer(events_app, name="events")
 app.add_typer(config_app, name="config")
+
+ENV_ACCESS_TOKEN = "APPLE_REFURB_WATCH_ACCESS_TOKEN"
+
+
+def apply_serve_bind(db: Database, host: str | None, port: int | None, *, persist: bool) -> tuple[str, int]:
+    settings = db.settings()
+    bind_host = host or settings.get("bind_host") or "127.0.0.1"
+    bind_port = int(port if port is not None else (settings.get("bind_port") or 8765))
+    if persist:
+        if host:
+            db.set_setting("bind_host", bind_host)
+        if port is not None:
+            db.set_setting("bind_port", bind_port)
+    return bind_host, bind_port
+
+
+def apply_env_access_token(db: Database) -> None:
+    token = str(os.environ.get(ENV_ACCESS_TOKEN) or "").strip()
+    if not token:
+        return
+    if str(db.get_setting("access_token") or "").strip():
+        return
+    db.set_setting("access_token", token)
 
 
 def _client() -> ApiClient:
@@ -94,8 +118,9 @@ def version() -> None:
 def serve(
     detach: bool = typer.Option(False, "--detach", help="放到后台运行"),
     detach_child: bool = typer.Option(False, "--detach-child", hidden=True),
-    host: Optional[str] = typer.Option(None, help="覆盖绑定地址"),
-    port: Optional[int] = typer.Option(None, help="覆盖端口"),
+    host: Optional[str] = typer.Option(None, help="覆盖绑定地址，仅本次进程"),
+    port: Optional[int] = typer.Option(None, help="覆盖端口，仅本次进程"),
+    persist: bool = typer.Option(False, "--persist", help="把 --host/--port 写入本机设置"),
 ) -> None:
     """启动 daemon + 网页。默认前台；--detach 后台。"""
     if detach and not detach_child:
@@ -108,13 +133,8 @@ def serve(
         typer.echo("daemon 已在运行。网页可用 apple-refurb-watch status 查看地址。")
         raise typer.Exit(1)
     db = Database()
-    settings = db.settings()
-    bind_host = host or settings.get("bind_host") or "127.0.0.1"
-    bind_port = port or int(settings.get("bind_port") or 8765)
-    if host:
-        db.set_setting("bind_host", bind_host)
-    if port:
-        db.set_setting("bind_port", bind_port)
+    apply_env_access_token(db)
+    bind_host, bind_port = apply_serve_bind(db, host, port, persist=persist)
     effective_settings = db.settings()
     # Validate the effective address (including one-shot CLI overrides) before
     # handing the socket to uvicorn.  A malformed remote configuration must
@@ -173,10 +193,11 @@ def tui() -> None:
     """终端界面。"""
     try:
         from apple_refurb_watch.tui_app import run_tui
+
+        run_tui()
     except ImportError as exc:
         typer.echo("请先安装 TUI 依赖：pip install -e '.[tui]'", err=True)
         raise typer.Exit(1) from exc
-    run_tui()
 
 
 @app.command("list", rich_help_panel="在售")

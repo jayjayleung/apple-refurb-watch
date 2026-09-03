@@ -2,6 +2,7 @@ name: ci
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
@@ -14,13 +15,27 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.7"
+          enable-cache: true
+      - name: Ruff
+        run: uvx ruff check src tests
+
   test:
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.12"]
+        include:
+          - os: ubuntu-latest
+            python-version: "3.11"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -39,10 +54,19 @@ jobs:
         # pwsh 会把 pytest 写到 stderr 的 warnings 当成步骤失败。
         shell: bash
         run: uv run python -m pytest --tb=short -q
+      - name: CLI smoke
+        env:
+          PYTHONUTF8: "1"
+          APPLE_REFURB_WATCH_HOME: ${{ runner.temp }}/apple-refurb-watch-smoke-data
+          APPLE_REFURB_WATCH_LOG: ${{ runner.temp }}/apple-refurb-watch-smoke-log
+        shell: bash
+        run: |
+          uv run apple-refurb-watch version
+          uv run apple-refurb-watch desktop --probe
 
   build:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: test
+    needs: [lint, test]
     name: ${{ matrix.asset }}
     runs-on: ${{ matrix.os }}
     permissions:

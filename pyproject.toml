@@ -27,12 +27,12 @@ dependencies = [
 [project.optional-dependencies]
 tui = ["textual>=0.80"]
 desktop = ["pywebview>=5.0", "pystray>=0.19", "pillow>=10.0"]
-all = ["textual>=0.80", "pywebview>=5.0", "pystray>=0.19", "pillow>=10.0"]
-dev = ["pytest>=8.0", "respx>=0.21", "textual>=0.80"]
+all = ["apple-refurb-watch[tui,desktop]"]
+dev = ["apple-refurb-watch[tui]", "pytest>=8.0", "respx>=0.21", "ruff>=0.6"]
 pack = ["pyinstaller>=6.3"]
 
 [project.scripts]
-apple-refurb-watch = "apple_refurb_watch.cli:app"
+apple-refurb-watch = "apple_refurb_watch.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -43,3 +43,32 @@ apple_refurb_watch = ["web/templates/*.html", "web/static/*", "data/*.json"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+src = ["src", "tests"]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "SIM", "RUF100"]
+ignore = [
+  "E501",
+  "B008",
+  "B904",
+  "F401",
+  "RUF100",
+  "SIM102",
+  "SIM103",
+  "SIM105",
+  "SIM108",
+  "SIM114",
+  "SIM115",
+  "SIM117",
+  "SIM118",
+  "SIM401",
+  "UP012",
+  "UP017",
+  "UP035",
+  "UP037",
+  "UP045",
+]
