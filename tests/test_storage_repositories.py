@@ -55,7 +55,7 @@ def test_delivery_retry_respects_next_retry_at(tmp_path) -> None:
 
     future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
     db.conn.execute(
-        "UPDATE notification_deliveries SET next_retry_at=? WHERE event_id=? AND channel=?",
+        "UPDATE notification_outbox SET next_retry_at=? WHERE event_id=? AND channel=?",
         (future, event_id, "bark"),
     )
     db.conn.commit()
@@ -104,7 +104,7 @@ def test_outbox_expired_lease_can_be_reclaimed(tmp_path) -> None:
     first = db.claim_pending_deliveries(lease_token="worker-a", lease_seconds=60)
     assert len(first) == 1
     db.conn.execute(
-        "UPDATE notification_deliveries SET leased_until=? WHERE event_id=? AND channel=?",
+        "UPDATE notification_outbox SET leased_until=? WHERE event_id=? AND channel=?",
         ("2000-01-01T00:00:00+00:00", event_id, "hook"),
     )
     db.conn.commit()
@@ -148,7 +148,6 @@ def test_outbox_failure_uses_exponential_backoff(tmp_path) -> None:
     # use a real-channel worker here to exercise provider backoff.
     worker.hook = None
     db.update_settings({"notify": {"bark": {"enabled": True, "url": "https://api.day.app/key"}}})
-    db.conn.execute("UPDATE notification_deliveries SET channel='bark' WHERE event_id=?", (event_id,))
     db.conn.execute("UPDATE notification_outbox SET channel='bark' WHERE event_id=?", (event_id,))
     db.conn.commit()
     assert worker.run_once() == 0
@@ -172,7 +171,7 @@ def test_legacy_ack_cannot_overwrite_a_live_lease(tmp_path) -> None:
     assert claimed
     assert db.mark_delivery(event_id, "hook", ok=True) is False
     row = db.conn.execute(
-        "SELECT status, lease_token FROM notification_deliveries WHERE event_id=? AND channel='hook'",
+        "SELECT status, lease_token FROM notification_outbox WHERE event_id=? AND channel='hook'",
         (event_id,),
     ).fetchone()
     assert row["status"] == "processing"
@@ -188,23 +187,17 @@ def test_legacy_ack_cannot_resurrect_a_completed_delivery(tmp_path) -> None:
     db.claim_pending_deliveries(lease_token="worker-a", lease_seconds=60)
     assert db.complete_delivery(event_id, "hook", lease_token="worker-a", ok=True) is True
 
-    # A delayed pre-lease callback must not turn a successful send back into a
-    # retryable row (which would produce a duplicate notification).
     assert db.mark_delivery(event_id, "hook", ok=False, last_error="late") is False
-    legacy = db.conn.execute(
-        "SELECT status, attempts FROM notification_deliveries WHERE event_id=? AND channel='hook'",
-        (event_id,),
-    ).fetchone()
     canonical = db.conn.execute(
         "SELECT status, attempts FROM notification_outbox WHERE event_id=? AND channel='hook'",
         (event_id,),
     ).fetchone()
-    assert legacy["status"] == "ok" and canonical["status"] == "sent"
-    assert legacy["attempts"] == canonical["attempts"] == 1
+    assert canonical["status"] == "sent"
+    assert canonical["attempts"] == 1
     db.close()
 
 
-def test_canonical_terminal_state_is_not_downgraded_by_stale_legacy_row(tmp_path) -> None:
+def test_canonical_sent_is_not_listed_as_pending(tmp_path) -> None:
     db = Database(tmp_path / "app.db")
     event_id = db.add_event(type="appeared", title="新货")
     db.enqueue_delivery(event_id, "hook")
@@ -213,45 +206,33 @@ def test_canonical_terminal_state_is_not_downgraded_by_stale_legacy_row(tmp_path
         ("2026-01-01T00:00:00+00:00", event_id),
     )
     db.conn.commit()
-
-    # Reading/claiming through the old compatibility path must preserve the
-    # canonical terminal result and mirror it back as ``ok``.
     assert db.list_pending_deliveries() == []
-    legacy = db.conn.execute(
-        "SELECT status, attempts FROM notification_deliveries WHERE event_id=? AND channel='hook'",
-        (event_id,),
-    ).fetchone()
     canonical = db.conn.execute(
         "SELECT status, attempts FROM notification_outbox WHERE event_id=? AND channel='hook'",
         (event_id,),
     ).fetchone()
-    assert legacy["status"] == "ok" and canonical["status"] == "sent"
-    assert legacy["attempts"] == canonical["attempts"] == 2
+    assert canonical["status"] == "sent"
+    assert canonical["attempts"] == 2
     db.close()
 
 
-def test_expired_lease_recovery_updates_both_delivery_tables(tmp_path) -> None:
+def test_expired_lease_recovery_updates_outbox(tmp_path) -> None:
     db = Database(tmp_path / "app.db")
     event_id = db.add_event(type="appeared", title="新货")
     db.enqueue_delivery(event_id, "hook")
     db.claim_pending_deliveries(lease_token="worker-a", lease_seconds=60)
-    # Simulate a partial legacy write from an older process.
     db.conn.execute(
         "UPDATE notification_outbox SET leased_until=? WHERE event_id=? AND channel='hook'",
         ("2000-01-01T00:00:00+00:00", event_id),
     )
     db.conn.commit()
     assert db.release_expired_leases() == 1
-    legacy = db.conn.execute(
-        "SELECT status, lease_token, leased_until FROM notification_deliveries WHERE event_id=? AND channel='hook'",
-        (event_id,),
-    ).fetchone()
     canonical = db.conn.execute(
         "SELECT status, lease_token, leased_until FROM notification_outbox WHERE event_id=? AND channel='hook'",
         (event_id,),
     ).fetchone()
-    assert legacy["status"] == canonical["status"] == "pending"
-    assert legacy["lease_token"] is None and canonical["lease_token"] is None
+    assert canonical["status"] == "pending"
+    assert canonical["lease_token"] is None
     db.close()
 
 
@@ -262,16 +243,12 @@ def test_cancel_does_not_clear_a_processing_lease(tmp_path) -> None:
     db.claim_pending_deliveries(lease_token="worker-a", lease_seconds=60)
 
     assert db.cancel_delivery(event_id, "hook", reason="已关闭通道") is False
-    legacy = db.conn.execute(
-        "SELECT status, lease_token FROM notification_deliveries WHERE event_id=? AND channel='hook'",
-        (event_id,),
-    ).fetchone()
     canonical = db.conn.execute(
         "SELECT status, lease_token FROM notification_outbox WHERE event_id=? AND channel='hook'",
         (event_id,),
     ).fetchone()
-    assert legacy["status"] == canonical["status"] == "processing"
-    assert legacy["lease_token"] == canonical["lease_token"] == "worker-a"
+    assert canonical["status"] == "processing"
+    assert canonical["lease_token"] == "worker-a"
     db.close()
 
 
@@ -279,10 +256,6 @@ def test_explicit_sent_status_is_not_claimed(tmp_path) -> None:
     db = Database(tmp_path / "app.db")
     event_id = db.add_event(type="appeared", title="新货")
     db.enqueue_delivery(event_id, "hook")
-    db.conn.execute(
-        "UPDATE notification_deliveries SET status='sent', attempts=3 WHERE event_id=? AND channel='hook'",
-        (event_id,),
-    )
     db.conn.execute(
         "UPDATE notification_outbox SET status='sent', attempts=3 WHERE event_id=? AND channel='hook'",
         (event_id,),
@@ -299,11 +272,6 @@ def test_cancel_does_not_downgrade_terminal_delivery(tmp_path, terminal: str) ->
     db = Database(tmp_path / "app.db")
     event_id = db.add_event(type="appeared", title="新货")
     db.enqueue_delivery(event_id, "hook")
-    legacy_status = "ok" if terminal == "sent" else terminal
-    db.conn.execute(
-        "UPDATE notification_deliveries SET status=?, last_error='old', next_retry_at='2026-01-01T00:00:00+00:00' WHERE event_id=? AND channel='hook'",
-        (legacy_status, event_id),
-    )
     db.conn.execute(
         "UPDATE notification_outbox SET status=?, last_error='old', next_retry_at='2026-01-01T00:00:00+00:00' WHERE event_id=? AND channel='hook'",
         (terminal, event_id),
@@ -311,60 +279,27 @@ def test_cancel_does_not_downgrade_terminal_delivery(tmp_path, terminal: str) ->
     db.conn.commit()
 
     assert db.cancel_delivery(event_id, "hook", reason="关闭通道") is False
-    legacy = db.conn.execute(
-        "SELECT status, last_error, next_retry_at FROM notification_deliveries WHERE event_id=? AND channel='hook'",
-        (event_id,),
-    ).fetchone()
     canonical = db.conn.execute(
         "SELECT status, last_error, next_retry_at FROM notification_outbox WHERE event_id=? AND channel='hook'",
         (event_id,),
     ).fetchone()
-    assert legacy["status"] == legacy_status
     assert canonical["status"] == terminal
-    if terminal in {"sent", "dead", "cancelled"}:
-        assert legacy["next_retry_at"] is None
-        assert canonical["next_retry_at"] is None
+    assert canonical["last_error"] == "old"
     db.close()
 
 
-def test_sync_prefers_newer_processing_lease_when_tokens_diverge(tmp_path) -> None:
+def test_idle_outbox_worker_does_not_grow_wal(tmp_path) -> None:
     db = Database(tmp_path / "app.db")
-    event_id = db.add_event(type="appeared", title="新货")
-    db.enqueue_delivery(event_id, "hook")
-    db.conn.execute(
-        """
-        UPDATE notification_outbox
-        SET status='processing', attempts=1, lease_token='old-token',
-            leased_until='2026-01-01T00:01:00+00:00',
-            last_attempt_at='2026-01-01T00:00:00+00:00'
-        WHERE event_id=? AND channel='hook'
-        """,
-        (event_id,),
-    )
-    db.conn.execute(
-        """
-        UPDATE notification_deliveries
-        SET status='processing', attempts=2, lease_token='new-token',
-            leased_until='2026-01-01T00:02:00+00:00',
-            last_attempt_at='2026-01-01T00:00:30+00:00'
-        WHERE event_id=? AND channel='hook'
-        """,
-        (event_id,),
-    )
+    db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     db.conn.commit()
-
-    assert db.list_pending_deliveries() == []
-    legacy = db.conn.execute(
-        "SELECT attempts, lease_token, leased_until FROM notification_deliveries WHERE event_id=? AND channel='hook'",
-        (event_id,),
-    ).fetchone()
-    canonical = db.conn.execute(
-        "SELECT attempts, lease_token, leased_until FROM notification_outbox WHERE event_id=? AND channel='hook'",
-        (event_id,),
-    ).fetchone()
-    assert legacy["attempts"] == canonical["attempts"] == 2
-    assert legacy["lease_token"] == canonical["lease_token"] == "new-token"
-    assert legacy["leased_until"] == canonical["leased_until"] == "2026-01-01T00:02:00+00:00"
+    wal = tmp_path / "app.db-wal"
+    before = wal.stat().st_size if wal.exists() else 0
+    worker = OutboxWorker(db, hook=lambda *args: [])
+    sizes = []
+    for _ in range(12):
+        assert worker.run_once() == 0
+        sizes.append(wal.stat().st_size if wal.exists() else 0)
+    assert max(sizes) <= before
     db.close()
 
 

@@ -173,6 +173,9 @@ class Database:
     def list_pending_deliveries(self) -> list[dict]:
         return self.events_repo.list_pending_deliveries()
 
+    def has_due_deliveries(self) -> bool:
+        return self.events_repo.has_due_deliveries()
+
     def mark_delivery(
         self,
         event_id: int,

@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 import pytest
@@ -174,3 +175,47 @@ def test_create_watch_normalizes_dim_filters(tmp_path) -> None:
     assert watch["dim_filters"]["tsMemorySize"] == ["24gb"]
     loaded = db.get_watch(watch["id"])
     assert loaded["dim_filters"]["tsMemorySize"] == ["24gb"]
+    db.close()
+
+
+def test_upgrades_v2_deliveries_into_outbox(tmp_path) -> None:
+    path = tmp_path / "app.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(V016_SCHEMA)
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS notification_deliveries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id INTEGER NOT NULL,
+            channel TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_retry_at TEXT,
+            last_error TEXT,
+            UNIQUE(event_id, channel)
+        );
+        """
+    )
+    conn.execute("INSERT INTO meta(key, value) VALUES(?, ?)", ("schema_version", json.dumps(2)))
+    conn.execute(
+        "INSERT INTO events(type, message, created_at) VALUES(?,?,?)",
+        ("appeared", "上新", "2026-01-01T00:00:00+00:00"),
+    )
+    event_id = conn.execute("SELECT id FROM events").fetchone()[0]
+    conn.execute(
+        "INSERT INTO notification_deliveries(event_id, channel, status, attempts) VALUES(?,?,?,?)",
+        (event_id, "bark", "ok", 3),
+    )
+    conn.commit()
+    conn.close()
+
+    db = Database(path)
+    row = db.conn.execute(
+        "SELECT status, attempts FROM notification_outbox WHERE event_id=? AND channel='bark'",
+        (event_id,),
+    ).fetchone()
+    assert row is not None
+    assert row["status"] == "sent"
+    assert row["attempts"] == 3
+    assert db.list_pending_deliveries() == []
+    db.close()

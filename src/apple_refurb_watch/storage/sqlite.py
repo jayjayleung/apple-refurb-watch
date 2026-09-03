@@ -112,8 +112,8 @@ class SQLiteStore:
             self._ensure_column("notification_deliveries", name, definition)
         self.conn.commit()
         # Keep the new outbox table populated for databases upgraded from the
-        # legacy notification_deliveries table. The latter remains as a
-        # compatibility surface for older clients and exports.
+        # legacy notification_deliveries table. Hot-path writes no longer touch
+        # that table; this copy runs once during schema apply.
         self.conn.execute(
             """
             INSERT OR IGNORE INTO notification_outbox(

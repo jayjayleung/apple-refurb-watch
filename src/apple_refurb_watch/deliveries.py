@@ -117,6 +117,8 @@ class OutboxWorker:
         return _try_send(channel, conf, settings, title, body, url, self.hook)
 
     def run_once(self) -> int:
+        if not self.db.has_due_deliveries():
+            return 0
         self.db.release_expired_leases()
         # A unique token per claim prevents a late ACK from an expired attempt
         # from completing a newer attempt by the same worker process.
