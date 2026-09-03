@@ -13,9 +13,22 @@ from apple_refurb_watch.notify import (
     TEST_TITLE,
     TEST_URL,
     feishu_sign,
+    redact_secrets,
     send_all,
     send_test,
 )
+
+
+def _ok(channel: str) -> httpx.Response:
+    bodies = {
+        "bark": {"code": 200, "message": "success"},
+        "serverchan": {"code": 0, "message": "ok"},
+        "pushplus": {"code": 200, "msg": "请求成功"},
+        "telegram": {"ok": True, "result": {}},
+        "feishu": {"code": 0, "msg": "success"},
+        "dingtalk": {"errcode": 0, "errmsg": "ok"},
+    }
+    return httpx.Response(200, json=bodies[channel])
 
 
 def test_feishu_sign_matches_official() -> None:
@@ -37,43 +50,30 @@ def test_dingtalk_sign_encodes_slash() -> None:
 
 
 @respx.mock
-def test_bark_get_and_push_payloads() -> None:
-    get_route = respx.get("https://api.day.app/key/t/b").mock(return_value=httpx.Response(200))
+def test_bark_posts_json_body() -> None:
+    route = respx.post("https://api.day.app/key").mock(return_value=_ok("bark"))
     errors = send_all(
         {"notify": {"bark": {"enabled": True, "url": "https://api.day.app/key"}}},
         "t",
-        "b",
+        "b / extra",
         "https://www.apple.com.cn/x",
     )
     assert errors == []
-    assert get_route.called
-    params = dict(get_route.calls[0].request.url.params)
-    assert params["group"] == "官翻监听"
-    assert params["url"] == "https://www.apple.com.cn/x"
-
-    push_route = respx.post("https://api.day.app/push").mock(return_value=httpx.Response(200))
-    errors = send_all(
-        {"notify": {"bark": {"enabled": True, "url": "https://api.day.app/push", "key": "abc"}}},
-        "t",
-        "b",
-        "https://www.apple.com.cn/x",
-    )
-    assert errors == []
-    payload = json.loads(push_route.calls[0].request.content)
+    assert route.called
+    payload = json.loads(route.calls[0].request.content)
     assert payload == {
         "title": "t",
-        "body": "b",
+        "body": "b / extra",
         "group": "官翻监听",
         "url": "https://www.apple.com.cn/x",
-        "device_key": "abc",
     }
 
 
 @respx.mock
 def test_serverchan_pushplus_telegram_bodies() -> None:
-    sct = respx.post("https://sctapi.ftqq.com/sk.send").mock(return_value=httpx.Response(200))
-    plus = respx.post("https://www.pushplus.plus/send").mock(return_value=httpx.Response(200))
-    tg = respx.post("https://api.telegram.org/bot123:ABC/sendMessage").mock(return_value=httpx.Response(200))
+    sct = respx.post("https://sctapi.ftqq.com/sk.send").mock(return_value=_ok("serverchan"))
+    plus = respx.post("https://www.pushplus.plus/send").mock(return_value=_ok("pushplus"))
+    tg = respx.post("https://api.telegram.org/bot123:ABC/sendMessage").mock(return_value=_ok("telegram"))
     errors = send_all(
         {
             "notify": {
@@ -106,9 +106,9 @@ def test_serverchan_pushplus_telegram_bodies() -> None:
 
 @respx.mock
 def test_feishu_and_dingtalk_text_payloads() -> None:
-    feishu = respx.post("https://open.feishu.cn/hook").mock(return_value=httpx.Response(200))
+    feishu = respx.post("https://open.feishu.cn/hook").mock(return_value=_ok("feishu"))
     ding = respx.post(url__startswith="https://oapi.dingtalk.com/robot/send").mock(
-        return_value=httpx.Response(200)
+        return_value=_ok("dingtalk")
     )
     errors = send_all(
         {
@@ -142,20 +142,19 @@ def test_feishu_and_dingtalk_text_payloads() -> None:
 
 @respx.mock
 def test_send_test_uses_fixed_copy() -> None:
-    route = respx.get(url__regex=r"https://api\.day\.app/.*").mock(return_value=httpx.Response(200))
+    route = respx.post("https://api.day.app/key").mock(return_value=_ok("bark"))
     errors = send_test({"notify": {"bark": {"enabled": True, "url": "https://api.day.app/key"}}})
     assert errors == []
-    url = str(route.calls[0].request.url)
-    assert quote(TEST_TITLE) in url
-    assert quote(TEST_BODY) in url
-    params = dict(route.calls[0].request.url.params)
-    assert params["url"] == TEST_URL
+    payload = json.loads(route.calls[0].request.content)
+    assert payload["title"] == TEST_TITLE
+    assert payload["body"] == TEST_BODY
+    assert payload["url"] == TEST_URL
 
 
 @respx.mock
 def test_send_test_one_channel_ignores_enabled() -> None:
-    bark = respx.get(url__regex=r"https://api\.day\.app/.*").mock(return_value=httpx.Response(200))
-    feishu = respx.post("https://open.feishu.cn/hook").mock(return_value=httpx.Response(200))
+    bark = respx.post("https://api.day.app/key").mock(return_value=_ok("bark"))
+    feishu = respx.post("https://open.feishu.cn/hook").mock(return_value=_ok("feishu"))
     settings = {
         "notify": {
             "bark": {"enabled": False, "url": "https://api.day.app/key"},
@@ -221,3 +220,56 @@ def test_email_includes_html_hyperlink(monkeypatch) -> None:
     plain = sent[0].get_body(preferencelist=("plain",)).get_content()
     assert '<a href="https://www.apple.com.cn/shop/product/G1MK7CH/A">打开商品</a>' in html
     assert "https://www.apple.com.cn/shop/product/G1MK7CH/A" in plain
+
+
+@respx.mock
+def test_http_error_does_not_leak_token() -> None:
+    settings = {
+        "notify": {
+            "telegram": {
+                "enabled": True,
+                "bot_token": "123456:SECRET-TOKEN",
+                "chat_id": "1",
+            }
+        }
+    }
+    respx.post("https://api.telegram.org/bot123456:SECRET-TOKEN/sendMessage").mock(
+        return_value=httpx.Response(401, text="unauthorized")
+    )
+    try:
+        send_test(settings, channel="telegram")
+    except NotifyError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected NotifyError")
+    assert "SECRET-TOKEN" not in message
+    assert "HTTP 401" in message
+    errors = send_all(settings, "t", "b")
+    assert errors
+    assert "SECRET-TOKEN" not in errors[0]
+    assert redact_secrets(
+        "https://api.telegram.org/bot123456:SECRET-TOKEN/sendMessage",
+        settings,
+    ) == "https://api.telegram.org/bot***/sendMessage"
+
+
+@respx.mock
+def test_business_code_failure_is_not_success() -> None:
+    respx.post("https://sctapi.ftqq.com/SCT_SECRET_KEY.send").mock(
+        return_value=httpx.Response(200, json={"code": 40001, "message": "bad key"})
+    )
+    settings = {"notify": {"serverchan": {"enabled": True, "sendkey": "SCT_SECRET_KEY"}}}
+    errors = send_all(settings, "t", "b")
+    assert len(errors) == 1
+    assert "SCT_SECRET_KEY" not in errors[0]
+    assert "Server酱" in errors[0]
+    respx.post("https://www.pushplus.plus/send").mock(
+        return_value=httpx.Response(200, json={"code": 500, "msg": "token error"})
+    )
+    try:
+        send_test({"notify": {"pushplus": {"token": "pt"}}}, channel="pushplus")
+    except NotifyError as exc:
+        assert "PushPlus" in str(exc)
+        assert "token error" in str(exc)
+    else:
+        raise AssertionError("expected NotifyError")

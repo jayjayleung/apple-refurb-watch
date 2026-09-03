@@ -6,7 +6,7 @@ import uuid
 from typing import Any, Callable
 
 from apple_refurb_watch.db import Database
-from apple_refurb_watch.notify import CHANNELS, NotifyError, send_channel
+from apple_refurb_watch.notify import CHANNELS, NotifyError, redact_secrets, send_channel
 from apple_refurb_watch.parse import product_page_url
 
 HOOK_CHANNEL = "hook"
@@ -49,9 +49,9 @@ def _try_send(
         send_channel(channel, conf, title, body, url)
         return None
     except NotifyError as exc:
-        return str(exc)
+        return redact_secrets(str(exc), settings)
     except Exception as exc:  # noqa: BLE001
-        return str(exc)
+        return redact_secrets(str(exc), settings)
 
 
 def deliver_event(

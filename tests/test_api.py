@@ -1318,8 +1318,12 @@ def test_lan_enable_reveals_generated_token_once(tmp_path) -> None:
 
 @respx.mock
 def test_notify_test_one_channel(tmp_path) -> None:
-    bark = respx.get(url__regex=r"https://api\.day\.app/.*").mock(return_value=httpx.Response(200))
-    feishu = respx.post("https://open.feishu.cn/hook").mock(return_value=httpx.Response(200))
+    bark = respx.post("https://api.day.app/key").mock(
+        return_value=httpx.Response(200, json={"code": 200, "message": "success"})
+    )
+    feishu = respx.post("https://open.feishu.cn/hook").mock(
+        return_value=httpx.Response(200, json={"code": 0, "msg": "success"})
+    )
     db = Database(tmp_path / "app.db")
     db.update_settings(
         {
@@ -1355,8 +1359,12 @@ def test_notify_test_one_channel(tmp_path) -> None:
 
 @respx.mock
 def test_notify_test_uses_unsaved_form_values(tmp_path) -> None:
-    bark = respx.get(url__regex=r"https://api\.day\.app/draft-key/.*").mock(return_value=httpx.Response(200))
-    saved = respx.get(url__regex=r"https://api\.day\.app/saved-key/.*").mock(return_value=httpx.Response(200))
+    bark = respx.post("https://api.day.app/draft-key").mock(
+        return_value=httpx.Response(200, json={"code": 200, "message": "success"})
+    )
+    saved = respx.post("https://api.day.app/saved-key").mock(
+        return_value=httpx.Response(200, json={"code": 200, "message": "success"})
+    )
     db = Database(tmp_path / "app.db")
     app = create_app(db, with_scheduler=False)
     with TestClient(app) as client:

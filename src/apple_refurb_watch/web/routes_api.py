@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from apple_refurb_watch.fetch import fetch_html
 from apple_refurb_watch.filters import live_catalog_path, load_catalog, sync_filter_catalog, user_catalog_path
@@ -237,7 +238,11 @@ async def api_notify_test(request: Request) -> dict:
             channel = payload.channel
     channel = channel or request.query_params.get("channel")
     try:
-        errors = send_test(request.app.state.db.settings(), channel=channel)
+        errors = await run_in_threadpool(
+            send_test,
+            request.app.state.db.settings(),
+            channel,
+        )
     except NotifyError as exc:
         raise HTTPException(400, str(exc)) from exc
     if errors:

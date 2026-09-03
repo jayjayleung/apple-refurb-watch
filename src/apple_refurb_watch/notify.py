@@ -7,14 +7,59 @@ import smtplib
 import time
 from email.message import EmailMessage
 from html import escape
-from typing import Any
-from urllib.parse import quote
+from typing import Any, Callable
+from urllib.parse import quote, unquote
 
 import httpx
 
 
 class NotifyError(RuntimeError):
     pass
+
+
+SECRET_FIELDS = {
+    "url",
+    "sendkey",
+    "token",
+    "webhook",
+    "secret",
+    "bot_token",
+    "password",
+    "key",
+    "device_key",
+}
+
+
+def _secret_values(settings: dict[str, Any] | None) -> list[str]:
+    values: list[str] = []
+    notify = (settings or {}).get("notify") or {}
+    if not isinstance(notify, dict):
+        return values
+    for conf in notify.values():
+        if not isinstance(conf, dict):
+            continue
+        for field, raw in conf.items():
+            if field not in SECRET_FIELDS:
+                continue
+            text = str(raw or "").strip()
+            if text:
+                values.append(text)
+    values.sort(key=len, reverse=True)
+    return values
+
+
+def redact_secrets(text: str, settings: dict[str, Any] | None = None) -> str:
+    result = str(text or "")
+    for secret in _secret_values(settings):
+        if secret in result:
+            result = result.replace(secret, "***")
+        encoded = quote(secret, safe="")
+        if encoded and encoded != secret and encoded in result:
+            result = result.replace(encoded, "***")
+        decoded = unquote(secret)
+        if decoded and decoded != secret and decoded in result:
+            result = result.replace(decoded, "***")
+    return result
 
 
 def send_all(settings: dict[str, Any], title: str, body: str, url: str | None = None) -> list[str]:
@@ -27,7 +72,7 @@ def send_all(settings: dict[str, Any], title: str, body: str, url: str | None = 
                 send_channel(name, conf, title, body, url)
                 sent += 1
             except Exception as exc:  # noqa: BLE001
-                errors.append(f"{name}: {exc}")
+                errors.append(redact_secrets(f"{name}: {exc}", settings))
     if sent == 0 and not errors:
         raise NotifyError("没有已启用的通知通道")
     return errors
@@ -81,7 +126,10 @@ def send_test(settings: dict[str, Any], channel: str | None = None) -> list[str]
     if name not in CHANNELS:
         raise NotifyError(f"未知通道 {name}")
     conf = ((settings.get("notify") or {}).get(name) or {})
-    send_channel(name, conf, TEST_TITLE, TEST_BODY, TEST_URL)
+    try:
+        send_channel(name, conf, TEST_TITLE, TEST_BODY, TEST_URL)
+    except NotifyError as exc:
+        raise NotifyError(redact_secrets(str(exc), settings)) from None
     return []
 
 
@@ -92,47 +140,81 @@ def send_channel(name: str, conf: dict, title: str, body: str, url: str | None) 
     handler(conf, title, body, url)
 
 
-def _dispatch(name: str, conf: dict, title: str, body: str, url: str | None) -> None:
-    send_channel(name, conf, title, body, url)
+def _int_field(payload: dict[str, Any], key: str) -> int | None:
+    raw = payload.get(key)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _fail_channel(name: str, payload: dict[str, Any]) -> None:
+    for key in ("message", "msg", "errmsg", "description", "error"):
+        value = payload.get(key)
+        if value:
+            raise NotifyError(f"{name}: {str(value).strip()}")
+    raise NotifyError(f"{name}: 发送失败")
+
+
+def _expect(name: str, response: httpx.Response, ok: Callable[[dict[str, Any]], bool]) -> None:
+    try:
+        payload = response.json()
+    except Exception as exc:  # noqa: BLE001
+        raise NotifyError(f"{name}: 响应无法解析") from exc
+    if not isinstance(payload, dict) or not ok(payload):
+        if isinstance(payload, dict):
+            _fail_channel(name, payload)
+        raise NotifyError(f"{name}: 响应无法解析")
+
+
+def _http(method: str, url: str, **kwargs: Any) -> httpx.Response:
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.request(method, url, **kwargs)
+    except httpx.HTTPError as exc:
+        if isinstance(exc, httpx.HTTPStatusError):
+            raise NotifyError(f"HTTP {exc.response.status_code}") from None
+        raise NotifyError(f"网络错误: {type(exc).__name__}") from None
+    if response.status_code >= 400:
+        raise NotifyError(f"HTTP {response.status_code}")
+    return response
+
+
+def _post_json(url: str, payload: dict) -> httpx.Response:
+    return _http("POST", url, json=payload)
+
+
+def _post_form(url: str, payload: dict) -> httpx.Response:
+    return _http("POST", url, data=payload)
 
 
 def _bark(conf: dict, title: str, body: str, url: str | None) -> None:
     base = (conf.get("url") or "").rstrip("/")
     if not base:
         raise NotifyError("Bark URL 为空")
-    payload = {"title": title, "body": body, "group": "官翻监听"}
+    payload: dict[str, Any] = {"title": title, "body": body, "group": "官翻监听"}
     if url:
         payload["url"] = url
-    if base.endswith("/push"):
-        key = conf.get("key") or ""
-        payload["device_key"] = key
-        _post_json(base, payload)
-        return
-    # https://api.day.app/{key}
-    target = f"{base}/{quote(title)}/{quote(body)}"
-    params = {"group": "官翻监听"}
-    if url:
-        params["url"] = url
-    with httpx.Client(timeout=15.0) as client:
-        response = client.get(target, params=params)
-        response.raise_for_status()
+    response = _post_json(base, payload)
+    _expect("Bark", response, lambda data: _int_field(data, "code") == 200)
 
 
 def _serverchan(conf: dict, title: str, body: str, url: str | None) -> None:
     sendkey = conf.get("sendkey") or ""
     if not sendkey:
         raise NotifyError("Server酱 sendkey 为空")
-    _post_form(
+    response = _post_form(
         f"https://sctapi.ftqq.com/{sendkey}.send",
         {"title": title, "desp": _markdown_with_url(body, url)},
     )
+    _expect("Server酱", response, lambda data: _int_field(data, "code") == 0)
 
 
 def _pushplus(conf: dict, title: str, body: str, url: str | None) -> None:
     token = conf.get("token") or ""
     if not token:
         raise NotifyError("PushPlus token 为空")
-    _post_json(
+    response = _post_json(
         "https://www.pushplus.plus/send",
         {
             "token": token,
@@ -141,6 +223,7 @@ def _pushplus(conf: dict, title: str, body: str, url: str | None) -> None:
             "template": "html",
         },
     )
+    _expect("PushPlus", response, lambda data: _int_field(data, "code") == 200)
 
 
 def _feishu(conf: dict, title: str, body: str, url: str | None) -> None:
@@ -161,7 +244,8 @@ def _feishu(conf: dict, title: str, body: str, url: str | None) -> None:
         timestamp = str(int(time.time()))
         payload["timestamp"] = timestamp
         payload["sign"] = feishu_sign(secret, timestamp)
-    _post_json(webhook, payload)
+    response = _post_json(webhook, payload)
+    _expect("飞书", response, lambda data: _int_field(data, "code") == 0)
 
 
 def _dingtalk(conf: dict, title: str, body: str, url: str | None) -> None:
@@ -180,7 +264,8 @@ def _dingtalk(conf: dict, title: str, body: str, url: str | None) -> None:
         sign = quote(base64.b64encode(digest).decode("ascii"), safe="")
         sep = "&" if "?" in webhook else "?"
         target = f"{webhook}{sep}timestamp={timestamp}&sign={sign}"
-    _post_json(target, {"msgtype": "markdown", "markdown": {"title": title, "text": text}})
+    response = _post_json(target, {"msgtype": "markdown", "markdown": {"title": title, "text": text}})
+    _expect("钉钉", response, lambda data: _int_field(data, "errcode") == 0)
 
 
 def _telegram(conf: dict, title: str, body: str, url: str | None) -> None:
@@ -199,7 +284,8 @@ def _telegram(conf: dict, title: str, body: str, url: str | None) -> None:
     }
     if url:
         payload["parse_mode"] = "HTML"
-    _post_json(api, payload)
+    response = _post_json(api, payload)
+    _expect("Telegram", response, lambda data: data.get("ok") is True)
 
 
 def _email(conf: dict, title: str, body: str, url: str | None) -> None:
@@ -212,35 +298,26 @@ def _email(conf: dict, title: str, body: str, url: str | None) -> None:
     port = int(conf.get("smtp_port") or 465)
     msg = _email_message(title, body, url, from_addr=username, to_addr=to_addr)
     use_tls = bool(conf.get("use_tls", True))
-    if use_tls and port == 465:
-        with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
+    try:
+        if use_tls and port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
+                smtp.login(username, password)
+                smtp.send_message(msg)
+            return
+        with smtplib.SMTP(host, port, timeout=20) as smtp:
+            smtp.ehlo()
+            if use_tls:
+                smtp.starttls()
             smtp.login(username, password)
             smtp.send_message(msg)
-        return
-    with smtplib.SMTP(host, port, timeout=20) as smtp:
-        smtp.ehlo()
-        if use_tls:
-            smtp.starttls()
-        smtp.login(username, password)
-        smtp.send_message(msg)
+    except Exception as exc:  # noqa: BLE001
+        raise NotifyError(f"邮件: {type(exc).__name__}") from None
 
 
 def feishu_sign(secret: str, timestamp: str) -> str:
     string_to_sign = f"{timestamp}\n{secret}"
     digest = hmac.new(string_to_sign.encode("utf-8"), digestmod=hashlib.sha256).digest()
     return base64.b64encode(digest).decode("utf-8")
-
-
-def _post_json(url: str, payload: dict) -> None:
-    with httpx.Client(timeout=15.0) as client:
-        response = client.post(url, json=payload)
-        response.raise_for_status()
-
-
-def _post_form(url: str, payload: dict) -> None:
-    with httpx.Client(timeout=15.0) as client:
-        response = client.post(url, data=payload)
-        response.raise_for_status()
 
 
 CHANNELS = {
