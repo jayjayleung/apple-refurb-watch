@@ -130,11 +130,14 @@ class Database:
     def watch_sku_state(self, watch_id: int, sku: str) -> dict | None:
         return self.watches_repo.sku_state(watch_id, sku)
 
+    def watch_sku_states(self, watch_id: int) -> dict[str, dict]:
+        return self.watches_repo.sku_states(watch_id)
+
     def set_watch_sku(self, watch_id: int, sku: str, in_stock: bool, notified: bool) -> None:
         self.watches_repo.set_sku(watch_id, sku, in_stock, notified)
 
-    def mark_watch_skus_out(self, watch_id: int, present: set[str]) -> None:
-        self.watches_repo.mark_skus_out(watch_id, present)
+    def mark_watch_skus_out(self, watch_id: int, present: set[str], *, listing_keys: list[str] | None = None) -> None:
+        self.watches_repo.mark_skus_out(watch_id, present, listing_keys=listing_keys)
 
     def list_watch_skus(self, watch_id: int) -> list[dict]:
         return self.watches_repo.list_skus(watch_id)
@@ -198,8 +201,8 @@ class Database:
     def release_expired_leases(self) -> int:
         return self.events_repo.release_expired_leases()
 
-    def count_products(self, *, in_stock: bool | None = True) -> int:
-        return self.products_repo.count(in_stock=in_stock)
+    def count_products(self, *, in_stock: bool | None = True, listing_key: str | None = None) -> int:
+        return self.products_repo.count(in_stock=in_stock, listing_key=listing_key)
 
     def scan_status(self) -> dict[str, Any]:
         return self.settings_repo.scan_status()

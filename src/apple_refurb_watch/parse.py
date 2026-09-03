@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from apple_refurb_watch.categories import BASE, LISTING_MODELS, host_ok
 
 __all__ = [
+    "ParseError",
     "Product",
     "color_from_title",
     "extract_bootstrap",
@@ -28,6 +29,10 @@ RAM_DETAIL_RE = re.compile(r"(\d+)\s*GB\s*统一内存", re.I)
 SSD_TB_RE = re.compile(r"(\d+(?:\.\d+)?)\s*TB\s*固态硬盘", re.I)
 SSD_GB_RE = re.compile(r"(\d+)\s*GB\s*固态硬盘", re.I)
 SKU_RE = re.compile(r"/shop/product/([a-z0-9]+)(?:/([ab]))?", re.I)
+
+
+class ParseError(RuntimeError):
+    pass
 
 
 @dataclass
@@ -140,7 +145,10 @@ def parse_listing_html(html: str, listing_key: str, listing_url: str) -> list[Pr
         if implied:
             products = [item for item in products if item.model_key == implied]
         return products
-    return _parse_listing_dom(html, listing_key, listing_url)
+    products = _parse_listing_dom(html, listing_key, listing_url)
+    if products:
+        return products
+    raise ParseError("页面结构未识别")
 
 
 def _tile_to_product(tile: dict, listing_key: str, listing_url: str) -> Product | None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import uuid
@@ -10,6 +11,7 @@ from apple_refurb_watch.notify import CHANNELS, NotifyError, redact_secrets, sen
 from apple_refurb_watch.parse import product_page_url
 
 HOOK_CHANNEL = "hook"
+log = logging.getLogger(__name__)
 HookFn = Callable[[dict, str, str, str | None], list[str]]
 SendFn = Callable[[str, dict, dict[str, Any], str, str, str | None], str | None]
 
@@ -101,6 +103,7 @@ class OutboxWorker:
         self.settings_override = settings
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._last_error_log = 0.0
 
     def _send(
         self,
@@ -181,9 +184,10 @@ class OutboxWorker:
                 try:
                     self.run_once()
                 except Exception:  # noqa: BLE001
-                    # A transient database/provider failure must not kill the
-                    # worker; the lease will expire and be retried.
-                    pass
+                    now = time.monotonic()
+                    if now - self._last_error_log >= 60:
+                        log.warning("通知投递循环失败", exc_info=True)
+                        self._last_error_log = now
                 self._stop.wait(self.poll_interval)
 
         self._thread = threading.Thread(target=loop, name="arw-notify-outbox", daemon=True)

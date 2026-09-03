@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -9,6 +10,8 @@ from typing import Callable, Iterator
 
 from apple_refurb_watch.paths import db_path
 from apple_refurb_watch.storage.schema import DEFAULT_SETTINGS, SCHEMA, SCHEMA_VERSION, utcnow
+
+log = logging.getLogger(__name__)
 
 
 class SQLiteStore:
@@ -31,7 +34,7 @@ class SQLiteStore:
                 try:
                     self.conn.close()
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("关闭失败升级的数据库连接时出错", exc_info=True)
                 raise
 
     @contextmanager
@@ -51,10 +54,12 @@ class SQLiteStore:
             self._transaction_depth += 1
             try:
                 yield self.conn
-            except Exception:
-                self._transaction_depth -= 1
+            except BaseException:
                 if outer:
+                    self._transaction_depth = 0
                     self.conn.rollback()
+                else:
+                    self._transaction_depth -= 1
                 raise
             else:
                 self._transaction_depth -= 1

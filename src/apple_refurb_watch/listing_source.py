@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Callable
 
 from apple_refurb_watch.categories import listing_url
@@ -7,6 +8,7 @@ from apple_refurb_watch.fetch import HtmlFetcher
 from apple_refurb_watch.parse import Product, extract_bootstrap, parse_detail_specs, parse_listing_html
 
 FetchFn = Callable[[str], str]
+log = logging.getLogger(__name__)
 
 
 class ListingSource:
@@ -41,7 +43,7 @@ class ListingSource:
 
             ingest_bootstrap_catalog(extract_bootstrap(html), key)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("写入筛选词条缓存失败", exc_info=True)
         return products
 
     def fetch_detail(self, url: str) -> dict:

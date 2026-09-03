@@ -119,14 +119,21 @@ class ProductRepository:
                     item["extra"] = {}
         return items
 
-    def count(self, *, in_stock: bool | None = True) -> int:
-        sql = "SELECT COUNT(*) AS n FROM products"
+    def count(self, *, in_stock: bool | None = True, listing_key: str | None = None) -> int:
+        clauses: list[str] = []
+        args: list[Any] = []
         if in_stock is True:
-            sql += " WHERE in_stock=1"
+            clauses.append("in_stock=1")
         elif in_stock is False:
-            sql += " WHERE in_stock=0"
+            clauses.append("in_stock=0")
+        if listing_key:
+            clauses.append("listing_key=?")
+            args.append(listing_key)
+        sql = "SELECT COUNT(*) AS n FROM products"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
         with self.store.lock:
-            return int(self.store.conn.execute(sql).fetchone()["n"])
+            return int(self.store.conn.execute(sql, args).fetchone()["n"])
 
     def get_spec(self, sku: str) -> dict | None:
         with self.store.lock:

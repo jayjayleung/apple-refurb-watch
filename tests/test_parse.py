@@ -3,7 +3,15 @@ import pytest
 
 from apple_refurb_watch.categories import listing_url
 from apple_refurb_watch.fetch import FetchError, fetch_html
-from apple_refurb_watch.parse import first_srcset_url, parse_detail_specs, parse_listing_html, parse_size_gb, product_page_url, sku_from_url
+from apple_refurb_watch.parse import (
+    ParseError,
+    first_srcset_url,
+    parse_detail_specs,
+    parse_listing_html,
+    parse_size_gb,
+    product_page_url,
+    sku_from_url,
+)
 
 
 def test_parse_size_gb() -> None:
@@ -31,6 +39,16 @@ def test_parse_listing_bootstrap(listing_html: str) -> None:
     assert pro_img.image_url == "https://example.test/mbp.jpg"
     only_pro = parse_listing_html(listing_html, "macbook-pro", "https://www.apple.com.cn/shop/refurbished/mac/macbook-pro")
     assert [p.sku for p in only_pro] == ["FGDN4CH/A"]
+
+
+def test_parse_listing_empty_bootstrap_tiles_is_empty() -> None:
+    html = 'window.REFURB_GRID_BOOTSTRAP = {"tiles": []}'
+    assert parse_listing_html(html, "mac", "https://www.apple.com.cn/shop/refurbished/mac") == []
+
+
+def test_parse_listing_unrecognized_structure_raises() -> None:
+    with pytest.raises(ParseError, match="页面结构未识别"):
+        parse_listing_html("<html><body>blocked</body></html>", "mac", "https://www.apple.com.cn/shop/refurbished/mac")
 
 
 def test_first_srcset_url() -> None:
@@ -97,3 +115,39 @@ def test_fetch_html_rejects_offsite_redirect() -> None:
             retries=1,
             transport=httpx.MockTransport(handler),
         )
+
+
+def test_fetch_html_does_not_retry_client_errors() -> None:
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(403, text="no")
+
+    with pytest.raises(FetchError, match="HTTP 403"):
+        fetch_html(
+            "https://www.apple.com.cn/shop/refurbished/mac",
+            retries=3,
+            transport=httpx.MockTransport(handler),
+        )
+    assert calls["n"] == 1
+
+
+def test_fetch_html_retries_server_errors_without_sleeping_after_last(monkeypatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr("apple_refurb_watch.fetch.time.sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr("apple_refurb_watch.fetch.random.random", lambda: 0)
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(503, text="no")
+
+    with pytest.raises(FetchError, match="HTTP 503"):
+        fetch_html(
+            "https://www.apple.com.cn/shop/refurbished/mac",
+            retries=3,
+            transport=httpx.MockTransport(handler),
+        )
+    assert calls["n"] == 3
+    assert len(sleeps) == 2

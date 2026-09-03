@@ -62,14 +62,21 @@ class HtmlFetcher:
         for attempt in range(retries):
             try:
                 response = self._get(url, referer=referer)
-                if response.status_code >= 500 or response.status_code in {429}:
-                    raise FetchError(f"HTTP {response.status_code} {url}")
-                if response.status_code >= 400:
-                    raise FetchError(f"HTTP {response.status_code} {url}")
-                return response.text
-            except (httpx.HTTPError, FetchError) as exc:
+            except httpx.HTTPError as exc:
                 last_error = exc
+                if attempt >= retries - 1:
+                    break
                 time.sleep((2**attempt) + random.random())
+                continue
+            if 400 <= response.status_code < 500 and response.status_code != 429:
+                raise FetchError(f"HTTP {response.status_code} {url}")
+            if response.status_code >= 500 or response.status_code == 429:
+                last_error = FetchError(f"HTTP {response.status_code} {url}")
+                if attempt >= retries - 1:
+                    break
+                time.sleep((2**attempt) + random.random())
+                continue
+            return response.text
         raise FetchError(str(last_error) if last_error else f"无法抓取 {url}")
 
     def _get(self, url: str, *, referer: str | None) -> httpx.Response:

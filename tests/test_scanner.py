@@ -167,7 +167,7 @@ def test_partial_scan_preserves_watch_state_and_success_timestamp(tmp_path: Path
     def partial(url: str) -> str:
         if "/ipad" in url:
             raise RuntimeError("ipad temporarily unavailable")
-        return "<html><body>empty but valid response</body></html>"
+        return listing_html
 
     result = run_scan(
         db,
@@ -369,6 +369,94 @@ def test_scan_marks_unselected_listings_out(tmp_path: Path, listing_html: str) -
     rows = {p["sku"]: p for p in db.list_products(in_stock=None)}
     assert rows["IPAD1CH/A"]["in_stock"] == 0
     assert rows["OLDPROCH/A"]["in_stock"] == 0
+    db.close()
+
+
+EMPTY_BOOTSTRAP = 'window.REFURB_GRID_BOOTSTRAP = {"tiles": []}'
+
+
+def test_empty_listing_does_not_mark_stock_sold_or_renotify(tmp_path: Path, listing_html: str) -> None:
+    db = Database(tmp_path / "app.db")
+    db.set_setting("listings", ["mac"])
+    db.create_watch({"name": "14 MBP", "all_of": ["MacBook Pro", "M5 Pro"], "min_ram_gb": 24})
+
+    first, notes = _scan(db, listing_html)
+    assert first["ok"]
+    assert first["notified"] == 0
+    assert notes == []
+    sku_state = db.watch_sku_state(db.list_watches()[0]["id"], "FGDN4CH/A")
+    assert sku_state and sku_state["in_stock"] == 1 and sku_state["notified"] == 1
+    assert any(p["sku"] == "FGDN4CH/A" and p["in_stock"] == 1 for p in db.list_products(in_stock=None))
+
+    empty, empty_notes = _scan(db, listing_html, fetch_listing=lambda _url: EMPTY_BOOTSTRAP)
+    assert empty["ok"] is False
+    assert empty["scan_status"] == "failed"
+    assert any("疑似风控/改版" in item for item in empty["errors"])
+    assert empty_notes == []
+    stock = {p["sku"]: p for p in db.list_products(in_stock=None)}
+    assert stock["FGDN4CH/A"]["in_stock"] == 1
+    sku_state = db.watch_sku_state(db.list_watches()[0]["id"], "FGDN4CH/A")
+    assert sku_state and sku_state["in_stock"] == 1 and sku_state["notified"] == 1
+    assert [item for item in db.list_events() if item.get("type") == "appeared"] == []
+
+    restored, restored_notes = _scan(db, listing_html)
+    assert restored["ok"]
+    assert restored["notified"] == 0
+    assert restored_notes == []
+    db.close()
+
+
+def test_partial_scan_marks_sold_fetched_listing_and_notifies_restock(tmp_path: Path, listing_html: str) -> None:
+    db = Database(tmp_path / "app.db")
+    db.set_setting("listings", ["mac"])
+    watch = db.create_watch({"name": "14 MBP", "all_of": ["MacBook Pro", "M5 Pro"], "min_ram_gb": 24})
+    first, _ = _scan(db, listing_html)
+    assert first["ok"]
+    assert db.watch_sku_state(watch["id"], "FGDN4CH/A")["in_stock"] == 1
+
+    db.set_setting("listings", ["mac", "ipad"])
+    gone = listing_html.replace("FGDN4CH/A", "ZZZZ4CH/A").replace("MacBook Pro Apple M5 Pro", "Mac mini Apple M4")
+
+    def partial_sold(url: str) -> str:
+        if "/ipad" in url:
+            raise RuntimeError("ipad down")
+        return gone
+
+    sold, notes = _scan(db, listing_html, fetch_listing=partial_sold)
+    assert sold["ok"] is True
+    assert sold["partial"] is True
+    assert notes == []
+    state = db.watch_sku_state(watch["id"], "FGDN4CH/A")
+    assert state and state["in_stock"] == 0
+    mac = next(item for item in db.list_products(in_stock=None) if item["sku"] == "FGDN4CH/A")
+    assert mac["in_stock"] == 0
+
+    def restored(url: str) -> str:
+        if "/ipad" in url:
+            return EMPTY_BOOTSTRAP
+        return listing_html
+
+    back, notes = _scan(db, listing_html, fetch_listing=restored)
+    assert back["ok"]
+    assert back["notified"] == 1
+    assert notes
+    state = db.watch_sku_state(watch["id"], "FGDN4CH/A")
+    assert state and state["in_stock"] == 1
+    db.close()
+
+
+def test_keyboard_interrupt_resets_transaction_depth(tmp_path: Path) -> None:
+    db = Database(tmp_path / "app.db")
+    try:
+        with db.transaction():
+            db.set_setting("scanning", True)
+            raise KeyboardInterrupt
+    except KeyboardInterrupt:
+        pass
+    assert db._store._transaction_depth == 0
+    with db.transaction():
+        db.set_setting("scanning", False)
+    assert db.get_setting("scanning") is False
     db.close()
 
 

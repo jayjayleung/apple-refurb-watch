@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from dataclasses import asdict
@@ -15,6 +16,8 @@ from apple_refurb_watch.watches import appeared_message
 from apple_refurb_watch.storage.events import event_fingerprint
 
 _scan_lock = threading.Lock()
+log = logging.getLogger(__name__)
+EMPTY_LISTING_GUARD = "疑似风控/改版，本轮不更新该分类"
 
 
 def product_to_row(product: Product) -> dict[str, Any]:
@@ -112,7 +115,7 @@ class ScanService:
                         errors=[str(exc)],
                     )
             except Exception:  # noqa: BLE001
-                pass
+                log.warning("提交扫描失败后无法标记 scan_run", exc_info=True)
             _scan_lock.release()
             raise
 
@@ -126,10 +129,7 @@ class ScanService:
                 reserved_run_id=run_id,
             )
         except Exception:
-            # The scan service records a failed run where possible.  There is
-            # no request thread to propagate the exception to; callers inspect
-            # the run resource instead.
-            pass
+            log.warning("后台扫描失败 run_id=%s", run_id, exc_info=True)
         finally:
             try:
                 self.db.set_setting("scanning", False)
@@ -180,7 +180,15 @@ def run_scan(
             notifier=notifier,
             sleep_fn=sleep_fn,
         )
-        return service.run_once()
+        result = service.run_once()
+        # One-shot CLI/tests have no OutboxWorker. The long-lived web service
+        # leaves delivery to that worker so a slow channel cannot pin a scan.
+        try:
+            result["notified"] = retry_pending_deliveries(database, database.settings(), notifier)
+        except Exception:  # noqa: BLE001
+            log.warning("扫描后投递失败", exc_info=True)
+            result["notified"] = 0
+        return result
     finally:
         try:
             if service is not None:
@@ -222,10 +230,17 @@ def _run_scan_locked(
         for key in listings:
             try:
                 batch = source.fetch_listing(key)
-                products.extend(batch)
-                fetched_keys.append(key)
             except Exception as exc:  # noqa: BLE001
+                log.warning("抓取分类失败: %s", key, exc_info=True)
                 errors.append(f"{key}: {exc}")
+                continue
+            if not batch and db.count_products(in_stock=True, listing_key=key) > 0:
+                message = f"{key}: {EMPTY_LISTING_GUARD}"
+                log.warning("%s", message)
+                errors.append(message)
+                continue
+            products.extend(batch)
+            fetched_keys.append(key)
 
         delay = float(settings.get("detail_delay_seconds") or 1.4)
         for product in products:
@@ -244,6 +259,7 @@ def _run_scan_locked(
                 product.storage_gb = product.storage_gb or specs.get("storage_gb")
                 detail_updates.append((product.sku, product.ram_gb, product.storage_gb))
             except Exception as exc:  # noqa: BLE001
+                log.warning("详情抓取失败: %s", product.sku, exc_info=True)
                 errors.append(f"{product.sku}: {exc}")
 
         baseline_done = bool(settings.get("baseline_done"))
@@ -269,12 +285,13 @@ def _run_scan_locked(
             for watch in watches:
                 present: set[str] = set()
                 seed_watch = _should_seed_watch(watch, baseline_done, last_ok)
+                sku_states = db.watch_sku_states(watch["id"])
                 for product in products:
                     if not matches_watch(product, watch):
                         continue
                     matched += 1
                     present.add(product.sku)
-                    state = db.watch_sku_state(watch["id"], product.sku)
+                    state = sku_states.get(product.sku)
                     was_in_stock = bool(state and state.get("in_stock"))
                     already_notified = bool(state and state.get("notified"))
                     if seed_watch:
@@ -283,7 +300,6 @@ def _run_scan_locked(
                     if was_in_stock and already_notified:
                         db.set_watch_sku(watch["id"], product.sku, in_stock=True, notified=True)
                         continue
-                    title = f"官翻上线：{watch['name']}"
                     body = appeared_message(
                         title=product.title,
                         sku=product.sku,
@@ -314,10 +330,12 @@ def _run_scan_locked(
                     db.set_watch_sku(watch["id"], product.sku, in_stock=True, notified=True)
                     for channel, _conf in enabled_channels(settings, hook):
                         db.enqueue_delivery(event_id, channel)
-                # A missing SKU is meaningful only after every selected source
-                # was observed successfully.
-                if scan_complete:
-                    db.mark_watch_skus_out(watch["id"], present)
+                if fetched_keys:
+                    db.mark_watch_skus_out(
+                        watch["id"],
+                        present,
+                        listing_keys=None if scan_complete else fetched_keys,
+                    )
 
             db.set_setting("last_scan_at", observed_at)
             db.set_setting("last_product_count", len(products))
@@ -370,18 +388,17 @@ def _run_scan_locked(
                 errors=errors,
                 finished_at=utcnow(),
             )
+            # Commit the idle flag with the terminal run so the web chrome
+            # can leave「正在扫描」as soon as GET /api/scans/{id} succeeds.
+            db.set_setting("scanning", False)
 
-        # Delivery is deliberately post-commit. If the process dies while a
-        # provider is unavailable, the outbox row remains for the worker/retry
-        # path and the inventory transaction is still durable.
-        notified = retry_pending_deliveries(db, settings, hook)
         baseline_final = bool(db.get_setting("baseline_done"))
         return {
             "ok": bool(fetched_keys),
             "partial": bool(fetched_keys) and not scan_complete,
             "count": len(products),
             "matched": matched,
-            "notified": notified,
+            "notified": 0,
             "errors": errors,
             "baseline": baseline_final,
             "scan_run_id": run_id,
@@ -403,8 +420,9 @@ def _run_scan_locked(
                         errors=[*errors, str(exc)],
                     )
                     db.set_setting("last_error", str(exc))
+                    db.set_setting("scanning", False)
             except Exception:  # noqa: BLE001
-                pass
+                log.warning("扫描失败后无法收尾 run_id=%s", run_id, exc_info=True)
         raise
 
 
