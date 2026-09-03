@@ -318,8 +318,12 @@ def test_stop_pid_taskkill_hides_console(monkeypatch) -> None:
 
 
 class _FakeWindow:
-    def __init__(self) -> None:
+    def __init__(self, url: str = "") -> None:
         self.ops: list[str] = []
+        self._url = url
+
+    def get_current_url(self) -> str:
+        return self._url
 
     def hide(self) -> None:
         self.ops.append("hide")
@@ -551,3 +555,105 @@ def test_desktop_lock_retries_before_signaling(monkeypatch) -> None:
             holder.close()
         except Exception:
             pass
+
+
+def test_connect_does_not_reuse_token_when_host_changes() -> None:
+    from apple_refurb_watch.connection import load_connection, save_connection
+    from apple_refurb_watch.desktop import DesktopSession, token_for_new_server
+
+    save_connection("http://192.168.1.8:8765", "old-token")
+    prev = load_connection()
+    assert token_for_new_server("http://10.0.0.2:8765", "", prev) is None
+    assert token_for_new_server("http://192.168.1.8:9999", "", prev) == "old-token"
+
+    session = DesktopSession(hidden=False)
+    session.schedule_relaunch = lambda *, hidden: None  # type: ignore[method-assign]
+    assert session.connect_server("http://10.0.0.2:8765", "")["ok"] is True
+    assert load_connection().token is None
+    assert session.connect_server("http://10.0.0.2:8765", "kept")["ok"] is True
+    assert session.connect_server("http://10.0.0.2:9999", "")["ok"] is True
+    assert load_connection().token == "kept"
+
+
+def test_desktop_api_rejects_foreign_origin() -> None:
+    from apple_refurb_watch.desktop import DesktopApi, DesktopSession, desktop_bridge_allowed
+
+    assert desktop_bridge_allowed("file:///tmp/web/static/desktop-setup.html", None) is True
+    assert desktop_bridge_allowed("file:///tmp/other.html", None) is False
+    assert desktop_bridge_allowed("http://127.0.0.1:8765/settings", "http://127.0.0.1:8765") is True
+    assert desktop_bridge_allowed("https://evil.example/", "http://127.0.0.1:8765") is False
+
+    session = DesktopSession(hidden=False)
+    session.window = _FakeWindow("https://evil.example/")
+    session.client = type("C", (), {"base": "http://127.0.0.1:8765"})()
+    session.schedule_relaunch = lambda *, hidden: None  # type: ignore[method-assign]
+    api = DesktopApi(session)
+    assert api.connect("http://10.0.0.2:8765", "x") == {"ok": False}
+    assert api.disconnect() == {"ok": False}
+    assert api.set_autostart(True) == {"ok": False}
+
+    session.window = _FakeWindow("file:///x/desktop-setup.html")
+    assert api.connect("http://10.0.0.2:8765", "x")["ok"] is True
+
+
+def test_toggle_listen_failure_keeps_tray_label() -> None:
+    from apple_refurb_watch.desktop import DesktopSession, apply_tray_listen_toggle
+
+    session = DesktopSession(hidden=False)
+    session.settings = {"listen_enabled": True}
+
+    class Boom:
+        def settings(self):
+            raise RuntimeError("offline")
+
+    session.client = Boom()
+    listen_state = {"on": True}
+    apply_tray_listen_toggle(session, listen_state)
+    assert listen_state == {"on": True}
+
+
+def test_toggle_listen_success_updates_tray_label() -> None:
+    from apple_refurb_watch.desktop import DesktopSession, apply_tray_listen_toggle
+
+    class Client:
+        def settings(self):
+            return {"listen_enabled": True}
+
+        def update_settings(self, payload):
+            self.payload = payload
+
+    session = DesktopSession(hidden=False)
+    session.client = Client()
+    listen_state = {"on": True}
+    apply_tray_listen_toggle(session, listen_state)
+    assert listen_state == {"on": False}
+
+
+def test_webview_failure_starts_standalone_daemon(monkeypatch) -> None:
+    from apple_refurb_watch.desktop import DesktopSession, fallback_webview_to_browser
+
+    opened: list[str] = []
+    steps: list[str] = []
+
+    class Emb:
+        def stop(self) -> None:
+            steps.append("stop-embedded")
+
+    class DaemonClient:
+        base = "http://127.0.0.1:8765"
+
+    monkeypatch.setattr("apple_refurb_watch.desktop._open_in_browser", lambda url: opened.append(url))
+    monkeypatch.setattr(
+        "apple_refurb_watch.desktop.ensure_daemon",
+        lambda: steps.append("ensure") or DaemonClient(),
+    )
+
+    session = DesktopSession(hidden=False)
+    session.owned = True
+    session.embedded = Emb()
+    session.client = type("Old", (), {"base": "http://127.0.0.1:1234"})()
+    fallback_webview_to_browser(session)
+    assert steps == ["stop-embedded", "ensure"]
+    assert opened == ["http://127.0.0.1:8765"]
+    assert session.owned is False
+    assert session.embedded is None

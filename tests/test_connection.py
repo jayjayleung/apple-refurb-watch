@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from apple_refurb_watch.connection import (
@@ -8,6 +10,7 @@ from apple_refurb_watch.connection import (
     load_connection,
     save_computer_notify,
     save_connection,
+    token_path,
     validate_server_url,
 )
 from apple_refurb_watch.desktop import hide_to_tray_enabled
@@ -40,6 +43,10 @@ def test_save_and_clear_connection(tmp_path, monkeypatch) -> None:
     loaded = load_connection()
     assert loaded.token == "s3cret"
     assert "s3cret" not in loaded.url
+    path = token_path()
+    assert path.read_text(encoding="utf-8") == "s3cret"
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
     clear_connection()
     assert load_connection().mode == "local"
 

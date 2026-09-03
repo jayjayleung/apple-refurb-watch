@@ -96,7 +96,26 @@ def _write_token(token: str) -> None:
         except OSError:
             pass
         return
-    path.write_text(text, encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.unlink()
+    except OSError:
+        pass
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    fd = os.open(tmp, flags, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
     try:
         os.chmod(path, 0o600)
     except OSError:

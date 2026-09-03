@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
 import threading
 import time
 import webbrowser
+from urllib.parse import urlparse
 
 from apple_refurb_watch import DESKTOP_USER_AGENT_PREFIX, __version__
 from apple_refurb_watch.argv import invoke_argv, is_frozen
@@ -25,6 +27,7 @@ from apple_refurb_watch.connection import (
 from apple_refurb_watch.daemon import (
     acquire_lock,
     acquire_lock_retry,
+    ensure_daemon,
     ping_daemon,
     spawn_env,
     stop_daemon,
@@ -35,14 +38,17 @@ from apple_refurb_watch.desktop_adapter import DesktopAdapter
 from apple_refurb_watch.desktop_notify import notify_os
 from apple_refurb_watch.embedded import EmbeddedServer
 from apple_refurb_watch.parse import product_page_url
-from apple_refurb_watch.paths import desktop_lock_path, desktop_signal_path, package_root
-from apple_refurb_watch.update_check import latest_release_info, version_key
+from apple_refurb_watch.paths import desktop_lock_path, desktop_signal_path, log_path, package_root
 from apple_refurb_watch.service import (
     desktop_autostart_preferred,
     install_service,
     is_service_installed,
     uninstall_service,
 )
+from apple_refurb_watch.update_check import latest_release_info, version_key
+
+log = logging.getLogger("apple_refurb_watch.desktop")
+_log_configured = False
 
 
 def _close_client(client: object | None) -> None:
@@ -58,7 +64,7 @@ def _close_client(client: object | None) -> None:
     try:
         close()
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("关闭 API 客户端失败", exc_info=True)
 
 
 FORCE_EXIT_SECONDS = 2.0
@@ -104,7 +110,7 @@ def alert_quit_old_desktop(running_ver: str | None) -> None:
             ctypes.windll.user32.MessageBoxW(None, message, "官翻监听", 0x30)
             return
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("弹出旧版桌面提示失败", exc_info=True)
     print(message, file=sys.stderr)
 
 
@@ -112,7 +118,7 @@ def stop_pid(pid: int) -> None:
     try:
         os.kill(pid, 15)
     except OSError:
-        pass
+        log.debug("结束旧桌面进程失败 pid=%s", pid, exc_info=True)
     if os.name == "nt":
         subprocess.run(
             ["taskkill", "/PID", str(pid), "/F"],
@@ -267,8 +273,89 @@ def load_tray_image(image_module):
         try:
             return image_module.open(path).convert("RGBA")
         except Exception:  # noqa: BLE001
-            pass
+            log.warning("读取托盘图标失败", exc_info=True)
     return image_module.new("RGBA", (64, 64), (0, 113, 227, 255))
+
+
+def configure_desktop_logging() -> None:
+    global _log_configured
+    if _log_configured:
+        return
+    try:
+        path = log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(path, encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+        log.addHandler(handler)
+        log.setLevel(logging.DEBUG)
+        log.propagate = False
+    except OSError:
+        log.debug("无法写入桌面日志文件", exc_info=True)
+        return
+    _log_configured = True
+
+
+def _url_port(parsed) -> int:
+    if parsed.port:
+        return int(parsed.port)
+    return 443 if parsed.scheme.lower() == "https" else 80
+
+
+def desktop_bridge_allowed(current_url: str | None, service_url: str | None) -> bool:
+    current = str(current_url or "").strip()
+    if not current:
+        return False
+    parsed = urlparse(current)
+    if parsed.scheme == "file":
+        return (parsed.path or "").lower().endswith("desktop-setup.html")
+    service = str(service_url or "").strip()
+    if not service:
+        return False
+    want = urlparse(service)
+    return (
+        parsed.scheme.lower() == want.scheme.lower()
+        and (parsed.hostname or "").lower() == (want.hostname or "").lower()
+        and _url_port(parsed) == _url_port(want)
+    )
+
+
+def token_for_new_server(url: str, token: str | None, prev) -> str | None:
+    text = str(token or "").strip()
+    if text:
+        return text
+    new_host = (urlparse(url).hostname or "").lower()
+    prev_host = (urlparse(getattr(prev, "url", None) or "").hostname or "").lower()
+    if new_host and prev_host and new_host == prev_host:
+        return getattr(prev, "token", None)
+    return None
+
+
+def apply_tray_listen_toggle(session: DesktopSession, listen_state: dict) -> None:
+    if session.toggle_listen():
+        listen_state["on"] = bool(session.settings.get("listen_enabled"))
+
+
+def fallback_webview_to_browser(session: DesktopSession) -> None:
+    if session.owned:
+        if session.embedded is not None:
+            try:
+                session.embedded.stop()
+            except Exception:  # noqa: BLE001
+                log.warning("webview 失败后停止内嵌服务失败", exc_info=True)
+            session.embedded = None
+        session.owned = False
+        try:
+            client = ensure_daemon()
+        except Exception:  # noqa: BLE001
+            log.warning("webview 失败后拉起独立 daemon 失败", exc_info=True)
+            if session.client is not None:
+                _open_in_browser(session.client.base)
+            return
+        session.client = client
+        _open_in_browser(client.base)
+        return
+    if session.client is not None:
+        _open_in_browser(session.client.base)
 
 
 def _open_in_browser(url: str) -> None:
@@ -313,6 +400,7 @@ def _poll_appeared(client: ApiClient, enabled: threading.Event, stop: threading.
         if latest:
             cursor = int(latest[0].get("id") or 0)
     except Exception:  # noqa: BLE001
+        log.debug("读取电脑通知游标失败", exc_info=True)
         cursor = 0
     while not stop.wait(12):
         if not enabled.is_set():
@@ -320,6 +408,7 @@ def _poll_appeared(client: ApiClient, enabled: threading.Event, stop: threading.
         try:
             rows = client.events(limit=50, after_id=cursor, type="appeared") or []
         except Exception:  # noqa: BLE001
+            log.debug("轮询上线事件失败", exc_info=True)
             continue
         for event in rows:
             event_id = int(event.get("id") or 0)
@@ -476,7 +565,7 @@ class DesktopSession:
                 if callable(fn):
                     fn()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("显示桌面窗口失败 method=%s", method, exc_info=True)
 
     def hide_window(self) -> None:
         window = self.window
@@ -486,11 +575,11 @@ class DesktopSession:
             window.hide()
             return
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("隐藏桌面窗口失败", exc_info=True)
         try:
             window.minimize()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("最小化桌面窗口失败", exc_info=True)
 
     def load_url(self, url: str) -> None:
         window = self.window
@@ -499,7 +588,7 @@ class DesktopSession:
         try:
             window.load_url(url)
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("加载桌面地址失败", exc_info=True)
 
     def show_setup(self) -> None:
         self.show_window()
@@ -511,16 +600,18 @@ class DesktopSession:
         self.load_url(self.client.base)
         return {"ok": True}
 
-    def toggle_listen(self) -> None:
+    def toggle_listen(self) -> bool:
         if self.client is None:
-            return
+            return False
         try:
             current = self.client.settings()
             enabled = not bool(current.get("listen_enabled"))
             self.client.update_settings({"listen_enabled": enabled})
             self.settings["listen_enabled"] = enabled
+            return True
         except Exception:  # noqa: BLE001
-            return
+            log.warning("切换监听失败", exc_info=True)
+            return False
 
     def set_computer_notify(self, enabled: bool) -> dict:
         if enabled and not has_capability(self.health, "events.after_id"):
@@ -548,7 +639,11 @@ class DesktopSession:
             return {"ok": False, "error": "已用环境变量 APPLE_REFURB_WATCH_URL，请先去掉再改连接"}
         try:
             prev = load_connection()
-            save_connection(url, token or prev.token, allow_insecure=bool(insecure))
+            save_connection(
+                url,
+                token_for_new_server(url, token, prev),
+                allow_insecure=bool(insecure),
+            )
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
         self.schedule_relaunch(hidden=False)
@@ -574,13 +669,13 @@ class DesktopSession:
                 try:
                     window.destroy()
                 except Exception:  # noqa: BLE001
-                    pass
+                    log.debug("改连时销毁窗口失败", exc_info=True)
             self.cleanup(stop_runtime=self.owned)
             time.sleep(0.15)
             try:
                 relaunch_desktop(hidden=hidden)
             except Exception:  # noqa: BLE001
-                pass
+                log.warning("重新拉起桌面窗口失败", exc_info=True)
 
         threading.Thread(target=_run, name="arw-relaunch", daemon=True).start()
 
@@ -591,7 +686,7 @@ class DesktopSession:
             try:
                 window.destroy()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("退出时销毁窗口失败", exc_info=True)
         else:
             self.cleanup(stop_runtime=self.owned)
         delay = FORCE_EXIT_SECONDS if force_after is None else force_after
@@ -604,7 +699,7 @@ class DesktopSession:
             try:
                 self.cleanup(stop_runtime=self.owned)
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("强制退出前清理失败", exc_info=True)
             exit_fn(0)
 
         threading.Thread(target=_run, name="arw-force-exit", daemon=True).start()
@@ -618,14 +713,14 @@ class DesktopSession:
             try:
                 self.tray_icon.stop()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("停止托盘图标失败", exc_info=True)
         if stop_runtime and self.owned and self.embedded is not None:
             self.embedded.stop()
         if self.desk_lock is not None:
             try:
                 self.desk_lock.close()
             except Exception:  # noqa: BLE001
-                pass
+                log.debug("释放桌面锁失败", exc_info=True)
         if self.client is not None:
             _close_client(self.client)
             self.client = None
@@ -636,7 +731,7 @@ class DesktopSession:
         try:
             self.window.evaluate_js(_banner_js(self.notice))
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("注入兼容提示失败", exc_info=True)
 
     def inject_update(self) -> None:
         info = self.update
@@ -649,12 +744,13 @@ class DesktopSession:
         try:
             self.window.evaluate_js(_update_hint_js(latest, url))
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("注入更新提示失败", exc_info=True)
 
     def check_for_update(self) -> None:
         try:
             self.update = latest_release_info(current=__version__, refresh=True)
         except Exception:  # noqa: BLE001
+            log.warning("检查桌面更新失败", exc_info=True)
             self.update_checked = True
             return
         self.update_checked = True
@@ -689,10 +785,32 @@ class DesktopApi:
     def state(self) -> dict:
         return self._session.public_state()
 
+    def _bridge_allowed(self) -> bool:
+        window = getattr(self._session, "window", None)
+        current = None
+        if window is not None:
+            getter = getattr(window, "get_current_url", None)
+            if callable(getter):
+                try:
+                    current = getter()
+                except Exception:  # noqa: BLE001
+                    log.debug("读取桌面当前页失败", exc_info=True)
+        service = None
+        client = getattr(self._session, "client", None)
+        if client is not None:
+            service = getattr(client, "base", None)
+        if not service:
+            service = load_connection().url
+        return desktop_bridge_allowed(current, service)
+
     def connect(self, url: str, token: str = "", insecure: bool = False) -> dict:
+        if not self._bridge_allowed():
+            return {"ok": False}
         return self._session.connect_server(str(url or ""), str(token or ""), bool(insecure))
 
     def disconnect(self) -> dict:
+        if not self._bridge_allowed():
+            return {"ok": False}
         return self._session.disconnect_server()
 
     def open_app(self) -> dict:
@@ -702,6 +820,8 @@ class DesktopApi:
         return self._session.set_computer_notify(bool(enabled))
 
     def set_autostart(self, enabled: bool) -> dict:
+        if not self._bridge_allowed():
+            return {"ok": False}
         return self._session.set_autostart(bool(enabled))
 
     def test_computer_notify(self) -> dict:
@@ -743,26 +863,25 @@ def _start_tray(session: DesktopSession, *, adapter: DesktopAdapter | None = Non
         return "停止监听" if listen_state["on"] else "开始监听"
 
     def on_toggle(icon, item):  # noqa: ARG001
-        session.toggle_listen()
-        listen_state["on"] = not listen_state["on"]
+        apply_tray_listen_toggle(session, listen_state)
         try:
             icon.update_menu()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("刷新托盘菜单失败", exc_info=True)
 
     def on_notify(icon, item):  # noqa: ARG001
         session.set_computer_notify(not session.notify_on.is_set())
         try:
             icon.update_menu()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("刷新托盘菜单失败", exc_info=True)
 
     def on_autostart(icon, item):  # noqa: ARG001
         session.set_autostart(not session.autostart_on)
         try:
             icon.update_menu()
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("刷新托盘菜单失败", exc_info=True)
 
     def on_quit(*_args) -> None:
         threading.Thread(target=session.quit_app, name="arw-quit", daemon=True).start()
@@ -783,10 +902,12 @@ def _start_tray(session: DesktopSession, *, adapter: DesktopAdapter | None = Non
             threading.Thread(target=icon.run, name="arw-tray", daemon=True).start()
         return icon
     except Exception:  # noqa: BLE001
+        log.warning("启动托盘失败", exc_info=True)
         return None
 
 
 def run_desktop(*, hidden: bool = False) -> None:
+    configure_desktop_logging()
     desk_lock = take_desktop_lock()
     if desk_lock is None:
         return
@@ -804,6 +925,7 @@ def run_desktop(*, hidden: bool = False) -> None:
         try:
             session.settings = session.client.settings()
         except Exception:  # noqa: BLE001
+            log.warning("读取本机设置失败", exc_info=True)
             session.settings = {}
         session.hide = hide_to_tray_enabled(session.settings)
     else:
@@ -825,7 +947,7 @@ def run_desktop(*, hidden: bool = False) -> None:
     try:
         webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("设置外部链接在浏览器打开失败", exc_info=True)
 
     api = DesktopApi(session)
     window = create_session_window(webview, session, api)
@@ -864,15 +986,15 @@ def run_desktop(*, hidden: bool = False) -> None:
     try:
         window.events.shown += on_shown
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("绑定 shown 事件失败", exc_info=True)
     try:
         window.events.loaded += on_loaded
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("绑定 loaded 事件失败", exc_info=True)
     try:
         window.events.closing += on_closing
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("绑定 closing 事件失败", exc_info=True)
 
     threading.Thread(target=watch_signal, name="arw-desktop-signal", daemon=True).start()
     if not session.start_hidden:
@@ -890,10 +1012,7 @@ def run_desktop(*, hidden: bool = False) -> None:
     try:
         start_desktop_webview(webview)
     except Exception:
-        if session.client is not None:
-            _open_in_browser(session.client.base)
-        if not is_frozen():
-            session.cleanup(stop_runtime=session.owned)
-            raise
+        log.warning("webview.start 失败，改用浏览器", exc_info=True)
+        fallback_webview_to_browser(session)
     finally:
         session.cleanup(stop_runtime=session.owned)
