@@ -79,7 +79,21 @@
       window.history.replaceState({}, "", next);
     }
   }
-  if (!runId) return;
+  function scheduleDoneFlash() {
+    window.setTimeout(function () {
+      if (window.__arwScheduleScanFlashDismiss) {
+        window.__arwScheduleScanFlashDismiss(node);
+        return;
+      }
+      if (!node) return;
+      node.hidden = true;
+      node.textContent = "";
+    }, 0);
+  }
+  if (!runId) {
+    if (node && /扫描完成|扫描已完成/.test(node.textContent || "")) scheduleDoneFlash();
+    return;
+  }
   var tries = 0;
   function refreshChrome() {
     fetch("/api/status", {headers: {"Accept": "application/json"}})
@@ -110,6 +124,8 @@
           if (status === "failed") node.classList.add("bad");
           refreshChrome();
           refreshFeed();
+          if (status === "succeeded" || status === "partial") scheduleDoneFlash();
+          else if (window.__arwStripScanFlashQuery) window.__arwStripScanFlashQuery();
           return;
         }
         node.textContent = "扫描进行中…";

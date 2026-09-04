@@ -1,3 +1,52 @@
+    /* scan-flash-dismiss */
+    (function (root) {
+      var SCAN_FLASH_DISMISS_MS = 4000;
+      function scanFlashIsDone(text) {
+        return /扫描完成|扫描已完成/.test(String(text || ""));
+      }
+      function stripScanFlashQuery(win) {
+        win = win || root;
+        var historyObj = win.history;
+        var loc = win.location;
+        if (!historyObj || !historyObj.replaceState || !loc) return;
+        try {
+          var url = new URL(String(loc.href || ""));
+          var flash = url.searchParams.get("flash") || "";
+          if (flash !== "scan-done" && flash !== "scan-queued") return;
+          url.searchParams.delete("flash");
+          var next = url.pathname + (url.searchParams.toString() ? "?" + url.searchParams.toString() : "") + url.hash;
+          historyObj.replaceState({}, "", next);
+        } catch (err) {}
+      }
+      function hideScanRunStatus(node, win) {
+        win = win || root;
+        node = node || (win.document && win.document.getElementById("scan-run-status"));
+        if (!node) return;
+        node.hidden = true;
+        node.textContent = "";
+        if (node.setAttribute) node.setAttribute("aria-hidden", "true");
+        stripScanFlashQuery(win);
+      }
+      function scheduleScanFlashDismiss(node, delayMs, win) {
+        win = win || root;
+        node = node || (win.document && win.document.getElementById("scan-run-status"));
+        if (!node) return 0;
+        if (node.getAttribute && node.getAttribute("data-dismiss-scheduled") === "1") return 0;
+        if (node.setAttribute) node.setAttribute("data-dismiss-scheduled", "1");
+        var ms = delayMs == null ? SCAN_FLASH_DISMISS_MS : delayMs;
+        stripScanFlashQuery(win);
+        var setTimeoutFn = win.setTimeout || root.setTimeout;
+        return setTimeoutFn(function () {
+          hideScanRunStatus(node, win);
+        }, ms);
+      }
+      root.__arwScanFlashDismissMs = SCAN_FLASH_DISMISS_MS;
+      root.__arwScanFlashIsDone = scanFlashIsDone;
+      root.__arwStripScanFlashQuery = stripScanFlashQuery;
+      root.__arwHideScanRunStatus = hideScanRunStatus;
+      root.__arwScheduleScanFlashDismiss = scheduleScanFlashDismiss;
+    })(typeof window !== "undefined" ? window : this);
+    /* /scan-flash-dismiss */
     (function () {
       var KEY = "arw_computer_notify";
       var CURSOR = "arw_appeared_cursor";
@@ -499,6 +548,13 @@
       }
       window.__arwApplyStatus = applyScanChrome;
       window.__arwEmitStatus = emitStatus;
+      (function bootScanFlashDismiss() {
+        var node = document.getElementById("scan-run-status");
+        if (!node || node.hidden) return;
+        if (window.__arwScanFlashIsDone && window.__arwScanFlashIsDone(node.textContent)) {
+          window.__arwScheduleScanFlashDismiss(node);
+        }
+      })();
       window.setInterval(pollStatus, 4000);
       document.addEventListener("visibilitychange", function () {
         if (document.visibilityState !== "hidden") pollStatus();
