@@ -395,6 +395,7 @@ def doctor(*, db: Database | None = None, stale_after_minutes: int = 120) -> dic
             },
             "runtime": {"pid": runtime_pid, "alive": runtime_alive},
             "pending_deliveries": len(pending),
+            "dead_deliveries": database.count_deliveries(status="dead"),
             "recent_scan_runs": runs,
             "stale_running_runs": stale_running,
             "abandoned_runs_recovered": abandoned,

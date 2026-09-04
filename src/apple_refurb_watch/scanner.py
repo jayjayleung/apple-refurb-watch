@@ -12,13 +12,13 @@ from apple_refurb_watch.deliveries import enabled_channels, retry_pending_delive
 from apple_refurb_watch.listing_source import ListingSource
 from apple_refurb_watch.match import matches_watch, needs_ram, needs_storage
 from apple_refurb_watch.parse import Product
-from apple_refurb_watch.watches import appeared_message
-from apple_refurb_watch.storage.schema import DEFAULT_DETAIL_DELAY_SECONDS, DEFAULT_LISTING_KEY
 from apple_refurb_watch.storage.events import event_fingerprint
+from apple_refurb_watch.storage.products import spec_cache_is_fresh
+from apple_refurb_watch.storage.schema import DEFAULT_DETAIL_DELAY_SECONDS, DEFAULT_LISTING_KEY
+from apple_refurb_watch.watches import appeared_message
 
 _scan_lock = threading.Lock()
 log = logging.getLogger(__name__)
-EMPTY_LISTING_GUARD = "疑似风控/改版，本轮不更新该分类"
 
 
 def product_to_row(product: Product) -> dict[str, Any]:
@@ -235,11 +235,6 @@ def _run_scan_locked(
                 log.warning("抓取分类失败: %s", key, exc_info=True)
                 errors.append(f"{key}: {exc}")
                 continue
-            if not batch and db.count_products(in_stock=True, listing_key=key) > 0:
-                message = f"{key}: {EMPTY_LISTING_GUARD}"
-                log.warning("%s", message)
-                errors.append(message)
-                continue
             products.extend(batch)
             fetched_keys.append(key)
 
@@ -251,7 +246,7 @@ def _run_scan_locked(
             if cached:
                 product.ram_gb = product.ram_gb or cached.get("ram_gb")
                 product.storage_gb = product.storage_gb or cached.get("storage_gb")
-                if not _needs_detail(product, watches):
+                if spec_cache_is_fresh(cached) or not _needs_detail(product, watches):
                     continue
             try:
                 sleep_fn(delay)

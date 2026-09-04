@@ -371,6 +371,7 @@ def doctor_cmd(
         typer.echo(f"扫描记录: {result.get('scan_runs', 0)}")
         typer.echo(f"快照行: {result.get('observations', 0)}")
         typer.echo(f"待投递: {result.get('pending_deliveries', 0)}")
+        typer.echo(f"投递失败: {result.get('dead_deliveries', 0)}")
         typer.echo(f"回收孤儿扫描: {result.get('abandoned_runs_recovered', 0)}")
     if not result.get("ok"):
         raise typer.Exit(1)

@@ -315,6 +315,48 @@ def test_detail_fetch_only_for_matching_watch(tmp_path: Path, listing_html: str,
     db.close()
 
 
+def test_spec_cache_negative_hit_skips_refetch_for_six_hours(tmp_path: Path, listing_html: str) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    db = Database(tmp_path / "app.db")
+    db.set_setting("listings", ["mac"])
+    db.create_watch({"name": "Neo", "all_of": ["MacBook Neo"], "min_ram_gb": 8})
+    fetched: list[str] = []
+
+    def fetch_detail(url: str) -> str:
+        fetched.append(url)
+        return "<html></html>"
+
+    run_scan(
+        db,
+        fetch_listing=lambda u: listing_html,
+        fetch_detail=fetch_detail,
+        notifier=lambda *a: [],
+        sleep_fn=lambda s: None,
+    )
+    assert len(fetched) == 1
+    run_scan(
+        db,
+        fetch_listing=lambda u: listing_html,
+        fetch_detail=fetch_detail,
+        notifier=lambda *a: [],
+        sleep_fn=lambda s: None,
+    )
+    assert len(fetched) == 1
+    stale = (datetime.now(timezone.utc) - timedelta(hours=7)).isoformat()
+    db.conn.execute("UPDATE spec_cache SET fetched_at=?", (stale,))
+    db.conn.commit()
+    run_scan(
+        db,
+        fetch_listing=lambda u: listing_html,
+        fetch_detail=fetch_detail,
+        notifier=lambda *a: [],
+        sleep_fn=lambda s: None,
+    )
+    assert len(fetched) == 2
+    db.close()
+
+
 def test_scan_skips_mac_child_listings(tmp_path: Path, listing_html: str) -> None:
     db = Database(tmp_path / "app.db")
     db.set_setting("listings", ["mac", "macbook-pro", "macbook-air", "ipad"])
@@ -375,7 +417,7 @@ def test_scan_marks_unselected_listings_out(tmp_path: Path, listing_html: str) -
 EMPTY_BOOTSTRAP = 'window.REFURB_GRID_BOOTSTRAP = {"tiles": []}'
 
 
-def test_empty_listing_does_not_mark_stock_sold_or_renotify(tmp_path: Path, listing_html: str) -> None:
+def test_empty_listing_marks_sold_and_can_renotify(tmp_path: Path, listing_html: str) -> None:
     db = Database(tmp_path / "app.db")
     db.set_setting("listings", ["mac"])
     db.create_watch({"name": "14 MBP", "all_of": ["MacBook Pro", "M5 Pro"], "min_ram_gb": 24})
@@ -389,20 +431,34 @@ def test_empty_listing_does_not_mark_stock_sold_or_renotify(tmp_path: Path, list
     assert any(p["sku"] == "FGDN4CH/A" and p["in_stock"] == 1 for p in db.list_products(in_stock=None))
 
     empty, empty_notes = _scan(db, listing_html, fetch_listing=lambda _url: EMPTY_BOOTSTRAP)
-    assert empty["ok"] is False
-    assert empty["scan_status"] == "failed"
-    assert any("疑似风控/改版" in item for item in empty["errors"])
+    assert empty["ok"] is True
+    assert empty["count"] == 0
+    assert empty["errors"] == []
     assert empty_notes == []
     stock = {p["sku"]: p for p in db.list_products(in_stock=None)}
-    assert stock["FGDN4CH/A"]["in_stock"] == 1
+    assert stock["FGDN4CH/A"]["in_stock"] == 0
     sku_state = db.watch_sku_state(db.list_watches()[0]["id"], "FGDN4CH/A")
-    assert sku_state and sku_state["in_stock"] == 1 and sku_state["notified"] == 1
-    assert [item for item in db.list_events() if item.get("type") == "appeared"] == []
+    assert sku_state and sku_state["in_stock"] == 0 and sku_state["notified"] == 0
 
     restored, restored_notes = _scan(db, listing_html)
     assert restored["ok"]
-    assert restored["notified"] == 0
-    assert restored_notes == []
+    assert restored["notified"] == 1
+    assert restored_notes
+    sku_state = db.watch_sku_state(db.list_watches()[0]["id"], "FGDN4CH/A")
+    assert sku_state and sku_state["in_stock"] == 1 and sku_state["notified"] == 1
+    db.close()
+
+
+def test_unrecognized_listing_does_not_update_stock(tmp_path: Path, listing_html: str) -> None:
+    db = Database(tmp_path / "app.db")
+    db.set_setting("listings", ["mac"])
+    first, _ = _scan(db, listing_html)
+    assert first["ok"]
+    broken, _ = _scan(db, listing_html, fetch_listing=lambda _url: "<html><body>nope</body></html>")
+    assert broken["ok"] is False
+    assert any("页面结构未识别" in item for item in broken["errors"])
+    stock = {p["sku"]: p for p in db.list_products(in_stock=None)}
+    assert stock["FGDN4CH/A"]["in_stock"] == 1
     db.close()
 
 

@@ -174,6 +174,7 @@ EVENT_LABELS = {
     "appeared": "上新",
     "baseline": "已建基线",
     "scan_error": "扫描失败",
+    "notify_failed": "投递失败",
 }
 
 
@@ -181,6 +182,8 @@ def _event_kind(event_type: str) -> str:
     if event_type == "appeared":
         return "appear"
     if event_type == "scan_error":
+        return "error"
+    if event_type == "notify_failed":
         return "error"
     if event_type == "baseline":
         return "baseline"

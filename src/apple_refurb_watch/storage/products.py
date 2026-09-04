@@ -1,10 +1,31 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 from apple_refurb_watch.storage.schema import MAX_PRODUCT_PAGE, utcnow
 from apple_refurb_watch.storage.sqlite import SQLiteStore
+
+SPEC_CACHE_TTL = timedelta(hours=6)
+
+
+def spec_cache_is_fresh(row: dict | None, *, now: datetime | None = None) -> bool:
+    if not row:
+        return False
+    raw = str(row.get("fetched_at") or "").strip()
+    if not raw:
+        return False
+    try:
+        fetched = datetime.fromisoformat(raw)
+    except ValueError:
+        return False
+    if fetched.tzinfo is None:
+        fetched = fetched.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current - fetched <= SPEC_CACHE_TTL
 
 
 class ProductRepository:

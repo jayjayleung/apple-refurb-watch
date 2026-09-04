@@ -9,6 +9,7 @@ from typing import Any, Callable
 from apple_refurb_watch.db import Database
 from apple_refurb_watch.notify import CHANNELS, NotifyError, redact_secrets, send_channel
 from apple_refurb_watch.parse import product_page_url
+from apple_refurb_watch.storage.events import MAX_DELIVERY_ATTEMPTS
 
 HOOK_CHANNEL = "hook"
 log = logging.getLogger(__name__)
@@ -153,14 +154,16 @@ class OutboxWorker:
                 notify = settings.get("notify") or {}
                 conf = dict(notify.get(channel) or {})
                 if not conf.get("enabled"):
-                    self.db.release_delivery(
+                    self.db.cancel_delivery(
                         event_id,
                         channel,
+                        reason="通道未启用",
                         lease_token=str(row.get("lease_token") or lease_token),
-                        retry_after=max(5.0, self.poll_interval),
                     )
                     continue
             error = self.send_fn(channel, conf, settings, title, body, url)
+            if error:
+                log.warning("通知投递失败 channel=%s event_id=%s: %s", channel, event_id, error)
             acknowledged = self.db.complete_delivery(
                 event_id,
                 channel,
@@ -174,6 +177,8 @@ class OutboxWorker:
             )
             if error is None and acknowledged:
                 sent += 1
+            elif error and acknowledged and int(row["attempts"] or 0) >= MAX_DELIVERY_ATTEMPTS:
+                self.db.note_notify_failed(event_id, channel, error)
         return sent
 
     def start(self) -> None:

@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from apple_refurb_watch.db import Database, EVENT_KEEP
+from apple_refurb_watch.db import Database
+from apple_refurb_watch.storage.schema import EVENT_KEEP, EVENT_KEEP_SCAN
 from apple_refurb_watch.deliveries import OutboxWorker
 from apple_refurb_watch.storage.events import EventRepository, EventsRepository, event_fingerprint
 from apple_refurb_watch.storage.products import ProductRepository, ProductsRepository
@@ -43,8 +44,13 @@ def test_repositories_preserve_crud_and_bound_queries(tmp_path) -> None:
     assert db.get_spec("SKU0CH/A")["storage_gb"] == 512
 
     for i in range(EVENT_KEEP + 3):
+        db.add_event(type="appeared", message=str(i), sku=f"SKU{i}CH/A")
+    for i in range(EVENT_KEEP_SCAN + 3):
         db.add_event(type="scan_ok", message=str(i))
-    assert len(db.list_events(EVENT_KEEP + 100)) == EVENT_KEEP
+    appeared = db.conn.execute("SELECT COUNT(*) AS n FROM events WHERE type='appeared'").fetchone()["n"]
+    scans = db.conn.execute("SELECT COUNT(*) AS n FROM events WHERE type='scan_ok'").fetchone()["n"]
+    assert appeared == EVENT_KEEP
+    assert scans == EVENT_KEEP_SCAN
     db.close()
 
 
@@ -346,4 +352,52 @@ def test_observations_skip_unchanged_fingerprints_and_prune_old_runs(tmp_path) -
     assert db.get_scan_run(old) is None
     assert db.list_observations(old) == []
     assert db.get_scan_run(running)["status"] == "running"
+    db.close()
+
+
+def test_disabled_channel_cancels_leased_delivery(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    event_id = db.add_event(type="appeared", title="新货")
+    db.enqueue_delivery(event_id, "bark")
+    worker = OutboxWorker(
+        db,
+        settings={"notify": {"bark": {"enabled": False, "url": "https://api.day.app/x"}}},
+        poll_interval=0,
+    )
+    assert worker.run_once() == 0
+    row = db.conn.execute(
+        "SELECT status, last_error FROM notification_outbox WHERE event_id=?",
+        (event_id,),
+    ).fetchone()
+    assert row["status"] == "cancelled"
+    assert row["last_error"] == "通道未启用"
+    db.close()
+
+
+def test_dead_delivery_writes_notify_failed_event(tmp_path, caplog) -> None:
+    import logging
+
+    from apple_refurb_watch.storage.events import MAX_DELIVERY_ATTEMPTS
+
+    db = Database(tmp_path / "app.db")
+    event_id = db.add_event(type="appeared", title="新货", sku="SKU1CH/A")
+    db.enqueue_delivery(event_id, "hook")
+    worker = OutboxWorker(
+        db,
+        hook=lambda *args: [],
+        send_fn=lambda *args: "provider timeout",
+        poll_interval=0,
+    )
+    with caplog.at_level(logging.WARNING, logger="apple_refurb_watch.deliveries"):
+        for _ in range(MAX_DELIVERY_ATTEMPTS):
+            worker.run_once()
+    row = db.conn.execute(
+        "SELECT status FROM notification_outbox WHERE event_id=?",
+        (event_id,),
+    ).fetchone()
+    assert row["status"] == "dead"
+    failed = [item for item in db.list_events(50) if item.get("type") == "notify_failed"]
+    assert failed
+    assert "provider timeout" in (failed[0].get("message") or "")
+    assert any("通知投递失败" in rec.message for rec in caplog.records)
     db.close()

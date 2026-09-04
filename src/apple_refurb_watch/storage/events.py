@@ -6,7 +6,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from apple_refurb_watch.storage.schema import EVENT_KEEP, MAX_EVENT_LIMIT, utcnow
+from apple_refurb_watch.storage.schema import EVENT_KEEP, EVENT_KEEP_SCAN, MAX_EVENT_LIMIT, utcnow
 from apple_refurb_watch.storage.sqlite import SQLiteStore
 
 
@@ -80,12 +80,55 @@ class EventRepository:
                 )
                 event_id = int(cur.lastrowid or 0)
             conn.execute(
-                "DELETE FROM events WHERE id IN (SELECT id FROM events ORDER BY id DESC LIMIT -1 OFFSET ?)",
+                """
+                DELETE FROM events
+                WHERE type IN ('scan_ok', 'scan_error')
+                  AND id IN (
+                    SELECT id FROM events
+                    WHERE type IN ('scan_ok', 'scan_error')
+                    ORDER BY id DESC LIMIT -1 OFFSET ?
+                  )
+                """,
+                (EVENT_KEEP_SCAN,),
+            )
+            conn.execute(
+                """
+                DELETE FROM events
+                WHERE type NOT IN ('scan_ok', 'scan_error')
+                  AND id IN (
+                    SELECT id FROM events
+                    WHERE type NOT IN ('scan_ok', 'scan_error')
+                    ORDER BY id DESC LIMIT -1 OFFSET ?
+                  )
+                """,
                 (EVENT_KEEP,),
             )
             conn.execute("DELETE FROM notification_deliveries WHERE event_id NOT IN (SELECT id FROM events)")
             conn.execute("DELETE FROM notification_outbox WHERE event_id NOT IN (SELECT id FROM events)")
             return event_id
+
+    def emit_notify_failed(self, event_id: int, channel: str, error: str | None) -> None:
+        source = self.get(event_id) or {}
+        watch_id = source.get("watch_id")
+        try:
+            watch_id_int = int(watch_id) if watch_id is not None else None
+        except (TypeError, ValueError):
+            watch_id_int = None
+        sku = str(source.get("sku") or "") or None
+        self.add(
+            type="notify_failed",
+            sku=sku,
+            watch_id=watch_id_int,
+            title=source.get("title"),
+            url=source.get("url"),
+            message=f"{channel}: {error or '超过最大重试次数'}",
+            fingerprint=event_fingerprint(
+                "notify_failed",
+                sku=sku,
+                watch_id=watch_id_int,
+                state=f"{event_id}:{channel}",
+            ),
+        )
 
     def get(self, event_id: int) -> dict | None:
         with self.store.lock:
@@ -174,6 +217,7 @@ class EventRepository:
         now = utcnow()
         leased_until = _after_seconds(lease_seconds)
         claimed: list[dict] = []
+        dead: list[tuple[int, str, str | None]] = []
         with self.store.transaction(immediate=True) as conn:
             rows = conn.execute(
                 """
@@ -196,8 +240,9 @@ class EventRepository:
                             lease_token=NULL, leased_until=NULL, sent_at=NULL
                         WHERE id=?
                         """,
-                        ("超过最大重试次数", row["id"]),
+                        (row["last_error"] or "超过最大重试次数", row["id"]),
                     )
+                    dead.append((int(row["event_id"]), str(row["channel"]), row["last_error"]))
                     continue
                 conn.execute(
                     """
@@ -211,6 +256,8 @@ class EventRepository:
                 item = dict(row)
                 item.update({"attempts": attempts, "lease_token": token, "leased_until": leased_until})
                 claimed.append(item)
+        for event_id, channel, error in dead:
+            self.emit_notify_failed(event_id, channel, error or "超过最大重试次数")
         return claimed
 
     def complete_delivery(
@@ -283,10 +330,28 @@ class EventRepository:
             )
             return bool(cur.rowcount)
 
-    def cancel_delivery(self, event_id: int, channel: str, *, reason: str = "通道未启用") -> bool:
+    def cancel_delivery(
+        self,
+        event_id: int,
+        channel: str,
+        *,
+        reason: str = "通道未启用",
+        lease_token: str | None = None,
+    ) -> bool:
         """Stop retrying a delivery that is no longer configured."""
 
         with self.store.transaction() as conn:
+            if lease_token:
+                cur = conn.execute(
+                    """
+                    UPDATE notification_outbox
+                    SET status='cancelled', last_error=?, lease_token=NULL, leased_until=NULL,
+                        next_retry_at=NULL
+                    WHERE event_id=? AND channel=? AND lease_token=?
+                    """,
+                    (reason, event_id, channel, lease_token),
+                )
+                return bool(cur.rowcount)
             row = conn.execute(
                 "SELECT status FROM notification_outbox WHERE event_id=? AND channel=?",
                 (event_id, channel),
@@ -306,6 +371,14 @@ class EventRepository:
                 (reason, event_id, channel),
             )
             return bool(cur.rowcount)
+
+    def count_deliveries(self, *, status: str) -> int:
+        with self.store.lock:
+            row = self.store.conn.execute(
+                "SELECT COUNT(*) AS n FROM notification_outbox WHERE status=?",
+                (status,),
+            ).fetchone()
+        return int(row["n"] if row else 0)
 
     def release_expired_leases(self) -> int:
         """Make work abandoned by a crashed worker immediately retryable."""

@@ -119,6 +119,7 @@ def test_doctor_does_not_recover_stale_run_while_daemon_is_alive(tmp_path: Path,
     assert dead["observations"] == 0
     assert dead["scan_runs"] == 1
     assert dead["database_bytes"] > 0
+    assert dead["dead_deliveries"] == 0
     db.close()
 
 

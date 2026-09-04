@@ -202,8 +202,23 @@ class Database:
     def release_delivery(self, event_id: int, channel: str, **kwargs: Any) -> bool:
         return self.events_repo.release_delivery(event_id, channel, **kwargs)
 
-    def cancel_delivery(self, event_id: int, channel: str, *, reason: str = "通道未启用") -> bool:
-        return self.events_repo.cancel_delivery(event_id, channel, reason=reason)
+    def cancel_delivery(
+        self,
+        event_id: int,
+        channel: str,
+        *,
+        reason: str = "通道未启用",
+        lease_token: str | None = None,
+    ) -> bool:
+        return self.events_repo.cancel_delivery(
+            event_id, channel, reason=reason, lease_token=lease_token
+        )
+
+    def note_notify_failed(self, event_id: int, channel: str, error: str | None) -> None:
+        self.events_repo.emit_notify_failed(event_id, channel, error)
+
+    def count_deliveries(self, *, status: str) -> int:
+        return self.events_repo.count_deliveries(status=status)
 
     def release_expired_leases(self) -> int:
         return self.events_repo.release_expired_leases()
