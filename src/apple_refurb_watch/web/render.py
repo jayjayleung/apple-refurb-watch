@@ -15,11 +15,12 @@ from apple_refurb_watch.filters import label_for, live_catalog_path, summarize_d
 from apple_refurb_watch.listing import format_cny, format_gb, thumb_url
 from apple_refurb_watch.paths import package_root
 from apple_refurb_watch.settings import (
+    NOTIFY_CHANNEL_UI,
+    is_loopback_bind,
     listing_family_checked,
     notify_channel_ready,
     notify_channel_status,
     public_settings,
-    NOTIFY_CHANNEL_UI,
 )
 from apple_refurb_watch.status_view import format_localtime, load_status
 from apple_refurb_watch.update_check import GITHUB_URL
@@ -75,6 +76,11 @@ class PageRenderer:
 
     def __call__(self, name: str, request: Request, **ctx) -> HTMLResponse:
         settings = public_settings(self.db.settings())
+        bound_host = getattr(request.app.state, "bound_host", None)
+        extra = {
+            "bound_host": bound_host,
+            "remote_bound": not is_loopback_bind(bound_host),
+        }
         hx = bool(request.headers.get("HX-Request"))
         if hx:
             html_body = self.jinja.get_template(name).render(
@@ -85,6 +91,7 @@ class PageRenderer:
                 watch_count=0,
                 user_catalog_path=str(user_catalog_path()),
                 live_catalog_path=str(live_catalog_path()),
+                **extra,
                 **ctx,
             )
             return HTMLResponse(html_body)
@@ -97,6 +104,7 @@ class PageRenderer:
             watch_count=payload["watch_count"],
             user_catalog_path=str(user_catalog_path()),
             live_catalog_path=str(live_catalog_path()),
+            **extra,
             **ctx,
         )
         return HTMLResponse(html_body)

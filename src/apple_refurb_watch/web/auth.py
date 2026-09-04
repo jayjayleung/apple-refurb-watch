@@ -11,11 +11,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from starlette.datastructures import MutableHeaders
 
 from apple_refurb_watch.db import Database
-from apple_refurb_watch.settings import listener_requires_auth, public_url
+from apple_refurb_watch.settings import listener_requires_auth, resolved_allowed_hosts
 
 SESSION_COOKIE = "arw_token"
 SESSION_SALT = b"arw-session"
-_TEST_HOSTS = {"testserver"}
 _LOCAL_HOSTS = {"localhost", "localhost.localdomain"}
 
 
@@ -68,16 +67,14 @@ def host_allowed(host_header: str, settings: dict | None = None) -> bool:
     hostname = host_name(host_header)
     if not hostname:
         return False
-    if hostname in _LOCAL_HOSTS or hostname in _TEST_HOSTS:
+    if hostname in _LOCAL_HOSTS:
         return True
     try:
         ipaddress.ip_address(hostname)
         return True
     except ValueError:
         pass
-    public = str((settings or {}).get("public_url") or "").strip() or public_url(settings or {})
-    public_host = (urlparse(public).hostname or "").lower()
-    return bool(public_host) and hostname == public_host
+    return hostname in set(resolved_allowed_hosts(settings))
 
 
 def origin_ok(request: Request, settings: dict | None = None) -> bool:
@@ -90,7 +87,11 @@ def origin_ok(request: Request, settings: dict | None = None) -> bool:
     if not source:
         return True
     incoming = (urlparse(source).netloc or "").lower()
-    return bool(incoming) and incoming == host
+    if not incoming:
+        return False
+    if incoming == host:
+        return True
+    return host_name(incoming) in set(resolved_allowed_hosts(settings))
 
 
 def needs_auth(request: Request, settings: dict) -> bool:
@@ -137,7 +138,7 @@ class AuthMiddleware:
         self._cache_version = -1
         self._access_token = ""
         self._requires_auth = False
-        self._public_url = ""
+        self._allowed_hosts: list[str] = []
 
     def _auth_state(self) -> tuple[str, bool, dict]:
         version = int(self.db.settings_version)
@@ -147,9 +148,13 @@ class AuthMiddleware:
                 settings = {**settings, "bind_host": self.bound_host}
             self._access_token = str(settings.get("access_token") or "")
             self._requires_auth = listener_requires_auth(settings)
-            self._public_url = public_url(settings)
+            self._allowed_hosts = list(settings.get("allowed_hosts") or [])
             self._cache_version = version
-        cached = {"public_url": self._public_url, "bind_host": self.bound_host, "access_token": self._access_token}
+        cached = {
+            "allowed_hosts": self._allowed_hosts,
+            "bind_host": self.bound_host,
+            "access_token": self._access_token,
+        }
         return self._access_token, self._requires_auth, cached
 
     async def __call__(self, scope, receive, send):

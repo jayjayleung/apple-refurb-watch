@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 from apple_refurb_watch.settings import (
     NOTIFY_CHANNEL_UI,
+    normalize_allowed_hosts,
     normalize_settings_patch,
     public_settings,
     public_url,
@@ -89,6 +90,8 @@ def form_settings(form: dict, current: dict) -> dict:
                 patch["lan_enabled"] = False
                 patch["bind_host"] = "127.0.0.1"
                 patch["access_token"] = ""
+        if "allowed_hosts" in form:
+            patch["allowed_hosts"] = normalize_allowed_hosts(form.get("allowed_hosts") or "")
     if _has(form, "listen_enabled"):
         patch["listen_enabled"] = _truthy(form.get("listen_enabled"))
     if _has(form, "close_window_keeps_daemon"):

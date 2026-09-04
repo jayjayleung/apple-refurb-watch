@@ -57,4 +57,5 @@ class SettingsPatch(BaseModel):
     detail_delay_seconds: float | None = None
     close_window_keeps_daemon: bool | None = None
     listen_enabled: bool | None = None
+    allowed_hosts: list[str] | str | None = None
     notify: dict[str, Any] | None = None

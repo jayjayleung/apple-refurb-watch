@@ -7,6 +7,7 @@ from starlette.concurrency import run_in_threadpool
 from apple_refurb_watch.fetch import fetch_html
 from apple_refurb_watch.filters import sync_filter_catalog
 from apple_refurb_watch.notify import CHANNELS, NotifyError, send_test
+from apple_refurb_watch.settings import is_loopback_bind
 from apple_refurb_watch.web.settings_public import form_settings, overlay_notify_from_form, safe_next
 
 router = APIRouter()
@@ -34,6 +35,17 @@ async def settings_save(request: Request) -> Response:
 
     def work() -> Response:
         payload = {key: form.get(key) for key in form.keys()}
+        clearing = str(payload.get("access_token_clear") or "").strip().lower() in {"1", "on", "true", "yes"}
+        if clearing and not is_loopback_bind(request.app.state.bound_host):
+            page = request.app.state.render(
+                "settings.html",
+                request,
+                flash="token-clear-blocked",
+                channel=None,
+                revealed_token=None,
+            )
+            page.status_code = 409
+            return page
         database = request.app.state.db
         before = database.settings()
         patch = form_settings(payload, before)

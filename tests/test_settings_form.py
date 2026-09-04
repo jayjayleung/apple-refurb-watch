@@ -108,3 +108,20 @@ def test_public_settings_redacts_secrets() -> None:
     assert data["notify"]["telegram"]["bot_token"] == ""
     assert data["notify"]["telegram"]["bot_token_set"] is True
     assert data["notify"]["telegram"]["chat_id"] == "99"
+    assert data["allowed_hosts"] == []
+
+
+def test_normalize_allowed_hosts_strips_scheme_port_and_ips() -> None:
+    from apple_refurb_watch.settings import normalize_allowed_hosts
+
+    assert normalize_allowed_hosts(
+        ["https://Watch.Example.com:8443/path", "127.0.0.1", "watch.example.com", "nas.local, nas.local"]
+    ) == ["watch.example.com", "nas.local"]
+    patch = form_settings(
+        {
+            "save_access": "1",
+            "allowed_hosts": "https://watch.example.com, 10.0.0.1, mypc.local",
+        },
+        _current(),
+    )
+    assert patch["allowed_hosts"] == ["watch.example.com", "mypc.local"]

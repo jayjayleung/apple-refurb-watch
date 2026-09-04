@@ -219,6 +219,9 @@ Compose 默认把端口绑到宿主机 `127.0.0.1`。需要其它设备访问时
 - 默认绑定 `127.0.0.1`，不会自动暴露到局域网。
 - 绑定到非回环地址时必须配置访问口令，否则服务拒绝启动。
 - Web 登录、CLI 和桌面客户端用同一个口令。
+- 会话 cookie 是访问口令的 HMAC，等价于口令本身，不能按设备单独吊销；改口令后旧 cookie 失效。
+- 用域名或反向代理（Caddy / nginx + HTTPS）访问时，把主机名登记到设置页的「允许的主机名」，或设置环境变量 `APPLE_REFURB_WATCH_ALLOWED_HOSTS`（逗号分隔）。IP 字面量与 `localhost` 始终放行。
+- 已绑定非回环地址时不能清除口令：先关闭「允许远程访问」、保存并重启，再在回环监听下清除。
 - 公网应使用 HTTPS，优先考虑 Tailscale 等私网方案。
 - 不要把口令、Webhook 或邮件密码提交到仓库。
 - `config export` 默认排除全部密钥；只有明确加上 `--include-secrets` 才会导出。
@@ -432,6 +435,7 @@ apple-refurb-watch home
 | `APPLE_REFURB_WATCH_LOG` | 覆盖日志目录 |
 | `APPLE_REFURB_WATCH_URL` | 指定远程服务地址 |
 | `APPLE_REFURB_WATCH_TOKEN` | 指定远程访问口令 |
+| `APPLE_REFURB_WATCH_ALLOWED_HOSTS` | 额外允许的 Host / Origin 主机名，逗号分隔 |
 
 主要数据在数据目录的 `app.db`。筛选词条由内置目录、官网同步文件和用户覆盖合并：
 

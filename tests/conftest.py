@@ -9,6 +9,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("APPLE_REFURB_WATCH_LOG", str(tmp_path / "logs"))
+    monkeypatch.setenv("APPLE_REFURB_WATCH_ALLOWED_HOSTS", "testserver")
 
 
 @pytest.fixture(autouse=True)

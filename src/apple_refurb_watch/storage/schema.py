@@ -181,6 +181,7 @@ DEFAULT_SETTINGS = {
     "notify": DEFAULT_NOTIFY,
     "close_window_keeps_daemon": True,
     "listen_enabled": True,
+    "allowed_hosts": [],
     "baseline_done": False,
 }
 

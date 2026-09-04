@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import secrets
 from typing import Any
+from urllib.parse import urlparse
 
 from apple_refurb_watch.categories import compact_listings, listing_url, shop_family_key
 from apple_refurb_watch.storage.schema import DEFAULT_BIND_PORT, DEFAULT_LISTING_KEY
+
+ENV_ALLOWED_HOSTS = "APPLE_REFURB_WATCH_ALLOWED_HOSTS"
 
 _SECRET_NOTIFY_KEYS = ("password", "bot_token", "sendkey", "token", "secret", "webhook", "url")
 
@@ -102,6 +106,74 @@ def public_url(settings: dict) -> str:
     return f"http://{host}:{port}"
 
 
+def _host_from_value(raw: str) -> str:
+    text = str(raw or "").strip().lower()
+    if not text:
+        return ""
+    if "://" in text:
+        host = (urlparse(text).hostname or "").strip().lower()
+        return host.rstrip(".")
+    if text.startswith("["):
+        end = text.find("]")
+        return text[1:end] if end > 1 else text
+    if text.count(":") == 1:
+        return text.split(":", 1)[0].rstrip(".")
+    return text.strip("/").rstrip(".")
+
+
+def _split_host_text(text: str) -> list[str]:
+    return [part.strip() for part in str(text or "").replace(";", ",").replace("\n", ",").split(",") if part.strip()]
+
+
+def normalize_allowed_hosts(values: Any) -> list[str]:
+    items: list[str] = []
+    if values is None or values is False:
+        items = []
+    elif isinstance(values, str):
+        items = _split_host_text(values)
+    elif isinstance(values, (list, tuple, set)):
+        for item in values:
+            if item is None:
+                continue
+            if isinstance(item, str):
+                items.extend(_split_host_text(item))
+            else:
+                items.extend(_split_host_text(str(item)))
+    else:
+        items = _split_host_text(str(values))
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        host = _host_from_value(item)
+        if not host:
+            continue
+        try:
+            ipaddress.ip_address(host)
+            continue
+        except ValueError:
+            pass
+        if host in seen:
+            continue
+        seen.add(host)
+        out.append(host)
+    return out
+
+
+def env_allowed_hosts() -> list[str]:
+    return normalize_allowed_hosts(os.environ.get(ENV_ALLOWED_HOSTS) or "")
+
+
+def resolved_allowed_hosts(settings: dict | None = None) -> list[str]:
+    stored = (settings or {}).get("allowed_hosts") or []
+    merged: list[Any] = []
+    if isinstance(stored, str):
+        merged.append(stored)
+    elif isinstance(stored, (list, tuple, set)):
+        merged.extend(stored)
+    merged.extend(env_allowed_hosts())
+    return normalize_allowed_hosts(merged)
+
+
 def public_settings(settings: dict) -> dict:
     data = {
         key: settings.get(key)
@@ -114,8 +186,10 @@ def public_settings(settings: dict) -> dict:
             "detail_delay_seconds",
             "close_window_keeps_daemon",
             "listen_enabled",
+            "allowed_hosts",
         )
     }
+    data["allowed_hosts"] = normalize_allowed_hosts(data.get("allowed_hosts") or [])
     notify = {}
     for name, conf in (settings.get("notify") or {}).items():
         safe = dict(conf)
@@ -196,6 +270,8 @@ def normalize_settings_patch(patch: dict[str, Any], current: dict[str, Any]) -> 
             data.pop("access_token", None)
     if "listings" in data and data["listings"] is not None:
         data["listings"] = safe_listings(list(data["listings"]))
+    if "allowed_hosts" in data:
+        data["allowed_hosts"] = normalize_allowed_hosts(data["allowed_hosts"])
     if data.get("lan_enabled"):
         data.setdefault("bind_host", "0.0.0.0")
     if data.get("lan_enabled") is False:

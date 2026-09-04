@@ -7,7 +7,7 @@ from apple_refurb_watch.api import create_app
 from apple_refurb_watch.db import Database
 from apple_refurb_watch.paths import read_runtime
 from apple_refurb_watch.settings import normalize_settings_patch
-from apple_refurb_watch.web.auth import session_digest, validate_listener_security
+from apple_refurb_watch.web.auth import host_allowed, session_digest, validate_listener_security
 
 
 def test_loopback_listener_can_run_without_token(tmp_path) -> None:
@@ -152,3 +152,129 @@ def test_unhandled_error_hides_traceback(tmp_path, monkeypatch) -> None:
         assert "Traceback" not in page.text
         assert "RuntimeError" in page.text
         assert "secret-file /tmp/hidden" in page.text
+
+
+def test_testserver_is_not_a_production_host(monkeypatch) -> None:
+    monkeypatch.delenv("APPLE_REFURB_WATCH_ALLOWED_HOSTS", raising=False)
+    assert host_allowed("testserver") is False
+    assert host_allowed("localhost") is True
+    assert host_allowed("192.168.8.12:8766") is True
+    assert host_allowed("watch.example.com") is False
+    assert host_allowed("watch.example.com", {"allowed_hosts": ["watch.example.com"]}) is True
+    assert host_allowed("watch.example.com", {"allowed_hosts": ["127.0.0.1"]}) is False
+
+
+def test_registered_domain_host_allows_bearer_read_write(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    db.update_settings(
+        {
+            "bind_host": "0.0.0.0",
+            "access_token": "secret",
+            "allowed_hosts": ["watch.example.com"],
+        }
+    )
+    app = create_app(db, with_scheduler=False)
+    headers = {"Authorization": "Bearer secret"}
+    with TestClient(app, base_url="http://watch.example.com") as client:
+        assert client.get("/api/status", headers=headers).status_code == 200
+        created = client.post(
+            "/api/watches",
+            json={"name": "via-domain"},
+            headers={**headers, "Origin": "http://watch.example.com"},
+        )
+        assert created.status_code == 200
+
+
+def test_env_allowed_hosts_are_merged(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("APPLE_REFURB_WATCH_ALLOWED_HOSTS", "from-env.example")
+    db = Database(tmp_path / "app.db")
+    db.update_settings(
+        {
+            "bind_host": "0.0.0.0",
+            "access_token": "secret",
+            "allowed_hosts": ["from-db.example"],
+        }
+    )
+    app = create_app(db, with_scheduler=False)
+    headers = {"Authorization": "Bearer secret"}
+    with TestClient(app, base_url="http://from-env.example") as client:
+        assert client.get("/api/status", headers=headers).status_code == 200
+    with TestClient(app, base_url="http://from-db.example") as client:
+        assert client.get("/api/status", headers=headers).status_code == 200
+
+
+def test_loopback_unregistered_hostname_get_ok_same_origin_post_forbidden(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    db.update_settings({"bind_host": "127.0.0.1", "access_token": ""})
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app, base_url="http://mypc.local") as client:
+        assert client.get("/api/status").status_code == 200
+        denied = client.post(
+            "/api/watches",
+            json={"name": "local-host"},
+            headers={"Origin": "http://mypc.local"},
+        )
+        assert denied.status_code == 403
+    db.update_settings({"allowed_hosts": ["mypc.local"]})
+    with TestClient(app, base_url="http://mypc.local") as client:
+        allowed = client.post(
+            "/api/watches",
+            json={"name": "local-host"},
+            headers={"Origin": "http://mypc.local"},
+        )
+        assert allowed.status_code == 200
+        patched = client.patch(
+            "/api/settings",
+            json={"allowed_hosts": ["mypc.local", "https://watch.example.com:443"]},
+        )
+        assert patched.status_code == 200
+        assert patched.json()["allowed_hosts"] == ["mypc.local", "watch.example.com"]
+
+
+def test_origin_allowlist_covers_rewritten_host(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    db.update_settings(
+        {
+            "bind_host": "0.0.0.0",
+            "access_token": "secret",
+            "allowed_hosts": ["watch.example.com"],
+        }
+    )
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app, base_url="http://127.0.0.1:8766") as client:
+        created = client.post(
+            "/api/watches",
+            json={"name": "proxied"},
+            headers={
+                "Authorization": "Bearer secret",
+                "Origin": "https://watch.example.com",
+            },
+        )
+        assert created.status_code == 200
+
+
+def test_clearing_token_while_bound_remotely_is_conflict(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    db.update_settings({"bind_host": "0.0.0.0", "lan_enabled": True, "access_token": "secret"})
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/settings",
+            data={
+                "save_access": "1",
+                "save_notify": "1",
+                "lan_enabled": "on",
+                "access_token_clear": "1",
+                "interval_seconds": "300",
+                "bind_port": "8766",
+            },
+            headers={"Authorization": "Bearer secret"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 409
+        assert "无法清除口令" in resp.text
+        assert db.settings()["access_token"] == "secret"
+        page = client.get("/settings", headers={"Authorization": "Bearer secret"})
+        assert page.status_code == 200
+        assert "先关闭远程访问" in page.text
+        assert "确定清除访问口令" in page.text
