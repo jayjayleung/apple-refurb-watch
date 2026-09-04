@@ -148,86 +148,91 @@ def test_settings_page_masks_saved_secret_placeholders(tmp_path) -> None:
         "access": "access-token-saved-xyz",
     }
     db = Database(tmp_path / "app.db")
-    db.update_settings(
-        {
-            "access_token": secrets["access"],
-            "notify": {
-                "bark": {"enabled": False, "url": secrets["bark-url"]},
-                "serverchan": {"enabled": False, "sendkey": secrets["serverchan-sendkey"]},
-                "pushplus": {"enabled": False, "token": secrets["pushplus-token"]},
-                "feishu": {"enabled": False, "webhook": secrets["feishu-webhook"], "secret": ""},
-                "dingtalk": {
-                    "enabled": False,
-                    "webhook": secrets["dingtalk-webhook"],
-                    "secret": secrets["dingtalk-secret"],
+    try:
+        db.update_settings(
+            {
+                "access_token": secrets["access"],
+                "notify": {
+                    "bark": {"enabled": False, "url": secrets["bark-url"]},
+                    "serverchan": {"enabled": False, "sendkey": secrets["serverchan-sendkey"]},
+                    "pushplus": {"enabled": False, "token": secrets["pushplus-token"]},
+                    "feishu": {"enabled": False, "webhook": secrets["feishu-webhook"], "secret": ""},
+                    "dingtalk": {
+                        "enabled": False,
+                        "webhook": secrets["dingtalk-webhook"],
+                        "secret": secrets["dingtalk-secret"],
+                    },
+                    "telegram": {"enabled": False, "bot_token": secrets["telegram-bot"], "chat_id": "99"},
+                    "email": {
+                        "enabled": False,
+                        "smtp_host": "smtp.example.com",
+                        "smtp_port": 465,
+                        "username": "me@example.com",
+                        "password": "",
+                        "to": "you@example.com",
+                    },
                 },
-                "telegram": {"enabled": False, "bot_token": secrets["telegram-bot"], "chat_id": "99"},
-                "email": {
-                    "enabled": False,
-                    "smtp_host": "smtp.example.com",
-                    "smtp_port": 465,
-                    "username": "me@example.com",
-                    "password": "",
-                    "to": "you@example.com",
-                },
-            },
-        }
-    )
-    app = create_app(db, with_scheduler=False)
-    mask = 'placeholder="••••••••"'
-    saved_names = [
-        "notify_bark_url",
-        "notify_serverchan_sendkey",
-        "notify_pushplus_token",
-        "notify_feishu_webhook",
-        "notify_dingtalk_webhook",
-        "notify_dingtalk_secret",
-        "notify_telegram_bot_token",
-        "access_token",
-    ]
-    unset_names = ["notify_feishu_secret", "notify_email_password"]
-    with TestClient(app) as client:
-        page = client.get("/settings")
-        assert page.status_code == 200
-        html = page.text
-        for value in secrets.values():
-            assert value not in html
-        for name in saved_names:
-            tag = _settings_input_tag(html, name)
-            assert mask in tag
-            assert "value=" not in tag
-        for name in unset_names:
-            tag = _settings_input_tag(html, name)
-            assert mask not in tag
-        covered = {(spec["name"], key) for spec in NOTIFY_CHANNEL_UI for key, _ in spec["secrets"] + spec["optional_secrets"]}
-        assert covered == {
-            ("bark", "url"),
-            ("serverchan", "sendkey"),
-            ("pushplus", "token"),
-            ("feishu", "webhook"),
-            ("feishu", "secret"),
-            ("dingtalk", "webhook"),
-            ("dingtalk", "secret"),
-            ("telegram", "bot_token"),
-            ("email", "password"),
-        }
-        kept = client.post(
-            "/settings",
-            data={
-                "interval_seconds": "300",
-                "bind_port": "8765",
-                "save_access": "1",
-                "save_notify": "1",
-            },
-            follow_redirects=False,
+            }
         )
-        assert kept.status_code == 303
-    stored = db.settings()
-    assert stored["access_token"] == secrets["access"]
-    assert stored["notify"]["bark"]["url"] == secrets["bark-url"]
-    assert stored["notify"]["feishu"]["webhook"] == secrets["feishu-webhook"]
-    assert stored["notify"]["feishu"]["secret"] == ""
-    assert stored["notify"]["email"]["password"] == ""
+        app = create_app(db, with_scheduler=False)
+        mask = 'placeholder="••••••••"'
+        saved_names = [
+            "notify_bark_url",
+            "notify_serverchan_sendkey",
+            "notify_pushplus_token",
+            "notify_feishu_webhook",
+            "notify_dingtalk_webhook",
+            "notify_dingtalk_secret",
+            "notify_telegram_bot_token",
+            "access_token",
+        ]
+        unset_names = ["notify_feishu_secret", "notify_email_password"]
+        with TestClient(app) as client:
+            page = client.get("/settings")
+            assert page.status_code == 200
+            html = page.text
+            for value in secrets.values():
+                assert value not in html
+            for name in saved_names:
+                tag = _settings_input_tag(html, name)
+                assert mask in tag
+                assert "value=" not in tag
+            for name in unset_names:
+                tag = _settings_input_tag(html, name)
+                assert mask not in tag
+            covered = {
+                (spec["name"], key) for spec in NOTIFY_CHANNEL_UI for key, _ in spec["secrets"] + spec["optional_secrets"]
+            }
+            assert covered == {
+                ("bark", "url"),
+                ("serverchan", "sendkey"),
+                ("pushplus", "token"),
+                ("feishu", "webhook"),
+                ("feishu", "secret"),
+                ("dingtalk", "webhook"),
+                ("dingtalk", "secret"),
+                ("telegram", "bot_token"),
+                ("email", "password"),
+            }
+            kept = client.post(
+                "/settings",
+                data={
+                    "interval_seconds": "300",
+                    "bind_port": "8765",
+                    "save_access": "1",
+                    "save_notify": "1",
+                },
+                follow_redirects=False,
+            )
+            assert kept.status_code == 303
+        stored = db.settings()
+        assert stored["access_token"] == secrets["access"]
+        assert stored["notify"]["bark"]["url"] == secrets["bark-url"]
+        assert stored["notify"]["feishu"]["webhook"] == secrets["feishu-webhook"]
+        assert stored["notify"]["feishu"]["secret"] == ""
+        assert stored["notify"]["email"]["password"] == ""
+    finally:
+        db.close()
 
 
 def test_empty_access_token_does_not_clear(tmp_path) -> None:

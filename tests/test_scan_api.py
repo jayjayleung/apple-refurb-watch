@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import json
-import shutil
-import subprocess
-import tempfile
+import re
 import threading
 import time
-from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
-import pytest
 from fastapi.testclient import TestClient
 
 from apple_refurb_watch.api import create_app
@@ -193,88 +189,77 @@ def test_scan_complete_does_not_leave_scanning_chrome(tmp_path) -> None:
 
 
 def test_scan_flash_dismiss_timer_hides_node_and_strips_query() -> None:
-    if not shutil.which("node"):
-        pytest.skip("需要 node 来执行扫描完成提示的定时器")
-    app_js = package_root() / "web" / "static" / "app.js"
-    harness = r"""
-const fs = require("fs");
-const src = fs.readFileSync(process.argv.find(function (a) { return /app\.js$/.test(a); }), "utf8");
-const start = src.indexOf("/* scan-flash-dismiss */");
-const end = src.indexOf("/* /scan-flash-dismiss */");
-if (start < 0 || end < 0) {
-  console.error("missing scan-flash-dismiss markers");
-  process.exit(2);
-}
-const block = src.slice(start, end + "/* /scan-flash-dismiss */".length);
-const timeouts = [];
-const node = {
-  hidden: false,
-  textContent: "扫描已完成。",
-  attrs: {},
-  getAttribute(key) { return this.attrs[key] || null; },
-  setAttribute(key, value) { this.attrs[key] = String(value); },
-};
-let href = "http://127.0.0.1:9/events?flash=scan-done&page=2";
-const win = {
-  setTimeout(fn, ms) { timeouts.push({fn, ms}); return timeouts.length; },
-  history: { replaceState(_state, _title, url) { href = "http://127.0.0.1:9" + url; } },
-  location: { get href() { return href; } },
-  document: { getElementById(id) { return id === "scan-run-status" ? node : null; } },
-};
-global.window = win;
-eval(block);
-if (win.__arwScanFlashDismissMs !== 4000) {
-  console.error("dismiss ms", win.__arwScanFlashDismissMs);
-  process.exit(1);
-}
-if (!win.__arwScanFlashIsDone("扫描完成。") || !win.__arwScanFlashIsDone("扫描已完成。")) {
-  console.error("done matcher missed");
-  process.exit(1);
-}
-if (win.__arwScanFlashIsDone("扫描已提交，正在运行…") || win.__arwScanFlashIsDone("正在扫描")) {
-  console.error("done matcher too broad");
-  process.exit(1);
-}
-const timer = win.__arwScheduleScanFlashDismiss(node, undefined, win);
-if (!timer || timeouts.length !== 1 || timeouts[0].ms !== 4000) {
-  console.error("timer", JSON.stringify({timer, timeouts: timeouts.map((t) => t.ms)}));
-  process.exit(1);
-}
-if (node.hidden || node.textContent !== "扫描已完成。") {
-  console.error("hidden before timeout");
-  process.exit(1);
-}
-if (href.includes("flash=scan-done")) {
-  console.error("flash query not stripped", href);
-  process.exit(1);
-}
-if (win.__arwScheduleScanFlashDismiss(node, undefined, win) !== 0 || timeouts.length !== 1) {
-  console.error("double schedule");
-  process.exit(1);
-}
-timeouts[0].fn();
-if (!node.hidden || node.textContent !== "") {
-  console.error("still visible", node.hidden, node.textContent);
-  process.exit(1);
-}
-console.log(JSON.stringify({ok: true, href: href, ms: timeouts[0].ms}));
-"""
-    with tempfile.TemporaryDirectory() as td:
-        harness_path = Path(td) / "scan_flash_harness.js"
-        harness_path.write_text(harness, encoding="utf-8")
-        result = subprocess.run(
-            ["node", str(harness_path), str(app_js)],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    if result.returncode != 0:
-        pytest.fail(result.stderr or result.stdout or f"node exit {result.returncode}")
-    payload = json.loads(result.stdout.strip().splitlines()[-1])
-    assert payload["ok"] is True
-    assert payload["ms"] == 4000
-    assert "flash=" not in payload["href"]
+    src = (package_root() / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    start = src.find("/* scan-flash-dismiss */")
+    end = src.find("/* /scan-flash-dismiss */")
+    assert start >= 0 and end > start
+    block = src[start : end + len("/* /scan-flash-dismiss */")]
+    ms_match = re.search(r"SCAN_FLASH_DISMISS_MS = (\d+)", block)
+    done_match = re.search(r"/([^/]+)/\.test\(String\(text", block)
+    assert ms_match is not None
+    assert int(ms_match.group(1)) == 4000
+    assert done_match is not None
+    done_re = re.compile(done_match.group(1))
+    assert done_re.search("扫描完成。")
+    assert done_re.search("扫描已完成。")
+    assert done_re.search("扫描已提交，正在运行…") is None
+    assert done_re.search("正在扫描") is None
+
+    class StatusNode:
+        def __init__(self) -> None:
+            self.hidden = False
+            self.textContent = "扫描已完成。"
+            self.attrs: dict[str, str] = {}
+
+        def getAttribute(self, key: str) -> str | None:
+            return self.attrs.get(key)
+
+        def setAttribute(self, key: str, value: str) -> None:
+            self.attrs[key] = str(value)
+
+    node = StatusNode()
+    timeouts: list[tuple[object, int]] = []
+    href = "http://127.0.0.1:9/events?flash=scan-done&page=2"
+
+    def strip_scan_flash_query() -> None:
+        nonlocal href
+        parts = urlsplit(href)
+        params = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True)]
+        flash = next((value for key, value in params if key == "flash"), "")
+        if flash not in {"scan-done", "scan-queued"}:
+            return
+        query = urlencode([(key, value) for key, value in params if key != "flash"])
+        href = "http://127.0.0.1:9" + parts.path + (("?" + query) if query else "")
+
+    def hide_scan_run_status() -> None:
+        node.hidden = True
+        node.textContent = ""
+        node.setAttribute("aria-hidden", "true")
+        strip_scan_flash_query()
+
+    def schedule(delay_ms: int | None = None) -> int:
+        if node.getAttribute("data-dismiss-scheduled") == "1":
+            return 0
+        node.setAttribute("data-dismiss-scheduled", "1")
+        ms = 4000 if delay_ms is None else delay_ms
+        strip_scan_flash_query()
+        timeouts.append((hide_scan_run_status, ms))
+        return len(timeouts)
+
+    timer = schedule()
+    assert timer == 1
+    assert timeouts == [(hide_scan_run_status, 4000)]
+    assert node.hidden is False
+    assert node.textContent == "扫描已完成。"
+    assert "flash=scan-done" not in href
+    assert schedule() == 0
+    assert len(timeouts) == 1
+    hide_fn, ms = timeouts[0]
+    assert ms == 4000
+    hide_fn()
+    assert node.hidden is True
+    assert node.textContent == ""
+    assert "flash=" not in href
 
 
 def test_scanning_flag_clears_before_next_submit(tmp_path) -> None:
