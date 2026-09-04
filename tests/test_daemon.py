@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 from apple_refurb_watch.daemon import (
     CREATE_BREAKAWAY_FROM_JOB,
     CREATE_NEW_PROCESS_GROUP,
@@ -74,10 +76,10 @@ def test_package_root_uses_meipass(tmp_path, monkeypatch) -> None:
 def test_spawn_env_resets_pyinstaller_when_frozen(monkeypatch) -> None:
     from apple_refurb_watch import daemon
 
-    monkeypatch.setattr(daemon.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(daemon, "is_frozen", lambda: True)
     env = daemon.spawn_env()
     assert env["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
-    monkeypatch.setattr(daemon.sys, "frozen", False, raising=False)
+    monkeypatch.setattr(daemon, "is_frozen", lambda: False)
     env = daemon.spawn_env()
     assert env.get("PYINSTALLER_RESET_ENVIRONMENT") != "1"
 
@@ -197,3 +199,84 @@ def test_embedded_start_survives_none_stdio(monkeypatch) -> None:
         assert client.health()["ok"] is True
     finally:
         server.stop()
+
+
+def test_embedded_start_fails_fast_when_server_run_errors(monkeypatch) -> None:
+    import time
+
+    import uvicorn
+
+    from apple_refurb_watch.embedded import EmbeddedServer
+
+    def boom(self):
+        raise RuntimeError("bind failed")
+
+    monkeypatch.setattr(uvicorn.Server, "run", boom)
+    server = EmbeddedServer()
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="网页服务启动失败"):
+        server.start(timeout=15, host="127.0.0.1", port=18901)
+    assert time.monotonic() - started < 3
+
+
+def test_ensure_daemon_forwards_persist_and_uses_db_port(monkeypatch) -> None:
+    from apple_refurb_watch import daemon
+    from apple_refurb_watch.db import Database
+
+    Database().set_setting("bind_port", 9123)
+    captured: dict = {}
+    monkeypatch.setattr(daemon, "is_frozen", lambda: False)
+    monkeypatch.setattr(daemon, "ping_daemon", lambda *a, **k: None)
+    monkeypatch.setattr(daemon, "spawn_detached", lambda cmd, stream: captured.setdefault("cmd", cmd))
+    monkeypatch.setattr(
+        daemon,
+        "wait_health",
+        lambda timeout, base=None: captured.setdefault("base", base) or object(),
+    )
+
+    daemon.ensure_daemon(host="0.0.0.0", persist=True)
+    assert "--persist" in captured["cmd"]
+    assert "--host" in captured["cmd"]
+    assert "--port" not in captured["cmd"]
+    assert captured["base"] == "http://127.0.0.1:9123"
+
+
+def test_write_runtime_skips_live_foreign_pid(monkeypatch) -> None:
+    from apple_refurb_watch import paths
+
+    paths.write_runtime({"pid": 4242, "url": "http://keep"})
+
+    def alive(runtime):
+        return int((runtime or {}).get("pid") or 0) == 4242
+
+    monkeypatch.setattr(paths, "runtime_is_alive", alive)
+    paths.write_runtime({"pid": 9999, "url": "http://clobber"})
+    data = paths.read_runtime()
+    assert data["pid"] == 4242
+    assert data["url"] == "http://keep"
+    paths.clear_runtime(9999)
+    assert paths.read_runtime()["pid"] == 4242
+    paths.write_runtime({"pid": 4242, "url": "http://updated"})
+    assert paths.read_runtime()["url"] == "http://updated"
+
+
+def test_pid_is_ours_checks_command_on_all_platforms(monkeypatch) -> None:
+    from apple_refurb_watch import daemon, paths
+
+    monkeypatch.setattr(paths, "pid_exists", lambda _pid: True)
+    monkeypatch.setattr(paths, "process_command_line", lambda _pid: "/usr/sbin/nginx")
+    assert daemon._pid_is_ours(1) is False
+    monkeypatch.setattr(paths, "process_command_line", lambda _pid: "python -m apple_refurb_watch serve")
+    assert daemon._pid_is_ours(1) is True
+
+
+def test_runtime_is_alive_win32_does_not_os_kill(monkeypatch) -> None:
+    from apple_refurb_watch import paths
+
+    killed: list = []
+    monkeypatch.setattr(paths.sys, "platform", "win32")
+    monkeypatch.setattr(paths.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr(paths, "pid_exists", lambda _pid: True)
+    monkeypatch.setattr(paths, "process_command_line", lambda _pid: r"C:\app\apple-refurb-watch.exe")
+    assert paths.runtime_is_alive({"pid": 123}) is True
+    assert killed == []

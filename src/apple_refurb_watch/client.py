@@ -322,15 +322,18 @@ class ApiClient:
 
 
 def wait_health(timeout: float = 15.0, base: str | None = None) -> ApiClient:
-    deadline = time.time() + timeout
+    deadline = time.monotonic() + max(0.0, float(timeout))
     last = None
-    client = ApiClient(base)
-    while time.time() < deadline:
+    client = ApiClient(base, timeout=1.0)
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
         try:
-            client.health()
+            client.request("GET", "/api/health", timeout=max(0.05, min(1.0, remaining)))
             return client
         except ApiError as exc:
             last = exc
-            time.sleep(0.35)
+        time.sleep(min(0.35, max(0.0, deadline - time.monotonic())))
     client.close()
     raise ApiError(f"daemon 未就绪: {last}")

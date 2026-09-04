@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -192,8 +193,18 @@ def _systemd_unit() -> Path:
     return path / f"{SERVICE_NAME}.service"
 
 
+def _systemd_assign(key: str, value: str) -> str:
+    text = str(value)
+    if any(ch.isspace() for ch in text) or any(ch in text for ch in '"\\'):
+        escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+        return f'{key}="{escaped}"'
+    return f"{key}={text}"
+
+
 def _install_systemd(argv: list[str]) -> str:
     unit = _systemd_unit()
+    home = str(data_dir())
+    exec_start = " ".join(shlex.quote(part) for part in argv)
     unit.write_text(
         dedent(
             f"""
@@ -203,10 +214,11 @@ def _install_systemd(argv: list[str]) -> str:
 
             [Service]
             Type=simple
-            ExecStart={" ".join(argv)}
+            Environment={_systemd_assign("APPLE_REFURB_WATCH_HOME", home)}
+            ExecStart={exec_start}
             Restart=on-failure
             RestartSec=8
-            WorkingDirectory={data_dir()}
+            WorkingDirectory={shlex.quote(home)}
 
             [Install]
             WantedBy=default.target
@@ -228,6 +240,7 @@ def _launchd_plist() -> Path:
 
 def _install_launchd(argv: list[str]) -> str:
     plist = _launchd_plist()
+    home = escape(str(data_dir()))
     plist.write_text(
         dedent(
             f"""
@@ -240,9 +253,14 @@ def _install_launchd(argv: list[str]) -> str:
               <array>
                 {"".join(f"<string>{escape(part)}</string>" for part in argv)}
               </array>
+              <key>EnvironmentVariables</key>
+              <dict>
+                <key>APPLE_REFURB_WATCH_HOME</key>
+                <string>{home}</string>
+              </dict>
               <key>RunAtLoad</key><true/>
               <key>KeepAlive</key><true/>
-              <key>WorkingDirectory</key><string>{data_dir()}</string>
+              <key>WorkingDirectory</key><string>{home}</string>
             </dict>
             </plist>
             """

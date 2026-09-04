@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -164,7 +163,13 @@ def ping_daemon(base: str | None = None, *, stable: bool = False) -> ApiClient |
     return client
 
 
-def ensure_daemon(timeout: float | None = None, host: str | None = None, port: int | None = None) -> ApiClient:
+def ensure_daemon(
+    timeout: float | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    *,
+    persist: bool = False,
+) -> ApiClient:
     # 冻结 onefile 子进程还要再解压一遍，Windows 上经常超过 15 秒。
     if timeout is None:
         timeout = 60.0 if is_frozen() else 15.0
@@ -179,9 +184,24 @@ def ensure_daemon(timeout: float | None = None, host: str | None = None, port: i
         cmd.extend(["--host", str(host)])
     if port is not None:
         cmd.extend(["--port", str(port)])
+    if persist:
+        cmd.append("--persist")
     with open(log, "a", encoding="utf-8") as stream:
         spawn_detached(cmd, stream)
     return wait_health(timeout, base=base)
+
+
+def _settings_bind_port() -> int:
+    try:
+        from apple_refurb_watch.db import Database
+
+        db = Database()
+        try:
+            return int(db.settings().get("bind_port") or DEFAULT_BIND_PORT)
+        finally:
+            db.close()
+    except Exception:
+        return int(DEFAULT_BIND_PORT)
 
 
 def _wait_base(host: str | None, port: int | None) -> str | None:
@@ -190,7 +210,8 @@ def _wait_base(host: str | None, port: int | None) -> str | None:
     wait_host = host or "127.0.0.1"
     if wait_host in {"0.0.0.0", "::"}:
         wait_host = "127.0.0.1"
-    return f"http://{wait_host}:{port or DEFAULT_BIND_PORT}"
+    wait_port = int(port) if port is not None else _settings_bind_port()
+    return f"http://{wait_host}:{wait_port}"
 
 
 def is_running() -> bool:
@@ -205,13 +226,9 @@ def is_running() -> bool:
 
 
 def _pid_is_ours(pid: int) -> bool:
-    if sys.platform.startswith("linux"):
-        try:
-            cmd = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", "replace")
-        except OSError:
-            return False
-        return "apple_refurb_watch" in cmd or "apple-refurb-watch" in cmd
-    return True
+    from apple_refurb_watch.paths import pid_is_our_process
+
+    return pid_is_our_process(pid)
 
 
 def stop_daemon() -> bool:

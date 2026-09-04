@@ -20,6 +20,10 @@ def test_is_newer_compares_semver() -> None:
     assert not is_newer("0.3.2", "0.3.3")
     assert is_newer("v0.4.0", "0.3.9")
     assert version_key("0.3.10") > version_key("0.3.9")
+    assert version_key("0.3.17rc1") < version_key("0.3.17")
+    assert version_key("0.3.17rc1") < version_key("0.3.99")
+    assert version_key("0.3.17a1") < version_key("0.3.17rc1")
+    assert not is_newer("0.3.17rc1", "0.3.17")
 
 
 def test_latest_release_info_uses_fetch_and_cache(tmp_path, monkeypatch) -> None:

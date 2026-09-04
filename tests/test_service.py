@@ -92,3 +92,37 @@ def test_windows_schtasks_hides_console(monkeypatch) -> None:
     assert seen["cmd"][0] == "schtasks"
     assert "/Create" in seen["cmd"]
     assert seen["kwargs"]["creationflags"] == CREATE_NO_WINDOW
+
+
+def test_systemd_unit_sets_home_and_quotes_exec(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch import service
+
+    unit = tmp_path / "apple-refurb-watch.service"
+    home = tmp_path / "data dir"
+    home.mkdir()
+    monkeypatch.setattr(service, "_systemd_unit", lambda: unit)
+    monkeypatch.setattr(service, "_subprocess_run", lambda *_a, **_k: None)
+    monkeypatch.setattr(service, "data_dir", lambda: home)
+    service._install_systemd(["/opt/my app/arw", "serve"])
+    text = unit.read_text(encoding="utf-8")
+    assert "APPLE_REFURB_WATCH_HOME=" in text
+    assert str(home) in text
+    assert "ExecStart=" in text
+    assert "/opt/my app/arw" in text
+    assert "'/opt/my app/arw'" in text or '"/opt/my app/arw"' in text
+
+
+def test_launchd_plist_sets_home(tmp_path, monkeypatch) -> None:
+    from apple_refurb_watch import service
+
+    plist = tmp_path / "cn.apple-refurb-watch.plist"
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(service, "_launchd_plist", lambda: plist)
+    monkeypatch.setattr(service, "_subprocess_run", lambda *_a, **_k: None)
+    monkeypatch.setattr(service, "data_dir", lambda: home)
+    service._install_launchd(["/App", "desktop", "--hidden"])
+    text = plist.read_text(encoding="utf-8")
+    assert "<key>EnvironmentVariables</key>" in text
+    assert "APPLE_REFURB_WATCH_HOME" in text
+    assert str(home) in text

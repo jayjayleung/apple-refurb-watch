@@ -113,3 +113,43 @@ def test_hide_to_tray_setting() -> None:
     assert hide_to_tray_enabled(None) is True
     assert hide_to_tray_enabled({"close_window_keeps_daemon": True}) is True
     assert hide_to_tray_enabled({"close_window_keeps_daemon": False}) is False
+
+
+def test_load_connection_rejects_invalid_env_url(monkeypatch) -> None:
+    monkeypatch.setenv("APPLE_REFURB_WATCH_URL", "http://example.com")
+    monkeypatch.delenv("APPLE_REFURB_WATCH_TOKEN", raising=False)
+    conn = load_connection()
+    assert conn.mode == "local"
+    assert conn.url is None
+
+
+def test_load_connection_rejects_invalid_stored_url(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("APPLE_REFURB_WATCH_URL", raising=False)
+    monkeypatch.delenv("APPLE_REFURB_WATCH_TOKEN", raising=False)
+    from apple_refurb_watch.connection import connection_path
+
+    connection_path().parent.mkdir(parents=True, exist_ok=True)
+    connection_path().write_text(
+        '{"mode": "remote", "url": "ftp://example.com", "allow_insecure": false}',
+        encoding="utf-8",
+    )
+    conn = load_connection()
+    assert conn.mode == "local"
+    assert conn.url is None
+
+
+def test_load_connection_rejects_embedded_credentials(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("APPLE_REFURB_WATCH_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("APPLE_REFURB_WATCH_URL", raising=False)
+    monkeypatch.delenv("APPLE_REFURB_WATCH_TOKEN", raising=False)
+    from apple_refurb_watch.connection import connection_path
+
+    connection_path().parent.mkdir(parents=True, exist_ok=True)
+    connection_path().write_text(
+        '{"mode": "remote", "url": "http://user:secret@10.0.0.2:8765"}',
+        encoding="utf-8",
+    )
+    conn = load_connection()
+    assert conn.mode == "local"
+    assert conn.url is None

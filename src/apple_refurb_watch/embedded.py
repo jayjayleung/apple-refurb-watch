@@ -79,13 +79,29 @@ class EmbeddedServer:
             thread.start()
             started = True
             base = f"http://{self.host}:{self.port}"
-            try:
-                return wait_health(timeout, base=base)
-            except Exception:
-                self.stop()
+            deadline = time.monotonic() + max(0.0, float(timeout))
+            last_exc: BaseException | None = None
+            while True:
                 if self._run_error is not None:
+                    self.stop()
                     raise RuntimeError(f"网页服务启动失败: {self._run_error}") from self._run_error
-                raise
+                if thread is not None and not thread.is_alive():
+                    err = self._run_error or RuntimeError("网页服务线程已退出")
+                    self.stop()
+                    raise RuntimeError(f"网页服务启动失败: {err}") from err
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    return wait_health(min(0.45, remaining), base=base)
+                except Exception as exc:
+                    last_exc = exc
+            self.stop()
+            if self._run_error is not None:
+                raise RuntimeError(f"网页服务启动失败: {self._run_error}") from self._run_error
+            if last_exc is not None:
+                raise last_exc
+            raise RuntimeError("网页服务启动超时")
         except Exception:
             if not started:
                 if db is not None:

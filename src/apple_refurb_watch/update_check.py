@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -18,15 +19,44 @@ NEGATIVE_CACHE_TTL_SECONDS = 30 * 60
 FetchLatest = Callable[[], str | None]
 
 
+_PRE_ORDER = {
+    "dev": 0,
+    "a": 1,
+    "alpha": 1,
+    "b": 2,
+    "beta": 2,
+    "rc": 3,
+    "c": 3,
+    "pre": 3,
+    "preview": 3,
+}
+_VERSION_RE = re.compile(
+    r"^(\d+(?:\.\d+)*)(?:[-._+]?(dev|a|alpha|b|beta|rc|c|pre|preview)(\d*))?",
+    re.IGNORECASE,
+)
+
+
 def version_key(ver: str | None) -> tuple[int, ...]:
+    """Order versions so prereleases sort before the matching release.
+
+    ``0.3.17rc1`` must be less than ``0.3.17`` and ``0.3.99``. Digit-concatenating
+    parsers treat the ``1`` in ``rc1`` as another numeric component and invert that.
+    """
+
     if not ver:
         return (0,)
-    nums: list[int] = []
-    for part in str(ver).replace("-", ".").split("."):
-        digits = "".join(ch for ch in part if ch.isdigit())
-        if digits:
-            nums.append(int(digits))
-    return tuple(nums) or (0,)
+    text = str(ver).strip()
+    if text.lower().startswith("v") and len(text) > 1 and text[1].isdigit():
+        text = text[1:]
+    match = _VERSION_RE.match(text)
+    if not match:
+        nums = [int(part) for part in re.findall(r"\d+", text)]
+        return tuple(nums) or (0,)
+    nums = tuple(int(part) for part in match.group(1).split("."))
+    tag = (match.group(2) or "").lower()
+    if tag:
+        return nums + (0, _PRE_ORDER.get(tag, 0), int(match.group(3) or 0))
+    return nums + (1, 0, 0)
 
 
 def parse_release_tag(tag: str | None) -> str:

@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import webbrowser
+from pathlib import Path
 from urllib.parse import urlparse
 
 from apple_refurb_watch import DESKTOP_USER_AGENT_PREFIX, __version__
@@ -356,6 +357,28 @@ def fallback_webview_to_browser(session: DesktopSession) -> None:
         return
     if session.client is not None:
         _open_in_browser(session.client.base)
+
+
+def consume_desktop_signal(path: Path, *, started_at: float, last_mtime: float) -> tuple[bool, float]:
+    """Handle ``desktop.signal``: ignore leftover files, then show and delete."""
+
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return False, last_mtime
+    if mtime <= started_at:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return False, last_mtime
+    if mtime <= last_mtime:
+        return False, last_mtime
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    return True, mtime
 
 
 def _open_in_browser(url: str) -> None:
@@ -908,6 +931,7 @@ def _start_tray(session: DesktopSession, *, adapter: DesktopAdapter | None = Non
 
 def run_desktop(*, hidden: bool = False) -> None:
     configure_desktop_logging()
+    process_started = time.time()
     desk_lock = take_desktop_lock()
     if desk_lock is None:
         return
@@ -936,12 +960,8 @@ def run_desktop(*, hidden: bool = False) -> None:
     try:
         webview = adapter.require_webview()
     except RuntimeError as exc:
-        if session.client is not None:
-            _open_in_browser(session.client.base)
-            if is_frozen():
-                session.cleanup(stop_runtime=False)
-                return
-        session.cleanup(stop_runtime=session.owned)
+        fallback_webview_to_browser(session)
+        session.cleanup(stop_runtime=False)
         raise RuntimeError("请先安装桌面依赖：pip install -e '.[desktop]'") from exc
 
     try:
@@ -972,15 +992,11 @@ def run_desktop(*, hidden: bool = False) -> None:
         return handle_window_closing(session)
 
     def watch_signal() -> None:
-        last = 0.0
+        last = process_started
         path = desktop_signal_path()
         while not session.stop_poll.wait(1.0):
-            try:
-                mtime = path.stat().st_mtime
-            except OSError:
-                continue
-            if mtime > last:
-                last = mtime
+            shown, last = consume_desktop_signal(path, started_at=process_started, last_mtime=last)
+            if shown:
                 session.show_window()
 
     try:

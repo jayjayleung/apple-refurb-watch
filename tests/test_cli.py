@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from typer.testing import CliRunner
 
 from apple_refurb_watch.cli import app
@@ -435,3 +436,35 @@ def test_tui_import_error_is_friendly(monkeypatch) -> None:
     result = invoke(["tui"])
     assert result.exit_code == 1
     assert "TUI" in (result.stderr or result.stdout)
+
+
+def test_main_api_error_raises_system_exit(monkeypatch) -> None:
+    from apple_refurb_watch.cli import main
+    from apple_refurb_watch.client import ApiError
+
+    def boom() -> None:
+        raise ApiError("down")
+
+    monkeypatch.setattr("apple_refurb_watch.cli.app", boom)
+    monkeypatch.setattr("apple_refurb_watch.cli.with_frozen_default_command", lambda argv, **_k: argv)
+    monkeypatch.setattr("apple_refurb_watch.cli.apply_windows_console", lambda *_a, **_k: None)
+    monkeypatch.setattr("apple_refurb_watch.cli.ensure_stdio", lambda: None)
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert type(exc.value) is SystemExit
+    assert exc.value.code == 1
+
+
+def test_serve_detach_forwards_persist(monkeypatch) -> None:
+    seen: dict = {}
+
+    def fake_ensure(**kwargs):
+        seen.update(kwargs)
+        return None
+
+    monkeypatch.setattr("apple_refurb_watch.cli.ensure_daemon", fake_ensure)
+    result = invoke(["serve", "--detach", "--persist", "--host", "127.0.0.1", "--port", "9999"])
+    assert result.exit_code == 0
+    assert seen.get("persist") is True
+    assert seen.get("host") == "127.0.0.1"
+    assert seen.get("port") == 9999

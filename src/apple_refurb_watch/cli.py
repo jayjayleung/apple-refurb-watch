@@ -125,7 +125,7 @@ def serve(
 ) -> None:
     """启动 daemon + 网页。默认前台；--detach 后台。"""
     if detach and not detach_child:
-        ensure_daemon(host=host, port=port)
+        ensure_daemon(host=host, port=port, persist=persist)
         typer.echo(f"daemon 已启动，打开 {ApiClient().base}")
         return
     try:
@@ -701,7 +701,7 @@ def main() -> None:
         app()
     except ApiError as exc:
         typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":

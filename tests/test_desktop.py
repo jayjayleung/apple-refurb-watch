@@ -1,3 +1,5 @@
+import pytest
+
 from apple_refurb_watch import DESKTOP_USER_AGENT_PREFIX, __version__
 from apple_refurb_watch.desktop import (
     desktop_app_title,
@@ -129,6 +131,7 @@ def test_version_key_orders_semver() -> None:
     assert version_key(None) < version_key("0.2.3")
     assert version_key("0.1.3") < version_key("0.2.3")
     assert version_key("0.2.0") < version_key(__version__)
+    assert version_key("0.3.17rc1") < version_key("0.3.99")
 
 
 def test_local_health_rejects_old_server() -> None:
@@ -663,3 +666,58 @@ def test_webview_failure_starts_standalone_daemon(monkeypatch) -> None:
     assert opened == ["http://127.0.0.1:8765"]
     assert session.owned is False
     assert session.embedded is None
+
+
+def test_missing_webview_uses_fallback(monkeypatch) -> None:
+    from apple_refurb_watch import desktop as desktop_mod
+
+    class FakeLock:
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(desktop_mod, "configure_desktop_logging", lambda: None)
+    monkeypatch.setattr(desktop_mod, "take_desktop_lock", lambda: FakeLock())
+    monkeypatch.setattr(desktop_mod.DesktopSession, "attach_runtime", lambda self: None)
+    monkeypatch.setattr(desktop_mod.DesktopSession, "apply_notify_preference", lambda self: None)
+    cleaned: list[bool] = []
+    monkeypatch.setattr(
+        desktop_mod.DesktopSession,
+        "cleanup",
+        lambda self, *, stop_runtime: cleaned.append(stop_runtime),
+    )
+
+    class Adapter:
+        def require_webview(self):
+            raise RuntimeError("no webview")
+
+    monkeypatch.setattr(desktop_mod, "DesktopAdapter", lambda: Adapter())
+    monkeypatch.setattr(desktop_mod, "is_service_installed", lambda: False)
+    calls: list[str] = []
+    monkeypatch.setattr(desktop_mod, "fallback_webview_to_browser", lambda _session: calls.append("fb"))
+
+    with pytest.raises(RuntimeError, match="桌面依赖"):
+        desktop_mod.run_desktop()
+    assert calls == ["fb"]
+    assert cleaned == [False]
+
+
+def test_consume_desktop_signal_ignores_stale_and_deletes(tmp_path) -> None:
+    import os
+    import time
+
+    from apple_refurb_watch.desktop import consume_desktop_signal
+
+    path = tmp_path / "desktop.signal"
+    path.write_text("1", encoding="utf-8")
+    started = time.time()
+    os.utime(path, (started - 10, started - 10))
+    shown, last = consume_desktop_signal(path, started_at=started, last_mtime=started)
+    assert shown is False
+    assert not path.exists()
+
+    path.write_text("2", encoding="utf-8")
+    os.utime(path, (started + 5, started + 5))
+    shown, last = consume_desktop_signal(path, started_at=started, last_mtime=started)
+    assert shown is True
+    assert last == pytest.approx(started + 5, abs=0.05)
+    assert not path.exists()

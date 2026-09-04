@@ -136,17 +136,15 @@ def load_connection() -> Connection:
         try:
             url = validate_server_url(url, allow_insecure=allow_insecure or _http_ok(urlparse(url).hostname or ""))
         except ValueError:
-            if env_url:
-                url = env_url.rstrip("/")
-            else:
-                url = url.rstrip("/")
-        return Connection(
-            mode="remote",
-            url=url,
-            token=token or None,
-            allow_insecure=allow_insecure,
-            computer_notify=bool(computer_notify),
-        )
+            url = ""
+        if url:
+            return Connection(
+                mode="remote",
+                url=url,
+                token=token or None,
+                allow_insecure=allow_insecure,
+                computer_notify=bool(computer_notify),
+            )
     return Connection(mode="local", url=None, token=token or None, computer_notify=bool(computer_notify))
 
 

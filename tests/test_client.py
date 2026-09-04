@@ -45,7 +45,7 @@ def test_wait_health_timeout_closes_client(monkeypatch) -> None:
     created = []
 
     class NeverReady:
-        def __init__(self, base=None):
+        def __init__(self, base=None, **kwargs):
             self.closed = False
             created.append(self)
 
@@ -59,6 +59,31 @@ def test_wait_health_timeout_closes_client(monkeypatch) -> None:
     with pytest.raises(ApiError, match="daemon 未就绪"):
         client_module.wait_health(timeout=0)
     assert created and created[0].closed is True
+
+
+def test_wait_health_uses_short_attempt_timeout(monkeypatch) -> None:
+    created = []
+
+    class Rec:
+        def __init__(self, base=None, timeout=30.0, **kwargs):
+            self.timeout = timeout
+            self.closed = False
+            created.append(self)
+
+        def request(self, method, path, **kwargs):
+            self.last_timeout = kwargs.get("timeout")
+            raise ApiError("not ready")
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(client_module, "ApiClient", Rec)
+    with pytest.raises(ApiError, match="daemon 未就绪"):
+        client_module.wait_health(timeout=0.2)
+    assert created and created[0].timeout <= 1.0
+    assert created[0].last_timeout is not None
+    assert created[0].last_timeout <= 1.0
+    assert created[0].closed is True
 
 
 def test_listings_normalizes_page_and_dimension_values() -> None:
