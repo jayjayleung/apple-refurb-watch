@@ -398,6 +398,7 @@ def test_listen_stock_count_caches_until_scan_stamp_changes(tmp_path) -> None:
     assert load_status(db)["in_stock"] == 1
     assert calls["n"] == 2
     clear_listen_stock_cache()
+    db.close()
 
 
 def test_listen_stock_count_caches_sql_count(tmp_path) -> None:
@@ -423,3 +424,4 @@ def test_listen_stock_count_caches_sql_count(tmp_path) -> None:
     load_status(db)
     assert calls["n"] == 2
     clear_listen_stock_cache()
+    db.close()

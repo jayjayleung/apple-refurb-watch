@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -196,7 +198,7 @@ def test_scan_flash_dismiss_timer_hides_node_and_strips_query() -> None:
     app_js = package_root() / "web" / "static" / "app.js"
     harness = r"""
 const fs = require("fs");
-const src = fs.readFileSync(process.argv[1], "utf8");
+const src = fs.readFileSync(process.argv.find(function (a) { return /app\.js$/.test(a); }), "utf8");
 const start = src.indexOf("/* scan-flash-dismiss */");
 const end = src.indexOf("/* /scan-flash-dismiss */");
 if (start < 0 || end < 0) {
@@ -257,13 +259,16 @@ if (!node.hidden || node.textContent !== "") {
 }
 console.log(JSON.stringify({ok: true, href: href, ms: timeouts[0].ms}));
 """
-    result = subprocess.run(
-        ["node", "-e", harness, str(app_js)],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    with tempfile.TemporaryDirectory() as td:
+        harness_path = Path(td) / "scan_flash_harness.js"
+        harness_path.write_text(harness, encoding="utf-8")
+        result = subprocess.run(
+            ["node", str(harness_path), str(app_js)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
     if result.returncode != 0:
         pytest.fail(result.stderr or result.stdout or f"node exit {result.returncode}")
     payload = json.loads(result.stdout.strip().splitlines()[-1])

@@ -26,7 +26,7 @@ def _fake_docker(bin_dir: Path, log_path: Path) -> None:
     docker = bin_dir / "docker"
     docker.write_text(
         "#!/bin/bash\n"
-        f'echo docker "$@" >> "{log_path}"\n'
+        'echo docker "$@" >> "$ARW_DOCKER_LOG"\n'
         'if [[ "$1" == compose && "$2" == version ]]; then exit 0; fi\n'
         "exit 0\n",
         encoding="utf-8",
@@ -35,8 +35,8 @@ def _fake_docker(bin_dir: Path, log_path: Path) -> None:
 
 
 def _run_docker_up(root: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    if shutil.which("bash") is None:
-        pytest.skip("需要 bash 运行 docker-up.sh")
+    if os.name == "nt" or shutil.which("bash") is None:
+        pytest.skip("docker-up.sh 需要非 Windows 的 bash")
     return subprocess.run(
         ["bash", str(root / "scripts" / "docker-up.sh")],
         cwd=root,
@@ -53,6 +53,7 @@ def _env_with_fake_docker(tmp_path: Path) -> tuple[dict[str, str], Path]:
     _fake_docker(bin_dir, log_path)
     env = os.environ.copy()
     env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+    env["ARW_DOCKER_LOG"] = str(log_path).replace("\\", "/")
     env.pop("APPLE_REFURB_WATCH_ACCESS_TOKEN", None)
     return env, log_path
 
