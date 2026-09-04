@@ -6,6 +6,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 
 
@@ -33,6 +35,8 @@ def _fake_docker(bin_dir: Path, log_path: Path) -> None:
 
 
 def _run_docker_up(root: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    if shutil.which("bash") is None:
+        pytest.skip("需要 bash 运行 docker-up.sh")
     return subprocess.run(
         ["bash", str(root / "scripts" / "docker-up.sh")],
         cwd=root,
@@ -43,24 +47,29 @@ def _run_docker_up(root: Path, env: dict[str, str]) -> subprocess.CompletedProce
     )
 
 
-def test_docker_up_refuses_empty_data_without_token(tmp_path) -> None:
-    root = _prepare_project(tmp_path)
-    env = os.environ.copy()
-    env.pop("APPLE_REFURB_WATCH_ACCESS_TOKEN", None)
-    result = _run_docker_up(root, env)
-    assert result.returncode == 1
-    assert "访问口令" in (result.stderr or "")
-    assert "APPLE_REFURB_WATCH_ACCESS_TOKEN" in (result.stderr or "")
-
-
-def test_docker_up_allows_token_and_existing_db(tmp_path) -> None:
-    root = _prepare_project(tmp_path)
+def _env_with_fake_docker(tmp_path: Path) -> tuple[dict[str, str], Path]:
     log_path = tmp_path / "docker.log"
     bin_dir = tmp_path / "bin"
     _fake_docker(bin_dir, log_path)
     env = os.environ.copy()
     env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
     env.pop("APPLE_REFURB_WATCH_ACCESS_TOKEN", None)
+    return env, log_path
+
+
+def test_docker_up_refuses_empty_data_without_token(tmp_path) -> None:
+    root = _prepare_project(tmp_path)
+    env, log_path = _env_with_fake_docker(tmp_path)
+    result = _run_docker_up(root, env)
+    assert result.returncode == 1
+    assert "访问口令" in (result.stderr or "")
+    assert "APPLE_REFURB_WATCH_ACCESS_TOKEN" in (result.stderr or "")
+    assert not log_path.exists() or "compose up" not in log_path.read_text(encoding="utf-8")
+
+
+def test_docker_up_allows_token_and_existing_db(tmp_path) -> None:
+    root = _prepare_project(tmp_path)
+    env, log_path = _env_with_fake_docker(tmp_path)
     (root / ".env").write_text("APPLE_REFURB_WATCH_ACCESS_TOKEN=secret\n", encoding="utf-8")
 
     result = _run_docker_up(root, env)
