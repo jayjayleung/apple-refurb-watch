@@ -552,7 +552,8 @@ def test_home_paginates_and_thumbs_images(tmp_path) -> None:
         assert home.text.count('class="card"') == 24
         assert "还有 6 件" in home.text
         assert "wid=400" not in home.text
-        assert "store.storeimages.cdn-apple.com/is/mbp.jpg" in home.text
+        assert "/media/thumb?sku=SKU000CH%2FA" in home.text
+        assert "store.storeimages.cdn-apple.com/is/mbp.jpg" not in home.text
         more = client.get(
             "/?offset=24",
             headers={"HX-Request": "true", "HX-Target": "product-grid"},

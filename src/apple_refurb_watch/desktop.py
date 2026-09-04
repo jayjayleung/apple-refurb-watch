@@ -11,7 +11,7 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse
 
-from apple_refurb_watch import DESKTOP_USER_AGENT_PREFIX, __version__
+from apple_refurb_watch import DESKTOP_USER_AGENT_PREFIX, DESKTOP_USER_AGENT_SUFFIX, __version__
 from apple_refurb_watch.argv import invoke_argv, is_frozen
 from apple_refurb_watch.client import ApiClient, ApiError
 from apple_refurb_watch.connection import (
@@ -173,7 +173,7 @@ def gui_import_status(*, adapter: DesktopAdapter | None = None) -> dict[str, str
 
 
 def desktop_user_agent() -> str:
-    return f"{DESKTOP_USER_AGENT_PREFIX}{__version__}"
+    return f"{DESKTOP_USER_AGENT_PREFIX}{__version__}{DESKTOP_USER_AGENT_SUFFIX}"
 
 
 def desktop_app_title() -> str:

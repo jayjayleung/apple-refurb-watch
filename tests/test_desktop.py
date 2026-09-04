@@ -171,7 +171,9 @@ def test_desktop_webview_uses_versioned_user_agent() -> None:
         def start(**kwargs):
             captured.update(kwargs)
 
-    assert desktop_user_agent() == f"{DESKTOP_USER_AGENT_PREFIX}{__version__}"
+    assert desktop_user_agent().startswith(f"{DESKTOP_USER_AGENT_PREFIX}{__version__}")
+    assert "Chrome/" in desktop_user_agent()
+    assert "Edg/" in desktop_user_agent()
     start_desktop_webview(FakeWebview)
     assert captured == {"user_agent": desktop_user_agent()}
 

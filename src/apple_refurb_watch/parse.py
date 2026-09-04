@@ -22,6 +22,8 @@ __all__ = [
     "product_page_url",
     "sku_from_url",
     "first_srcset_url",
+    "listing_image_url",
+    "absolutize_image_url",
 ]
 
 SIZE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(tb|gb|t|g)\s*$", re.I)
@@ -169,11 +171,7 @@ def _tile_to_product(tile: dict, listing_key: str, listing_url: str) -> Product 
         except ValueError:
             price = None
     dims = ((tile.get("filters") or {}).get("dimensions")) or {}
-    image = tile.get("image") or {}
-    src = None
-    sources = image.get("sources") or []
-    if sources:
-        src = first_srcset_url(sources[0].get("srcSet"))
+    src = listing_image_url(tile.get("image"), listing_url)
     return Product(
         sku=sku,
         title=title,
@@ -214,6 +212,16 @@ def _parse_listing_dom(html: str, listing_key: str, listing_url: str) -> list[Pr
                     price = float(digits)
                 except ValueError:
                     price = None
+        img_el = tile.select_one("img")
+        src = None
+        if img_el:
+            src = listing_image_url(
+                {
+                    "src": img_el.get("src") or img_el.get("data-src"),
+                    "sources": [{"srcSet": img_el.get("srcset") or img_el.get("srcSet")}],
+                },
+                listing_url,
+            )
         products.append(
             Product(
                 sku=sku,
@@ -222,6 +230,7 @@ def _parse_listing_dom(html: str, listing_key: str, listing_url: str) -> list[Pr
                 price=price,
                 listing_key=listing_key,
                 color_label=color_from_title(title),
+                image_url=src,
             )
         )
     return products
@@ -247,7 +256,46 @@ def parse_detail_specs(html: str) -> dict[str, int | None]:
 def first_srcset_url(srcset: str | None) -> str | None:
     if not srcset:
         return None
-    first = srcset.split(",")[0].strip()
-    if not first:
+    text = str(srcset).strip()
+    if not text:
         return None
-    return first.split()[0].strip() or None
+    if re.search(r"\s+\d+[wx]\b", text, re.I) or re.search(r"\s+[12]x\b", text, re.I):
+        text = re.split(r",\s+", text, maxsplit=1)[0].strip()
+    return text.split()[0].strip() or None
+
+
+def absolutize_image_url(url: str | None, listing_url: str) -> str | None:
+    text = str(url or "").strip()
+    if not text or text.startswith("data:"):
+        return None
+    if text.startswith("//"):
+        text = "https:" + text
+    absolute = urljoin(listing_url or f"{BASE}/", text)
+    parsed = urlparse(absolute)
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    return absolute
+
+
+def listing_image_url(image, listing_url: str) -> str | None:
+    if isinstance(image, str):
+        return absolutize_image_url(image, listing_url)
+    if not isinstance(image, dict):
+        return None
+    sources = image.get("sources") or []
+    if isinstance(sources, dict):
+        sources = [sources]
+    for source in sources:
+        found = None
+        if isinstance(source, str):
+            found = first_srcset_url(source) or source
+        elif isinstance(source, dict):
+            found = (
+                first_srcset_url(source.get("srcSet") or source.get("srcset"))
+                or source.get("src")
+                or source.get("url")
+            )
+        absolute = absolutize_image_url(found, listing_url)
+        if absolute:
+            return absolute
+    return absolutize_image_url(image.get("src") or image.get("url"), listing_url)

@@ -13,6 +13,7 @@ from apple_refurb_watch.categories import CATEGORIES, LISTING_GROUPS, SHOP_FAMIL
 from apple_refurb_watch.db import Database
 from apple_refurb_watch.filters import label_for, live_catalog_path, summarize_dims, user_catalog_path
 from apple_refurb_watch.listing import format_cny, format_gb, thumb_url
+from apple_refurb_watch.thumbs import product_thumb_src
 from apple_refurb_watch.paths import package_root
 from apple_refurb_watch.settings import (
     NOTIFY_CHANNEL_UI,
@@ -62,6 +63,7 @@ def templates() -> Environment:
     env.filters["cny"] = format_cny
     env.filters["gb"] = format_gb
     env.filters["thumb"] = thumb_url
+    env.filters["product_thumb"] = product_thumb_src
     env.filters["localtime"] = format_localtime
     env.globals["github_url"] = GITHUB_URL
     env.globals["app_version"] = __version__

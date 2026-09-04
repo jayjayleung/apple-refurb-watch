@@ -420,7 +420,7 @@ legend { padding: 0 0.3rem; color: var(--muted); }
 .shop .card-media {
   background: transparent;
   border-radius: 0;
-  aspect-ratio: auto;
+  aspect-ratio: 1 / 1;
   min-height: 0;
   padding: 0 15%;
 }
@@ -1186,6 +1186,7 @@ legend { padding: 0 0.3rem; color: var(--muted); }
 }
 .event-thumb { width: 42px; height: 42px; object-fit: cover; border-radius: 8px; float: right; margin-left: 0.6rem; }
 .card-media-empty { background: var(--card); }
+.shop .card-media-empty { background: #ececef; }
 
 @media (hover: hover) {
   .btn:hover { background: #f2f2f4; }
@@ -1427,6 +1428,7 @@ legend { padding: 0 0.3rem; color: var(--muted); }
   .timeline .event-appear { background: var(--card); }
   .page-shop, .shop, .shop-body, .shop .card, .filter-rail { background: var(--paper); }
   .shop .card-media { background: transparent; }
+  .shop .card-media-empty { background: #2c2c2e; }
   .filter-rail .facet-options .check:has(input:checked) span {
     color: var(--accent);
     background: #2c2c2e;

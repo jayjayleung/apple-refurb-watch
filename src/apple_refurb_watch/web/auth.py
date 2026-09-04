@@ -210,7 +210,7 @@ class AuthMiddleware:
         provided = provided_credential(request)
         if token and token_ok(provided, token):
             return None
-        if path.startswith("/api/"):
+        if path.startswith("/api/") or path.startswith("/media/"):
             return JSONResponse({"detail": "未授权"}, status_code=401)
         return login_redirect(request)
 

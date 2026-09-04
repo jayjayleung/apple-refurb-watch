@@ -125,6 +125,9 @@ class Database:
     ) -> list[dict]:
         return self.products_repo.list(in_stock, limit=limit, offset=offset)
 
+    def get_product(self, sku: str) -> dict | None:
+        return self.products_repo.get(sku)
+
     def get_spec(self, sku: str) -> dict | None:
         return self.products_repo.get_spec(sku)
 

@@ -3,7 +3,7 @@
   <a class="card-hit" href="{{ item.url }}" target="_blank" rel="noopener noreferrer">
     {% if item.image_url %}
     <div class="card-media">
-      <img src="{{ item.image_url|thumb }}" alt="{{ item.title }}" width="400" height="300" decoding="async" loading="{{ 'eager' if loop.index0 < 4 and not offset else 'lazy' }}" onerror="this.parentElement.classList.add('card-media-empty');this.remove()">
+      <img src="{{ item|product_thumb }}" alt="{{ item.title }}" width="400" height="300" decoding="async" loading="{{ 'eager' if loop.index0 < 4 and not offset else 'lazy' }}" referrerpolicy="no-referrer" onerror="if(this.dataset.tried==='1'){this.parentElement.classList.add('card-media-empty');this.remove();}else{this.dataset.tried='1';this.src=this.src+(this.src.indexOf('?')>=0?'&':'?')+'retry=1';}">
     </div>
     {% else %}
     <div class="card-media card-media-empty" aria-hidden="true"></div>

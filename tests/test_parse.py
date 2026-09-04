@@ -6,6 +6,7 @@ from apple_refurb_watch.fetch import FetchError, fetch_html
 from apple_refurb_watch.parse import (
     ParseError,
     first_srcset_url,
+    listing_image_url,
     parse_detail_specs,
     parse_listing_html,
     parse_size_gb,
@@ -55,6 +56,34 @@ def test_first_srcset_url() -> None:
     assert first_srcset_url("https://store.example/a.jpg 1x, https://store.example/a@2x.jpg 2x") == "https://store.example/a.jpg"
     assert first_srcset_url("https://store.example/a.jpg") == "https://store.example/a.jpg"
     assert first_srcset_url("") is None
+    signed = "https://store.storeimages.cdn-apple.com/is/x?wid=400&.v=abc,def"
+    assert first_srcset_url(signed) == signed
+
+
+def test_listing_image_url_accepts_relative_and_srcset_key() -> None:
+    listing = "https://www.apple.com.cn/shop/refurbished/mac"
+    assert listing_image_url("/is/mbp.jpg", listing) == "https://www.apple.com.cn/is/mbp.jpg"
+    assert listing_image_url("//store.storeimages.cdn-apple.com/is/mbp.jpg", listing) == (
+        "https://store.storeimages.cdn-apple.com/is/mbp.jpg"
+    )
+    assert listing_image_url({"sources": [{"srcset": "https://example.test/a.jpg 1x"}]}, listing) == (
+        "https://example.test/a.jpg"
+    )
+    assert listing_image_url({"src": "https://example.test/plain.jpg"}, listing) == "https://example.test/plain.jpg"
+
+
+def test_parse_listing_dom_reads_img() -> None:
+    html = """
+    <li class="as-producttile">
+      <a href="/shop/product/abcd4ch/a">link</a>
+      <h3 class="as-producttile-title">翻新 Mac</h3>
+      <img src="/shop/images/mac.jpg" srcset="https://example.test/dom.jpg 1x">
+    </li>
+    """
+    products = parse_listing_html(html, "mac", "https://www.apple.com.cn/shop/refurbished/mac")
+    assert len(products) == 1
+    assert products[0].sku == "ABCD4CH/A"
+    assert products[0].image_url == "https://example.test/dom.jpg"
 
 
 def test_product_page_url_uses_lowercase_sku_and_drops_fnode() -> None:

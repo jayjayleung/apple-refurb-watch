@@ -3,11 +3,12 @@ from __future__ import annotations
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from apple_refurb_watch.categories import canonical_shop_listing_key
 from apple_refurb_watch.listing import shop_listings_url
+from apple_refurb_watch.thumbs import ThumbError, load_product_thumb
 from apple_refurb_watch.usecases import list_shop, present_events
 from apple_refurb_watch.web.auth import clear_session_cookie, set_session_cookie, token_ok
 from apple_refurb_watch.web.listing import (
@@ -19,6 +20,19 @@ from apple_refurb_watch.web.listing import (
 )
 
 router = APIRouter()
+
+
+@router.get("/media/thumb")
+def media_thumb(request: Request, sku: str = "") -> Response:
+    try:
+        body, content_type = load_product_thumb(request.app.state.db, sku)
+    except ThumbError as exc:
+        return Response(status_code=exc.status)
+    return Response(
+        content=body,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 def _truthy(value: str | None) -> bool:

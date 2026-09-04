@@ -40,6 +40,9 @@ class ProductRepository:
             for item in products:
                 extra = item.get("extra") or {}
                 extra_text = json.dumps(extra, ensure_ascii=False) if isinstance(extra, dict) else str(extra)
+                image_url = item.get("image_url")
+                if isinstance(image_url, str):
+                    image_url = image_url.strip() or None
                 conn.execute(
                     """
                     INSERT INTO products(sku, title, url, price, listing_key, ram_gb, storage_gb, color_key,
@@ -57,7 +60,7 @@ class ProductRepository:
                         model_key=excluded.model_key,
                         year=excluded.year,
                         screensize=excluded.screensize,
-                        image_url=excluded.image_url,
+                        image_url=COALESCE(excluded.image_url, products.image_url),
                         in_stock=1,
                         last_seen_at=excluded.last_seen_at,
                         extra=excluded.extra
@@ -75,7 +78,7 @@ class ProductRepository:
                         item.get("model_key"),
                         item.get("year"),
                         item.get("screensize"),
-                        item.get("image_url"),
+                        image_url,
                         now,
                         now,
                         extra_text,
@@ -111,6 +114,24 @@ class ProductRepository:
                 tuple(keep_keys),
             )
 
+    def _row(self, row) -> dict:
+        item = dict(row)
+        extra = item.get("extra")
+        if isinstance(extra, str):
+            try:
+                item["extra"] = json.loads(extra)
+            except json.JSONDecodeError:
+                item["extra"] = {}
+        return item
+
+    def get(self, sku: str) -> dict | None:
+        code = str(sku or "").strip()
+        if not code:
+            return None
+        with self.store.lock:
+            row = self.store.conn.execute("SELECT * FROM products WHERE sku=?", (code,)).fetchone()
+        return self._row(row) if row else None
+
     def list(
         self,
         in_stock: bool | None = True,
@@ -130,15 +151,7 @@ class ProductRepository:
             args.extend((min(MAX_PRODUCT_PAGE, max(0, int(limit))), max(0, int(offset))))
         with self.store.lock:
             rows = self.store.conn.execute(sql, args).fetchall()
-        items = [dict(row) for row in rows]
-        for item in items:
-            extra = item.get("extra")
-            if isinstance(extra, str):
-                try:
-                    item["extra"] = json.loads(extra)
-                except json.JSONDecodeError:
-                    item["extra"] = {}
-        return items
+        return [self._row(row) for row in rows]
 
     def count(self, *, in_stock: bool | None = True, listing_key: str | None = None, listing_keys: list[str] | None = None) -> int:
         clauses: list[str] = []

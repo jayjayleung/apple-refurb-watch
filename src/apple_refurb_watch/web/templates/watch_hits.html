@@ -19,7 +19,7 @@
   {% for hit in hits %}
   <li class="watch-hit{% if not hit.in_stock %} sold{% endif %}">
     {% if hit.image_url %}
-    <img src="{{ hit.image_url|thumb }}" alt="" width="42" height="42">
+    <img src="{{ hit|product_thumb }}" alt="" width="42" height="42" referrerpolicy="no-referrer">
     {% else %}
     <span class="watch-hit-media" aria-hidden="true"></span>
     {% endif %}
