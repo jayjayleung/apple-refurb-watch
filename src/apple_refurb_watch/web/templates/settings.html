@@ -93,7 +93,7 @@
         <button class="link-btn" type="submit" form="settings-form" name="notify_{{ spec.name }}_{{ key }}_clear" value="1">清除</button>
         {% endif %}
       </div>
-      <input form="settings-form" name="notify_{{ spec.name }}_{{ key }}" {% if key in ('password', 'bot_token', 'sendkey', 'token', 'secret') %}type="password"{% endif %} autocomplete="off">
+      <input form="settings-form" name="notify_{{ spec.name }}_{{ key }}" {% if key in ('password', 'bot_token', 'sendkey', 'token', 'secret') %}type="password"{% endif %} autocomplete="off"{% if conf[key + '_set'] %} placeholder="••••••••"{% endif %}>
     </div>
     {% endfor %}
     {% for key, label in spec.optional_secrets %}
@@ -104,7 +104,7 @@
         <button class="link-btn" type="submit" form="settings-form" name="notify_{{ spec.name }}_{{ key }}_clear" value="1">清除</button>
         {% endif %}
       </div>
-      <input form="settings-form" name="notify_{{ spec.name }}_{{ key }}" type="password" autocomplete="off">
+      <input form="settings-form" name="notify_{{ spec.name }}_{{ key }}" type="password" autocomplete="off"{% if conf[key + '_set'] %} placeholder="••••••••"{% endif %}>
     </div>
     {% endfor %}
     {% for field in spec.fields %}
@@ -157,7 +157,7 @@
       <button class="link-btn" type="submit" form="settings-form" name="access_token_clear" value="1" onclick="return confirm('确定清除访问口令？若服务仍在远程监听，请先关闭远程访问并重启后再清除。');">清除</button>
       {% endif %}
     </div>
-    <input form="settings-form" type="password" name="access_token" autocomplete="off">
+    <input form="settings-form" type="password" name="access_token" autocomplete="off"{% if settings.access_token_set %} placeholder="••••••••"{% endif %}>
   </div>
   <label>允许的主机名 <input form="settings-form" name="allowed_hosts" value="{{ (settings.allowed_hosts or []) | join(', ') }}" placeholder="watch.example.com" autocomplete="off"></label>
   <p class="hint">用域名或反向代理访问时登记主机名，多个用逗号分隔。也可设环境变量 <code>APPLE_REFURB_WATCH_ALLOWED_HOSTS</code>。IP 与 localhost 始终放行。</p>
