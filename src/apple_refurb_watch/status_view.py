@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -26,8 +27,29 @@ def _display_tz():
 
 DISPLAY_TZ = _display_tz()
 
+_stock_count_guard = threading.Lock()
+_stock_count_cache: tuple[tuple, int] | None = None
 
-def _listen_stock_count(database, listings) -> int:
+
+def clear_listen_stock_cache() -> None:
+    global _stock_count_cache
+    with _stock_count_guard:
+        _stock_count_cache = None
+
+
+def _stock_cache_key(database, listings, scan: dict | None) -> tuple:
+    path = str(getattr(database, "path", "") or "")
+    keys = tuple(listen_listing_keys(listings))
+    payload = scan or {}
+    stamp = str(payload.get("last_scan_at") or "")
+    try:
+        products = int(payload.get("last_product_count") or 0)
+    except (TypeError, ValueError):
+        products = 0
+    return (path, keys, stamp, products)
+
+
+def _compute_listen_stock_count(database, listings) -> int:
     keys = listen_listing_keys(listings)
     if any(key in MAC_CHILD_LISTINGS for key in keys):
         from apple_refurb_watch.listing import products_in_listen_scope
@@ -42,6 +64,19 @@ def _listen_stock_count(database, listings) -> int:
                 seen.add(item)
                 expanded.append(item)
     return database.count_products(in_stock=True, listing_keys=expanded)
+
+
+def _listen_stock_count(database, listings, scan: dict | None = None) -> int:
+    key = _stock_cache_key(database, listings, scan)
+    global _stock_count_cache
+    with _stock_count_guard:
+        cached = _stock_count_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+    count = _compute_listen_stock_count(database, listings)
+    with _stock_count_guard:
+        _stock_count_cache = (key, count)
+    return count
 
 
 def parse_iso(iso: str | None) -> datetime | None:
@@ -68,7 +103,7 @@ def load_status(database) -> dict[str, Any]:
     data = database.scan_status()
     watch_enabled = database.count_watches(enabled=True)
     watch_total = database.count_watches()
-    in_stock = _listen_stock_count(database, settings.get("listings"))
+    in_stock = _listen_stock_count(database, settings.get("listings"), data)
     data["settings"] = {
         k: settings[k]
         for k in ("interval_seconds", "bind_host", "bind_port", "lan_enabled", "listings", "listen_enabled")

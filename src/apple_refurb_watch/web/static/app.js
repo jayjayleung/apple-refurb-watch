@@ -505,6 +505,73 @@
       });
       pollStatus();
       setInterval(poll, 12000);
+      var filterSwapState = null;
+      function snapshotFilterUi() {
+        var dlg = document.getElementById("filter-dialog");
+        if (!dlg) return null;
+        var active = document.activeElement;
+        var activeName = null;
+        var activeValue = null;
+        var activeType = null;
+        if (active && dlg.contains(active) && active.getAttribute) {
+          activeName = active.getAttribute("name");
+          activeValue = active.value;
+          activeType = active.type || "";
+        }
+        var openDetails = [];
+        dlg.querySelectorAll("details").forEach(function (el) {
+          if (!el.open) return;
+          var summary = el.querySelector("summary");
+          openDetails.push(summary ? String(summary.textContent || "").trim() : "");
+        });
+        return {
+          dialogOpen: !!(dlg.open || dlg.hasAttribute("open")),
+          activeName: activeName,
+          activeValue: activeValue,
+          activeType: activeType,
+          openDetails: openDetails
+        };
+      }
+      function restoreFilterUi(state) {
+        if (!state) return;
+        var dlg = document.getElementById("filter-dialog");
+        var btn = document.getElementById("filter-toggle");
+        if (!dlg) return;
+        if (state.dialogOpen) {
+          if (typeof dlg.showModal === "function") {
+            if (!dlg.open) dlg.showModal();
+          } else {
+            dlg.setAttribute("open", "");
+          }
+          if (btn) btn.setAttribute("aria-expanded", "true");
+        }
+        if (state.openDetails && state.openDetails.length) {
+          dlg.querySelectorAll("details").forEach(function (el) {
+            var summary = el.querySelector("summary");
+            var key = summary ? String(summary.textContent || "").trim() : "";
+            el.open = state.openDetails.indexOf(key) !== -1;
+          });
+        }
+        if (state.activeName) {
+          var nodes = dlg.querySelectorAll("[name=\"" + String(state.activeName).replace(/"/g, "") + "\"]");
+          var focusEl = null;
+          nodes.forEach(function (node) {
+            if (state.activeType === "checkbox") {
+              if (node.value === state.activeValue) focusEl = node;
+            } else {
+              focusEl = node;
+            }
+          });
+          if (focusEl && typeof focusEl.focus === "function") {
+            try { focusEl.focus({ preventScroll: true }); } catch (err) { focusEl.focus(); }
+          }
+        }
+      }
+      function shopSwapTarget(ev) {
+        var target = ev.detail && ev.detail.target;
+        if (!target) return false;
+        return target.id === "shop" || (target.querySelector && target.querySelector("#filter-toggle"));
+      }
       function wireFilterDialog() {
         var btn = document.getElementById("filter-toggle");
         var dlg = document.getElementById("filter-dialog");
@@ -526,11 +593,13 @@
         dlg.addEventListener("close", function () { setExpanded(false); });
       }
       wireFilterDialog();
+      document.body.addEventListener("htmx:beforeRequest", function (ev) {
+        if (shopSwapTarget(ev)) filterSwapState = snapshotFilterUi();
+      });
       document.body.addEventListener("htmx:afterSwap", function (ev) {
-        var target = ev.detail && ev.detail.target;
-        if (!target) return;
-        if (target.id === "shop" || (target.querySelector && target.querySelector("#filter-toggle"))) {
-          wireFilterDialog();
-        }
+        if (!shopSwapTarget(ev)) return;
+        restoreFilterUi(filterSwapState);
+        filterSwapState = null;
+        wireFilterDialog();
       });
     })();

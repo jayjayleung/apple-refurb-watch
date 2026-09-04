@@ -79,6 +79,11 @@ def test_desktop_chrome_does_not_repeat_app_title() -> None:
     assert "listen-1" not in login
     assert 'window.addEventListener("pywebviewready"' in mark
     assert "document.addEventListener(\"pywebviewready\"" not in mark
+    assert "htmx:beforeRequest" in app_js
+    assert "snapshotFilterUi" in app_js
+    assert "restoreFilterUi" in app_js
+    assert "filterSwapState" in app_js
+    assert "openDetails" in app_js
 
 
 def test_setup_page_is_packaged() -> None:

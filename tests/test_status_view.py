@@ -361,3 +361,65 @@ def test_paginate_watch_hits_clamps_page() -> None:
     assert empty["hit_total"] == 0
     assert watch_hits_url(4, 1) == "/watches/4"
     assert watch_hits_url(4, 2) == "/watches/4?page=2"
+
+
+def test_listen_stock_count_caches_until_scan_stamp_changes(tmp_path) -> None:
+    from apple_refurb_watch.db import Database
+    from apple_refurb_watch.status_view import clear_listen_stock_cache, load_status
+
+    clear_listen_stock_cache()
+    db = Database(tmp_path / "app.db")
+    db.set_setting("listings", ["macbook-pro"])
+    db.set_setting("last_scan_at", "2026-09-04T00:00:00+00:00")
+    db.set_setting("last_product_count", 1)
+    db.upsert_products(
+        [
+            {
+                "sku": "PRO1CH/A",
+                "title": "翻新 MacBook Pro",
+                "url": "https://www.apple.com.cn/shop/product/PRO1CH/A",
+                "price": 9999,
+                "listing_key": "macbook-pro",
+            }
+        ]
+    )
+    calls = {"n": 0}
+    orig = db.list_products
+
+    def wrapped(*args, **kwargs):
+        calls["n"] += 1
+        return orig(*args, **kwargs)
+
+    db.list_products = wrapped
+    assert load_status(db)["in_stock"] == 1
+    assert load_status(db)["in_stock"] == 1
+    assert calls["n"] == 1
+    db.set_setting("last_scan_at", "2026-09-04T01:00:00+00:00")
+    assert load_status(db)["in_stock"] == 1
+    assert calls["n"] == 2
+    clear_listen_stock_cache()
+
+
+def test_listen_stock_count_caches_sql_count(tmp_path) -> None:
+    from apple_refurb_watch.db import Database
+    from apple_refurb_watch.status_view import clear_listen_stock_cache, load_status
+
+    clear_listen_stock_cache()
+    db = Database(tmp_path / "app.db")
+    db.set_setting("listings", ["ipad"])
+    db.set_setting("last_scan_at", "2026-09-04T00:00:00+00:00")
+    calls = {"n": 0}
+    orig = db.count_products
+
+    def wrapped(*args, **kwargs):
+        calls["n"] += 1
+        return orig(*args, **kwargs)
+
+    db.count_products = wrapped
+    load_status(db)
+    load_status(db)
+    assert calls["n"] == 1
+    db.set_setting("last_product_count", 9)
+    load_status(db)
+    assert calls["n"] == 2
+    clear_listen_stock_cache()
