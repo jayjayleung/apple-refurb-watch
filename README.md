@@ -160,7 +160,12 @@ apple-refurb-watch connect http://example.com --token 你的口令 --insecure
 
 仓库提供 Dockerfile 和 Compose，不发布预构建镜像。数据在宿主机 `./data`，容器内固定为 `/data`。
 
-容器会监听 `0.0.0.0`，必须已有访问口令，否则服务会拒绝启动。新数据目录要先用刚下载的 Linux 目录版（或单机版）初始化一次。在解压后的 `apple-refurb-watch` 文件夹里：
+容器会监听 `0.0.0.0`，必须已有访问口令，否则服务会拒绝启动。首次使用任选其一：
+
+- 复制 `.env.example` 为 `.env`，填写 `APPLE_REFURB_WATCH_ACCESS_TOKEN`，再执行 `scripts/docker-up.sh`（空数据目录且无口令时脚本会拒绝启动）。
+- 或先用刚下载的 Linux 目录版（或单机版）初始化 `./data`，在网页里启用远程访问并保存口令，再启动容器。
+
+用本机程序初始化时，在解压后的 `apple-refurb-watch` 文件夹里：
 
 ```bash
 mkdir -p data

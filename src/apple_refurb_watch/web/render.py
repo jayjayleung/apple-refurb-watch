@@ -33,7 +33,7 @@ def web_dir() -> Path:
 def asset_version() -> str:
     digest = hashlib.sha256()
     static = web_dir() / "static"
-    for name in ("app.js", "style.css"):
+    for name in ("app.js", "style.css", "htmx.min.js", "favicon.ico", "icon-256.png", "icon.svg"):
         path = static / name
         if path.is_file():
             digest.update(path.read_bytes())

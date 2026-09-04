@@ -7,6 +7,7 @@ services:
       - "${ARW_BIND:-127.0.0.1}:${ARW_PORT:-8765}:8765"
     volumes:
       - ./data:/data
+    user: "${PUID:-1000}:${PGID:-1000}"
     environment:
       APPLE_REFURB_WATCH_HOME: /data
       APPLE_REFURB_WATCH_ACCESS_TOKEN: ${APPLE_REFURB_WATCH_ACCESS_TOKEN:-}

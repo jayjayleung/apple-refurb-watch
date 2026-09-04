@@ -22,6 +22,14 @@ if [[ -f "${ROOT}/.env" ]]; then
   set +a
 fi
 
+token="${APPLE_REFURB_WATCH_ACCESS_TOKEN:-}"
+if [[ -z "$token" && ! -f "${ROOT}/data/app.db" ]]; then
+  echo "Docker 首次启动需要访问口令：容器内监听 0.0.0.0，没有口令会拒绝启动并反复重启。" >&2
+  echo "请在 ${ROOT}/.env 里设置 APPLE_REFURB_WATCH_ACCESS_TOKEN，或先用本机程序初始化 ${ROOT}/data 并在网页里保存口令。" >&2
+  echo "参考 README「Docker」小节。" >&2
+  exit 1
+fi
+
 compose up -d --build
 
 echo

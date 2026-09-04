@@ -96,14 +96,6 @@ def origin_ok(request: Request, settings: dict | None = None) -> bool:
     return host_name(incoming) in set(resolved_allowed_hosts(settings))
 
 
-def needs_auth(request: Request, settings: dict) -> bool:
-    # Do not inspect request.client here.  A reverse proxy commonly connects
-    # over loopback while forwarding requests from the LAN or the public net;
-    # trusting that address would bypass authentication.
-    del request
-    return listener_requires_auth(settings)
-
-
 def provided_credential(request: Request) -> str:
     auth = request.headers.get("Authorization") or ""
     scheme, sep, rest = auth.partition(" ")

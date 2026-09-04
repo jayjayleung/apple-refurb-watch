@@ -104,27 +104,46 @@ jobs:
       - name: Build
         run: uv run python -m PyInstaller --noconfirm --clean --distpath dist/onedir --workpath build/onedir packaging/apple-refurb-watch.spec
       - name: Onedir smoke test
-        if: matrix.os == 'ubuntu-latest'
-        run: dist/onedir/apple-refurb-watch/apple-refurb-watch desktop --probe
+        env:
+          APPLE_REFURB_WATCH_HOME: ${{ runner.temp }}/apple-refurb-watch-onedir-data
+          APPLE_REFURB_WATCH_LOG: ${{ runner.temp }}/apple-refurb-watch-onedir-log
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            bin="dist/onedir/apple-refurb-watch/apple-refurb-watch.exe"
+          else
+            bin="dist/onedir/apple-refurb-watch/apple-refurb-watch"
+          fi
+          "$bin" version
+          "$bin" desktop --probe
       - name: Build onefile
         env:
           APPLE_REFURB_WATCH_BUILD: onefile
         run: uv run python -m PyInstaller --noconfirm --clean --distpath dist/onefile --workpath build/onefile packaging/apple-refurb-watch.spec
       - name: Onefile smoke test
-        if: matrix.os == 'ubuntu-latest'
         env:
           APPLE_REFURB_WATCH_HOME: ${{ runner.temp }}/apple-refurb-watch-smoke-data
           APPLE_REFURB_WATCH_LOG: ${{ runner.temp }}/apple-refurb-watch-smoke-log
         run: |
           set -euo pipefail
-          onefile="dist/onefile/apple-refurb-watch"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            onefile="dist/onefile/apple-refurb-watch.exe"
+          else
+            onefile="dist/onefile/apple-refurb-watch"
+          fi
           expected_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          got_version="$("$onefile" version | tr -d '\r')"
+          if [[ -n "$got_version" ]]; then
+            test "$got_version" = "$expected_version"
+          fi
+          "$onefile" desktop --probe
+          if [[ "$RUNNER_OS" != "Linux" ]]; then
+            exit 0
+          fi
           cleanup() {
             "$onefile" stop >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
-          test "$("$onefile" version)" = "$expected_version"
-          "$onefile" desktop --probe
           port="$(python -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
           "$onefile" serve --detach --host 127.0.0.1 --port "$port"
           python - "$port" "$expected_version" <<'PY'

@@ -72,6 +72,13 @@ def test_desktop_chrome_does_not_repeat_app_title() -> None:
     assert "statusInFlight" in app_js
     assert 'id="status-pulse"' in base
     assert 'src="/static/app.js?v={{ asset_v }}"' in base
+    assert 'src="/static/htmx.min.js?v={{ asset_v }}"' in base
+    assert 'href="/static/favicon.ico?v={{ asset_v }}"' in base
+    assert 'href="/static/icon-256.png?v={{ asset_v }}"' in base
+    assert "?v={{ asset_v }}" in login
+    assert "listen-1" not in login
+    assert 'window.addEventListener("pywebviewready"' in mark
+    assert "document.addEventListener(\"pywebviewready\"" not in mark
 
 
 def test_setup_page_is_packaged() -> None:

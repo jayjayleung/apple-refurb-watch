@@ -8,14 +8,14 @@
   <meta name="theme-color" content="#161617" media="(prefers-color-scheme: dark)">
   <title>登录 · 官翻监听</title>
   {% include "_desktop_mark.html" %}
-  <link rel="icon" href="/static/icon.svg?v=listen-1" type="image/svg+xml">
-  <link rel="icon" href="/static/favicon.ico" sizes="any">
-  <link rel="apple-touch-icon" href="/static/icon-256.png">
-  <link rel="stylesheet" href="/static/style.css?v=nav-update-1">
+  <link rel="icon" href="/static/icon.svg?v={{ asset_v }}" type="image/svg+xml">
+  <link rel="icon" href="/static/favicon.ico?v={{ asset_v }}" sizes="any">
+  <link rel="apple-touch-icon" href="/static/icon-256.png?v={{ asset_v }}">
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
 </head>
 <body class="login-shell">
   <main class="login-wrap">
-    <p class="login-mark"><img class="brand-icon" src="/static/icon.svg?v=listen-1" width="28" height="28" alt=""><span class="brand-name">官翻监听</span>{% include "_github.html" %}</p>
+    <p class="login-mark"><img class="brand-icon" src="/static/icon.svg?v={{ asset_v }}" width="28" height="28" alt=""><span class="brand-name">官翻监听</span>{% include "_github.html" %}</p>
     <h1>输入访问口令</h1>
     <form class="login-card" method="post" action="/login">
       <label for="token">访问口令</label>

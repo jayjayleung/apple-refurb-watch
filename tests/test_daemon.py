@@ -6,15 +6,16 @@ from apple_refurb_watch.daemon import (
     CREATE_BREAKAWAY_FROM_JOB,
     CREATE_NEW_PROCESS_GROUP,
     CREATE_NO_WINDOW,
-    pid_is_alive,
     windows_creationflags,
     windows_hidden_kwargs,
 )
 
 
-def test_current_pid_is_alive():
-    assert pid_is_alive(os.getpid()) is True
-    assert pid_is_alive(-1) is False
+def test_current_pid_exists():
+    from apple_refurb_watch.paths import pid_exists
+
+    assert pid_exists(os.getpid()) is True
+    assert pid_exists(-1) is False
 
 
 def test_acquire_lock_on_empty_file():

@@ -11,6 +11,6 @@ html.desktop .login-mark { display: none !important; }
   if ((navigator.userAgent || "").startsWith("AppleRefurbWatchDesktop/")) markDesktop();
   try { if (sessionStorage.getItem("arw_desktop") === "1") markDesktop(); } catch (e) {}
   if (window.pywebview) markDesktop();
-  document.addEventListener("pywebviewready", markDesktop);
+  window.addEventListener("pywebviewready", markDesktop);
 })();
 </script>

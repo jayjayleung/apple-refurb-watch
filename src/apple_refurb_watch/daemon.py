@@ -54,29 +54,6 @@ def acquire_lock_retry(attempts: int = 12, delay: float = 0.25, path: Path | Non
     raise last or RuntimeError(f"{label} 已在运行")
 
 
-def pid_is_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
-
-def lock_pid() -> int | None:
-    try:
-        text = lock_path().read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    if not text:
-        return None
-    try:
-        return int(text)
-    except ValueError:
-        return None
-
-
 def windows_creationflags() -> list[int]:
     """优先脱离 Job，避免关掉桌面窗口时把后台 serve 一起杀掉。"""
     no_window = getattr(subprocess, "CREATE_NO_WINDOW", CREATE_NO_WINDOW)

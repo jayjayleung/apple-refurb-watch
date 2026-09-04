@@ -10,10 +10,10 @@
   <title>{% block title %}官翻监听{% endblock %}</title>
   {% include "_desktop_mark.html" %}
   <link rel="icon" href="/static/icon.svg?v={{ asset_v }}" type="image/svg+xml">
-  <link rel="icon" href="/static/favicon.ico" sizes="any">
-  <link rel="apple-touch-icon" href="/static/icon-256.png">
+  <link rel="icon" href="/static/favicon.ico?v={{ asset_v }}" sizes="any">
+  <link rel="apple-touch-icon" href="/static/icon-256.png?v={{ asset_v }}">
   <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
-  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/htmx.min.js?v={{ asset_v }}" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">跳到内容</a>
