@@ -11,6 +11,10 @@ from apple_refurb_watch.storage.schema import DEFAULT_BIND_PORT, DEFAULT_LISTING
 
 ENV_ALLOWED_HOSTS = "APPLE_REFURB_WATCH_ALLOWED_HOSTS"
 
+
+class SettingsValueError(ValueError):
+    """Invalid numeric settings that should surface as HTTP 400, not 500."""
+
 _SECRET_NOTIFY_KEYS = ("password", "bot_token", "sendkey", "token", "secret", "webhook", "url")
 
 NOTIFY_CHANNEL_UI: tuple[dict[str, Any], ...] = (
@@ -260,8 +264,56 @@ def safe_listings(keys: list[str]) -> list[str]:
     return compact_listings(out) or [DEFAULT_LISTING_KEY]
 
 
+def _parse_int(raw: Any, *, name: str) -> int:
+    if isinstance(raw, bool) or raw is None or raw == "":
+        raise SettingsValueError(f"{name}必须是整数")
+    try:
+        if isinstance(raw, float) and not raw.is_integer():
+            raise SettingsValueError(f"{name}必须是整数")
+        return int(raw)
+    except (TypeError, ValueError) as exc:
+        raise SettingsValueError(f"{name}必须是整数") from exc
+
+
+def parse_interval_seconds(raw: Any) -> int:
+    value = _parse_int(raw, name="扫描间隔")
+    if value < 60:
+        raise SettingsValueError("扫描间隔不能小于 60 秒")
+    return value
+
+
+def parse_tcp_port(raw: Any, *, name: str = "端口") -> int:
+    value = _parse_int(raw, name=name)
+    if value < 1 or value > 65535:
+        raise SettingsValueError(f"{name}必须在 1–65535 之间")
+    return value
+
+
+def parse_detail_delay_seconds(raw: Any) -> float:
+    if isinstance(raw, bool) or raw is None or raw == "":
+        raise SettingsValueError("详情延迟必须是数字")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise SettingsValueError("详情延迟必须是数字") from exc
+    if value != value or value in {float("inf"), float("-inf")} or value < 0:
+        raise SettingsValueError("详情延迟必须是非负数")
+    return value
+
+
 def normalize_settings_patch(patch: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
     data = dict(patch)
+    if "interval_seconds" in data and data["interval_seconds"] is not None:
+        data["interval_seconds"] = parse_interval_seconds(data["interval_seconds"])
+    if "bind_port" in data and data["bind_port"] is not None:
+        data["bind_port"] = parse_tcp_port(data["bind_port"], name="服务端口")
+    if "detail_delay_seconds" in data and data["detail_delay_seconds"] is not None:
+        data["detail_delay_seconds"] = parse_detail_delay_seconds(data["detail_delay_seconds"])
+    notify = data.get("notify")
+    if isinstance(notify, dict):
+        for conf in notify.values():
+            if isinstance(conf, dict) and "smtp_port" in conf and conf["smtp_port"] not in (None, ""):
+                conf["smtp_port"] = parse_tcp_port(conf["smtp_port"], name="SMTP 端口")
     if "access_token" in data:
         token = str(data.get("access_token") or "").strip()
         if token:

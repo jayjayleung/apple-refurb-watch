@@ -7,6 +7,8 @@ from apple_refurb_watch.settings import (
     NOTIFY_CHANNEL_UI,
     normalize_allowed_hosts,
     normalize_settings_patch,
+    parse_interval_seconds,
+    parse_tcp_port,
     public_settings,
     public_url,
     safe_listings,
@@ -62,9 +64,14 @@ def form_settings(form: dict, current: dict) -> dict:
     patch: dict[str, Any] = {}
     clear_access = False
     if _has(form, "interval_seconds"):
-        patch["interval_seconds"] = int(form.get("interval_seconds") or current.get("interval_seconds") or 300)
+        patch["interval_seconds"] = parse_interval_seconds(
+            form.get("interval_seconds") or current.get("interval_seconds") or 300
+        )
     if _has(form, "bind_port"):
-        patch["bind_port"] = int(form.get("bind_port") or current.get("bind_port") or DEFAULT_BIND_PORT)
+        patch["bind_port"] = parse_tcp_port(
+            form.get("bind_port") or current.get("bind_port") or DEFAULT_BIND_PORT,
+            name="服务端口",
+        )
     if _has(form, "save_listings"):
         listings = form.get("listings")
         if isinstance(listings, str):
@@ -114,7 +121,7 @@ def form_settings(form: dict, current: dict) -> dict:
                     updated[field] = str(form[key]).strip()
             port_key = f"notify_{name}_smtp_port"
             if _has(form, port_key):
-                updated["smtp_port"] = int(form[port_key])
+                updated["smtp_port"] = parse_tcp_port(form[port_key], name="SMTP 端口")
             notify[name] = updated
         patch["notify"] = notify
     return patch

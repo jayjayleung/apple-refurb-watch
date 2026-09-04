@@ -11,6 +11,7 @@
 
 {% if flash == 'saved' %}<p class="flash ok">已保存。若更改了端口或绑定地址，请重新启动服务。</p>{% endif %}
 {% if flash == 'token-clear-blocked' %}<p class="flash bad">当前服务仍在远程监听，无法清除口令。请先关闭「允许远程访问」、保存并重启服务后再清除。</p>{% endif %}
+{% if flash == 'settings-invalid' %}<p class="flash bad">{{ flash_detail or '设置无效。' }}</p>{% endif %}
 {% if flash == 'lan-token' and revealed_token %}
 <p class="flash ok">访问口令已生成，请立即复制。刷新后不再显示。</p>
 <p class="token-reveal"><code>{{ revealed_token }}</code></p>

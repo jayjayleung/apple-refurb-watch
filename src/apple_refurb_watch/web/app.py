@@ -10,8 +10,10 @@ from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.types import Scope
 from starlette.responses import Response
 
@@ -117,7 +119,7 @@ def create_app(
     async def lifespan(_app: FastAPI):
         runtime_pid = __import__("os").getpid()
         try:
-            settings = database.settings()
+            settings = await run_in_threadpool(database.settings)
             write_runtime(
                 {
                     "pid": runtime_pid,
@@ -172,6 +174,18 @@ def create_app(
     app.include_router(pages_router)
     app.include_router(watches_router)
     app.include_router(settings_router)
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation(request: Request, exc: RequestValidationError):
+        parts = []
+        for err in exc.errors():
+            loc = ".".join(str(item) for item in err.get("loc", ()) if item != "body")
+            msg = str(err.get("msg") or "无效")
+            parts.append(f"{loc}: {msg}" if loc else msg)
+        detail = "；".join(parts) or "请求无法解析"
+        if request.url.path.startswith("/api/") or "application/json" in (request.headers.get("accept") or ""):
+            return JSONResponse({"detail": detail}, status_code=400)
+        return HTMLResponse(f"<p>{html.escape(detail)}</p><p><a href='/'>返回</a></p>", status_code=400)
 
     @app.exception_handler(HTTPException)
     async def http_exc(request: Request, exc: HTTPException):

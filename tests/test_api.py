@@ -1426,3 +1426,42 @@ def test_notify_test_uses_unsaved_form_values(tmp_path) -> None:
         assert not saved.called
         assert db.settings()["notify"]["bark"]["url"] == "https://api.day.app/saved-key"
 
+
+def test_settings_numeric_range_and_watch_null_and_notify_body(tmp_path) -> None:
+    db = Database(tmp_path / "app.db")
+    db.update_settings({"interval_seconds": 300, "bind_port": 8765})
+    app = create_app(db, with_scheduler=False)
+    with TestClient(app) as client:
+        bad_interval = client.patch("/api/settings", json={"interval_seconds": -5})
+        assert bad_interval.status_code == 400
+        assert db.settings()["interval_seconds"] == 300
+        bad_port = client.patch("/api/settings", json={"bind_port": 70000})
+        assert bad_port.status_code == 400
+        assert db.settings()["bind_port"] == 8765
+        form_bad = client.post(
+            "/settings",
+            data={
+                "interval_seconds": "abc",
+                "bind_port": "8765",
+                "save_access": "1",
+                "save_notify": "1",
+            },
+            follow_redirects=False,
+        )
+        assert form_bad.status_code == 400
+        assert "扫描间隔必须是整数" in form_bad.text
+        watch = client.post("/api/watches", json={"name": "预算", "max_price": 1000}).json()
+        cleared = client.patch(f"/api/watches/{watch['id']}", json={"max_price": None})
+        assert cleared.status_code == 200
+        assert cleared.json()["max_price"] is None
+        bad_mode = client.patch(f"/api/watches/{watch['id']}", json={"mode": "nope"})
+        assert bad_mode.status_code == 400
+        listed = client.post("/api/notify/test", json=["bark"])
+        assert listed.status_code == 400
+        broken = client.post(
+            "/api/notify/test",
+            content=b"not-a-form",
+            headers={"Content-Type": "multipart/form-data; boundary=----broken"},
+        )
+        assert broken.status_code == 400
+

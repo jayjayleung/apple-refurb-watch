@@ -20,6 +20,8 @@ def test_repositories_preserve_crud_and_bound_queries(tmp_path) -> None:
     assert db.get_watch(watch["id"])["name"] == "测试规则"
     assert db.update_watch(watch["id"], {"enabled": False})["enabled"] is False
     assert db.count_watches(enabled=False) == 1
+    assert db.update_watch(watch["id"], {"max_price": 18000})["max_price"] == 18000
+    assert db.update_watch(watch["id"], {"max_price": None})["max_price"] is None
 
     db.upsert_products(
         [

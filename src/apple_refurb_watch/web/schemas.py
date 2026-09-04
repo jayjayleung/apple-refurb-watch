@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 class WatchIn(BaseModel):
     name: str = "未命名规则"
     enabled: bool = True
-    mode: str = "condition"
+    mode: Literal["condition", "sku"] = "condition"
     sku: str | None = None
     listing_key: str | None = None
     all_of: list[str] | str | None = None
@@ -25,7 +25,7 @@ class WatchIn(BaseModel):
 class WatchPatch(BaseModel):
     name: str | None = None
     enabled: bool | None = None
-    mode: str | None = None
+    mode: Literal["condition", "sku"] | None = None
     sku: str | None = None
     listing_key: str | None = None
     all_of: list[str] | str | None = None
@@ -48,13 +48,13 @@ class NotifyTestIn(BaseModel):
 
 
 class SettingsPatch(BaseModel):
-    interval_seconds: int | None = None
+    interval_seconds: int | None = Field(default=None, ge=60)
     bind_host: str | None = None
-    bind_port: int | None = None
+    bind_port: int | None = Field(default=None, ge=1, le=65535)
     lan_enabled: bool | None = None
     access_token: str | None = None
     listings: list[str] | None = None
-    detail_delay_seconds: float | None = None
+    detail_delay_seconds: float | None = Field(default=None, ge=0)
     close_window_keeps_daemon: bool | None = None
     listen_enabled: bool | None = None
     allowed_hosts: list[str] | str | None = None

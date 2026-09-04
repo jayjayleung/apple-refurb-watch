@@ -8,7 +8,7 @@ from apple_refurb_watch.fetch import fetch_html
 from apple_refurb_watch.filters import live_catalog_path, load_catalog, sync_filter_catalog, user_catalog_path
 from apple_refurb_watch.listing import listing_filters
 from apple_refurb_watch.notify import NotifyError, send_test
-from apple_refurb_watch.settings import public_settings
+from apple_refurb_watch.settings import SettingsValueError, public_settings
 from apple_refurb_watch.usecases import health_payload, list_shop, patch_settings, public_settings_view, public_status
 from apple_refurb_watch.web.schemas import AutostartPatch, NotifyTestIn, SettingsPatch, WatchIn, WatchPatch
 
@@ -202,7 +202,10 @@ def api_settings(request: Request) -> dict:
 def api_patch_settings(request: Request, payload: SettingsPatch) -> dict:
     database = request.app.state.db
     patch = payload.model_dump(exclude_unset=True)
-    updated = patch_settings(database, patch)
+    try:
+        updated = patch_settings(database, patch)
+    except SettingsValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     if "interval_seconds" in patch or "listen_enabled" in patch:
         request.app.state.reschedule()
     return public_settings(updated)
@@ -229,13 +232,22 @@ async def api_notify_test(request: Request) -> dict:
     if content_type.startswith("application/json"):
         try:
             body = await request.json()
-        except Exception:
-            body = None
+        except Exception as exc:
+            raise HTTPException(400, "JSON 无法解析") from exc
         if isinstance(body, dict):
-            channel = body.get("channel")
-        elif body is not None:
-            payload = NotifyTestIn.model_validate(body)
+            try:
+                payload = NotifyTestIn.model_validate(body)
+            except Exception as exc:
+                raise HTTPException(400, "请求体无效") from exc
             channel = payload.channel
+        elif body is not None:
+            raise HTTPException(400, "请求体必须是对象")
+    elif content_type.startswith("multipart/") or content_type.startswith("application/x-www-form-urlencoded"):
+        try:
+            form = await request.form()
+        except Exception as exc:
+            raise HTTPException(400, "表单无法解析") from exc
+        channel = form.get("channel")
     channel = channel or request.query_params.get("channel")
 
     def work():

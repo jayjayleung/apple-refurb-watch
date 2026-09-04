@@ -278,3 +278,13 @@ def test_clearing_token_while_bound_remotely_is_conflict(tmp_path) -> None:
         assert page.status_code == 200
         assert "先关闭远程访问" in page.text
         assert "确定清除访问口令" in page.text
+
+
+def test_bearer_beats_invalid_cookie_and_is_case_insensitive(tmp_path) -> None:
+    _db, app = _remote_client(tmp_path)
+    with TestClient(app) as client:
+        client.cookies.set("arw_token", "not-a-valid-session")
+        assert client.get("/api/status", headers={"Authorization": "bearer secret"}).status_code == 200
+        assert client.get("/api/status", headers={"Authorization": "BEARER secret"}).status_code == 200
+        assert client.get("/api/status", headers={"X-Token": "secret"}).status_code == 200
+        assert client.get("/api/status").status_code == 401

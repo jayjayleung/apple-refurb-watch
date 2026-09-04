@@ -7,7 +7,7 @@ from starlette.concurrency import run_in_threadpool
 from apple_refurb_watch.fetch import fetch_html
 from apple_refurb_watch.filters import sync_filter_catalog
 from apple_refurb_watch.notify import CHANNELS, NotifyError, send_test
-from apple_refurb_watch.settings import is_loopback_bind
+from apple_refurb_watch.settings import SettingsValueError, is_loopback_bind
 from apple_refurb_watch.web.settings_public import form_settings, overlay_notify_from_form, safe_next
 
 router = APIRouter()
@@ -48,7 +48,19 @@ async def settings_save(request: Request) -> Response:
             return page
         database = request.app.state.db
         before = database.settings()
-        patch = form_settings(payload, before)
+        try:
+            patch = form_settings(payload, before)
+        except SettingsValueError as exc:
+            page = request.app.state.render(
+                "settings.html",
+                request,
+                flash="settings-invalid",
+                flash_detail=str(exc),
+                channel=None,
+                revealed_token=None,
+            )
+            page.status_code = 400
+            return page
         updated = database.update_settings(patch)
         if "interval_seconds" in patch or "listen_enabled" in patch:
             request.app.state.reschedule()
@@ -125,7 +137,7 @@ async def settings_scan(request: Request) -> RedirectResponse:
 
 
 @router.post("/settings/notify-test")
-async def settings_notify_test(request: Request) -> RedirectResponse:
+async def settings_notify_test(request: Request) -> Response:
     form = await request.form()
     payload = {key: form.get(key) for key in form.keys()}
     channel = _safe_channel(str(payload.get("channel") or ""))
@@ -138,5 +150,16 @@ async def settings_notify_test(request: Request) -> RedirectResponse:
     try:
         await run_in_threadpool(work)
         return RedirectResponse(f"/settings?flash=notify-ok{suffix}", status_code=303)
+    except SettingsValueError as exc:
+        page = request.app.state.render(
+            "settings.html",
+            request,
+            flash="settings-invalid",
+            flash_detail=str(exc),
+            channel=channel,
+            revealed_token=None,
+        )
+        page.status_code = 400
+        return page
     except NotifyError:
         return RedirectResponse(f"/settings?flash=notify-fail{suffix}", status_code=303)

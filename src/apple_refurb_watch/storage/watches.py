@@ -75,7 +75,7 @@ class WatchRepository:
         current = self.get(watch_id)
         if not current:
             return None
-        current.update({key: value for key, value in data.items() if value is not None or key in data})
+        current.update(data)
         payload = self._payload(current)
         with self.store.transaction() as conn:
             conn.execute(
@@ -203,7 +203,7 @@ class WatchRepository:
         if isinstance(nested, dict) and nested:
             folded = ProductQuery.from_mapping(nested).to_watch_fields()
             merged = dict(folded)
-            merged.update({key: value for key, value in data.items() if key != "query" and value is not None})
+            merged.update({key: value for key, value in data.items() if key != "query"})
             data = merged
         return {
             "name": str(data.get("name") or "未命名规则").strip(),

@@ -1,5 +1,6 @@
+import pytest
 from apple_refurb_watch.db import DEFAULT_NOTIFY, DEFAULT_SETTINGS
-from apple_refurb_watch.settings import notify_channel_ready, notify_channel_status, public_settings
+from apple_refurb_watch.settings import SettingsValueError, notify_channel_ready, notify_channel_status, public_settings
 from apple_refurb_watch.web.settings_public import form_settings, overlay_notify_from_form
 
 
@@ -125,3 +126,23 @@ def test_normalize_allowed_hosts_strips_scheme_port_and_ips() -> None:
         _current(),
     )
     assert patch["allowed_hosts"] == ["watch.example.com", "mypc.local"]
+
+
+def test_form_and_normalize_reject_out_of_range_numbers() -> None:
+    from apple_refurb_watch.settings import normalize_settings_patch
+
+    current = _current()
+    with pytest.raises(SettingsValueError, match="60"):
+        form_settings({"interval_seconds": "-5"}, current)
+    with pytest.raises(SettingsValueError, match="1–65535"):
+        form_settings({"bind_port": "70000"}, current)
+    with pytest.raises(SettingsValueError, match="整数"):
+        form_settings({"interval_seconds": "abc"}, current)
+    with pytest.raises(SettingsValueError, match="SMTP"):
+        form_settings({"save_notify": "1", "notify_email_smtp_port": "0"}, current)
+    with pytest.raises(SettingsValueError, match="60"):
+        normalize_settings_patch({"interval_seconds": 59}, current)
+    with pytest.raises(SettingsValueError, match="服务端口"):
+        normalize_settings_patch({"bind_port": 70000}, current)
+    with pytest.raises(SettingsValueError, match="详情延迟"):
+        normalize_settings_patch({"detail_delay_seconds": -1}, current)

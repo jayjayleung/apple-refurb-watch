@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import ipaddress
@@ -8,6 +9,7 @@ from urllib.parse import urlparse
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import MutableHeaders
 
 from apple_refurb_watch.db import Database
@@ -102,6 +104,19 @@ def needs_auth(request: Request, settings: dict) -> bool:
     return listener_requires_auth(settings)
 
 
+def provided_credential(request: Request) -> str:
+    auth = request.headers.get("Authorization") or ""
+    scheme, sep, rest = auth.partition(" ")
+    if sep and scheme.lower() == "bearer":
+        bearer = rest.strip()
+        if bearer:
+            return bearer
+    xtoken = (request.headers.get("X-Token") or "").strip()
+    if xtoken:
+        return xtoken
+    return (request.cookies.get(SESSION_COOKIE) or "").strip()
+
+
 def login_redirect(request: Request) -> Response:
     if request.headers.get("HX-Request"):
         return HTMLResponse("", status_code=204, headers={"HX-Redirect": "/login"})
@@ -139,17 +154,16 @@ class AuthMiddleware:
         self._access_token = ""
         self._requires_auth = False
         self._allowed_hosts: list[str] = []
+        self._refresh_lock = asyncio.Lock()
 
-    def _auth_state(self) -> tuple[str, bool, dict]:
-        version = int(self.db.settings_version)
-        if version != self._cache_version:
-            settings = self.db.settings()
-            if self.bound_host is not None:
-                settings = {**settings, "bind_host": self.bound_host}
-            self._access_token = str(settings.get("access_token") or "")
-            self._requires_auth = listener_requires_auth(settings)
-            self._allowed_hosts = list(settings.get("allowed_hosts") or [])
-            self._cache_version = version
+    def _apply_settings(self, settings: dict) -> None:
+        if self.bound_host is not None:
+            settings = {**settings, "bind_host": self.bound_host}
+        self._access_token = str(settings.get("access_token") or "")
+        self._requires_auth = listener_requires_auth(settings)
+        self._allowed_hosts = list(settings.get("allowed_hosts") or [])
+
+    def _cached_state(self) -> tuple[str, bool, dict]:
         cached = {
             "allowed_hosts": self._allowed_hosts,
             "bind_host": self.bound_host,
@@ -157,20 +171,38 @@ class AuthMiddleware:
         }
         return self._access_token, self._requires_auth, cached
 
+    async def _auth_state(self) -> tuple[str, bool, dict]:
+        version = int(self.db.settings_version)
+        if version == self._cache_version:
+            return self._cached_state()
+        async with self._refresh_lock:
+            version = int(self.db.settings_version)
+            if version != self._cache_version:
+                settings = await run_in_threadpool(self.db.settings)
+                self._apply_settings(settings)
+                self._cache_version = version
+        return self._cached_state()
+
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
         request = Request(scope)
-        blocked = self._reject(request)
+        token, requires_auth, settings = await self._auth_state()
+        blocked = self._reject(request, token, requires_auth, settings)
         if blocked is not None:
             await blocked(scope, receive, send)
             return
         await self.app(scope, receive, send)
 
-    def _reject(self, request: Request) -> Response | None:
+    def _reject(
+        self,
+        request: Request,
+        token: str,
+        requires_auth: bool,
+        settings: dict,
+    ) -> Response | None:
         path = request.url.path
-        token, requires_auth, settings = self._auth_state()
         if request.method not in {"GET", "HEAD", "OPTIONS"} and not origin_ok(request, settings):
             if path.startswith("/api/"):
                 return JSONResponse({"detail": "拒绝跨站请求"}, status_code=403)
@@ -183,11 +215,7 @@ class AuthMiddleware:
             return HTMLResponse("<p>拒绝跨站请求</p>", status_code=403)
         if not requires_auth:
             return None
-        provided = (
-            request.cookies.get(SESSION_COOKIE)
-            or request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-            or request.headers.get("X-Token", "")
-        )
+        provided = provided_credential(request)
         if token and token_ok(provided, token):
             return None
         if path.startswith("/api/"):
